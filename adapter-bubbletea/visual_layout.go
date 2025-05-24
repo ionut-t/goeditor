@@ -1,0 +1,422 @@
+package bubble_adapter
+
+import (
+	"strconv"
+	"strings"
+	"unicode"
+
+	"github.com/charmbracelet/lipgloss"
+	editor "github.com/ionut-t/goeditor/core"
+)
+
+type VisualLineInfo struct {
+	Content         string
+	LogicalRow      int
+	LogicalStartCol int
+	IsFirstSegment  bool
+}
+
+// calculateVisualMetrics computes the full visual layout and cursor's position within it.
+func (m *Model) calculateVisualMetrics() {
+	buffer := m.editor.GetBuffer()
+	state := m.editor.GetState()
+	cursor := buffer.GetCursor()
+	allLogicalLines := buffer.GetLines()
+
+	// --- Calculate Layout Widths ---
+	lineNumWidth := 0
+	if m.showLineNumbers {
+		maxLineNum := len(allLogicalLines)
+		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
+		if state.RelativeNumbers && !m.disableVimMode {
+			relWidth := len(strconv.Itoa(max(1, m.viewport.Height))) // viewport.Height used for approximation
+			maxWidth = max(maxWidth, relWidth)
+		}
+		lineNumWidth = max(4, maxWidth) + 1
+		lineNumWidth = min(lineNumWidth, 10)
+	}
+
+	availableWidth := m.viewport.Width - lineNumWidth
+	if availableWidth <= 0 {
+		availableWidth = 1
+	}
+
+	if state.AvailableWidth != availableWidth {
+		newState := m.editor.GetState()
+		newState.AvailableWidth = availableWidth
+		m.editor.SetState(newState)
+	}
+
+	// ========================================================================
+	// >>> 1. PRECOMPUTE FULL VISUAL LAYOUT <<<
+	// ========================================================================
+	visualLayout := make([]VisualLineInfo, 0)
+	for bufferRowIdx, logicalLineContent := range allLogicalLines {
+		originalLineRunes := []rune(logicalLineContent)
+		originalLineLen := len(originalLineRunes)
+		currentLogicalColToReport := 0
+
+		if originalLineLen == 0 && logicalLineContent == "" {
+			visualLayout = append(visualLayout, VisualLineInfo{
+				Content:         "",
+				LogicalRow:      bufferRowIdx,
+				LogicalStartCol: 0,
+				IsFirstSegment:  true,
+			})
+			continue
+		}
+
+		wrappedSegmentStrings := wrapLine(logicalLineContent, availableWidth)
+
+		for segIdx, segmentStr := range wrappedSegmentStrings {
+			segmentRunes := []rune(segmentStr)
+			segmentRunesLen := len(segmentRunes)
+
+			info := VisualLineInfo{
+				Content:         segmentStr,
+				LogicalRow:      bufferRowIdx,
+				LogicalStartCol: currentLogicalColToReport,
+				IsFirstSegment:  segIdx == 0,
+			}
+			visualLayout = append(visualLayout, info)
+
+			currentLogicalColToReport += segmentRunesLen
+			if segIdx < len(wrappedSegmentStrings)-1 {
+				for currentLogicalColToReport < originalLineLen && unicode.IsSpace(originalLineRunes[currentLogicalColToReport]) {
+					currentLogicalColToReport++
+				}
+			}
+		}
+	}
+	m.visualLayoutCache = visualLayout
+	m.fullVisualLayoutHeight = len(visualLayout)
+
+	// ========================================================================
+	// >>> 2. Find Cursor's Absolute Visual Row and Clamped Logical Column <<<
+	// ========================================================================
+	absoluteTargetVisualRow := -1
+	m.clampedCursorLogicalCol = cursor.Position.Col
+
+	clampedCursorRow := cursor.Position.Row
+	if clampedCursorRow < 0 {
+		clampedCursorRow = 0
+	} else if clampedCursorRow >= len(allLogicalLines) && len(allLogicalLines) > 0 {
+		clampedCursorRow = len(allLogicalLines) - 1
+	} else if len(allLogicalLines) == 0 {
+		clampedCursorRow = 0
+	}
+
+	if clampedCursorRow >= 0 && clampedCursorRow < len(allLogicalLines) {
+		lineContentRunes := []rune(allLogicalLines[clampedCursorRow])
+		m.clampedCursorLogicalCol = max(0, min(cursor.Position.Col, len(lineContentRunes)))
+	} else {
+		m.clampedCursorLogicalCol = 0
+	}
+
+	if m.fullVisualLayoutHeight == 0 {
+		absoluteTargetVisualRow = 0
+	} else {
+		for absVisRowIdx, vli := range m.visualLayoutCache {
+			if vli.LogicalRow == clampedCursorRow {
+				segmentRuneLen := len([]rune(vli.Content))
+				if m.clampedCursorLogicalCol >= vli.LogicalStartCol {
+					if (segmentRuneLen > 0 && m.clampedCursorLogicalCol <= vli.LogicalStartCol+segmentRuneLen) ||
+						(segmentRuneLen == 0 && m.clampedCursorLogicalCol == vli.LogicalStartCol) {
+						absoluteTargetVisualRow = absVisRowIdx
+						break
+					}
+				}
+			}
+		}
+
+		if absoluteTargetVisualRow == -1 {
+			foundFirstSegment := false
+			for absVisRowIdx, vli := range m.visualLayoutCache { // Use cached layout
+				if vli.LogicalRow == clampedCursorRow && vli.IsFirstSegment {
+					if m.clampedCursorLogicalCol == vli.LogicalStartCol {
+						absoluteTargetVisualRow = absVisRowIdx
+						foundFirstSegment = true
+						break
+					}
+					if !foundFirstSegment {
+						absoluteTargetVisualRow = absVisRowIdx
+						foundFirstSegment = true
+					}
+				}
+			}
+			if !foundFirstSegment {
+				if clampedCursorRow == 0 {
+					absoluteTargetVisualRow = 0
+				} else if m.fullVisualLayoutHeight > 0 {
+					absoluteTargetVisualRow = m.fullVisualLayoutHeight - 1
+				} else {
+					absoluteTargetVisualRow = 0
+				}
+			}
+		}
+	}
+
+	if m.fullVisualLayoutHeight > 0 {
+		absoluteTargetVisualRow = max(0, min(absoluteTargetVisualRow, m.fullVisualLayoutHeight-1))
+	} else {
+		absoluteTargetVisualRow = 0
+	}
+	m.cursorAbsoluteVisualRow = absoluteTargetVisualRow
+}
+
+// renderVisibleSlice renders the calculated slice of the visual layout to the viewport.
+func (m *Model) renderVisibleSlice() {
+	state := m.editor.GetState()
+	allLogicalLines := m.editor.GetBuffer().GetLines()
+
+	selectionStyle := m.theme.SelectionStyle
+	if m.yanked {
+		selectionStyle = m.theme.HighlighYankStyle
+	}
+
+	lineNumWidth := 0
+	if m.showLineNumbers {
+		maxLineNum := len(allLogicalLines)
+		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
+		if state.RelativeNumbers && !m.disableVimMode {
+			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
+			maxWidth = max(maxWidth, relWidth)
+		}
+		lineNumWidth = max(4, maxWidth) + 1
+		lineNumWidth = min(lineNumWidth, 10)
+	}
+
+	// ========================================================================
+	// >>> Build Content String for the *Visible Slice* of the Viewport <<<
+	// ========================================================================
+	var contentBuilder strings.Builder
+	renderedDisplayLineCount := 0
+
+	startRenderVisualRow := m.currentVisualTopLine
+	if m.fullVisualLayoutHeight == 0 {
+		startRenderVisualRow = 0
+	} else {
+		if startRenderVisualRow < 0 {
+			startRenderVisualRow = 0
+		}
+		maxTop := max(m.fullVisualLayoutHeight-m.viewport.Height, 0)
+		if startRenderVisualRow > maxTop {
+			startRenderVisualRow = maxTop
+		}
+	}
+
+	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height, m.fullVisualLayoutHeight)
+
+	targetVisualRowInSlice := -1
+	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {
+		targetVisualRowInSlice = m.cursorAbsoluteVisualRow - startRenderVisualRow
+	}
+
+	targetScreenColForCursor := -1
+	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
+		if len(m.visualLayoutCache) > m.cursorAbsoluteVisualRow {
+			vliAtCursor := m.visualLayoutCache[m.cursorAbsoluteVisualRow]
+			visualColInSegment := max(m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol, 0)
+			targetScreenColForCursor = lineNumWidth + visualColInSegment
+		} else if m.fullVisualLayoutHeight > 0 {
+			targetScreenColForCursor = lineNumWidth
+		}
+	} else if m.fullVisualLayoutHeight == 0 {
+		targetScreenColForCursor = lineNumWidth
+	}
+
+	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
+		if absVisRowIdxToRender < 0 || absVisRowIdxToRender >= len(m.visualLayoutCache) {
+			break
+		}
+		vli := m.visualLayoutCache[absVisRowIdxToRender]
+		currentSliceRow := renderedDisplayLineCount
+
+		// Get the cursor's original logical row for line number highlighting
+		clampedCursorRow := max(m.editor.GetBuffer().GetCursor().Position.Row, 0)
+		if len(allLogicalLines) > 0 && clampedCursorRow >= len(allLogicalLines) {
+			clampedCursorRow = len(allLogicalLines) - 1
+		}
+
+		if len(allLogicalLines) == 0 {
+			clampedCursorRow = 0
+		}
+
+		if m.showLineNumbers {
+			lineNumStr := ""
+			currentLineNumberStyle := m.theme.LineNumberStyle
+			if vli.IsFirstSegment {
+				if state.RelativeNumbers && !m.disableVimMode && vli.LogicalRow != clampedCursorRow {
+					relNum := vli.LogicalRow - clampedCursorRow
+					if relNum < 0 {
+						relNum = -relNum
+					}
+					lineNumStr = strconv.Itoa(relNum)
+				} else {
+					lineNumStr = strconv.Itoa(vli.LogicalRow + 1)
+				}
+				if vli.LogicalRow == clampedCursorRow {
+					currentLineNumberStyle = m.theme.CurrentLineNumberStyle
+				}
+			}
+			contentBuilder.WriteString(currentLineNumberStyle.Width(lineNumWidth-1).Render(lineNumStr) + " ")
+		}
+
+		segmentRunes := []rune(vli.Content)
+		styledSegment := strings.Builder{}
+
+		for charIdx, chRune := range segmentRunes {
+			bufferCol := vli.LogicalStartCol + charIdx
+			bufferPos := editor.Position{Row: vli.LogicalRow, Col: bufferCol}
+			selectionStatus := m.editor.GetSelectionStatus(bufferPos)
+			charStyle := lipgloss.NewStyle()
+			if selectionStatus != editor.SelectionNone {
+				charStyle = selectionStyle
+			}
+
+			currentScreenColForChar := lineNumWidth + charIdx
+			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+			if isCursorOnChar {
+				cursorModeStyle := m.theme.NormalModeStyle
+				switch state.Mode {
+				case editor.InsertMode:
+					cursorModeStyle = m.theme.InsertModeStyle
+				case editor.VisualMode, editor.VisualLineMode:
+					cursorModeStyle = m.theme.VisualModeStyle
+				case editor.CommandMode:
+					cursorModeStyle = m.theme.CommandModeStyle
+				}
+				styledSegment.WriteString(charStyle.Render(cursorModeStyle.Render(string(chRune))))
+			} else {
+				styledSegment.WriteString(charStyle.Render(string(chRune)))
+			}
+		}
+		contentBuilder.WriteString(styledSegment.String())
+
+		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+len(segmentRunes)) == targetScreenColForCursor)
+		isCursorAtLogicalEndOfLineAndThisIsLastSegment := false
+		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRow {
+			logicalLineLen := 0
+			if vli.LogicalRow >= 0 && vli.LogicalRow < len(allLogicalLines) {
+				logicalLineLen = len([]rune(allLogicalLines[vli.LogicalRow]))
+			}
+
+			if m.clampedCursorLogicalCol == logicalLineLen && (vli.LogicalStartCol+len(segmentRunes) == logicalLineLen) {
+				isCursorAtLogicalEndOfLineAndThisIsLastSegment = true
+			}
+		}
+
+		if isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment {
+			cursorModeStyle := m.theme.NormalModeStyle
+			switch state.Mode {
+			case editor.InsertMode:
+				cursorModeStyle = m.theme.InsertModeStyle
+			case editor.VisualMode, editor.VisualLineMode:
+				cursorModeStyle = m.theme.VisualModeStyle
+			case editor.CommandMode:
+				cursorModeStyle = m.theme.CommandModeStyle
+			}
+
+			cursorSelectionStatus := m.editor.GetSelectionStatus(editor.Position{Row: clampedCursorRow, Col: m.clampedCursorLogicalCol})
+			baseStyle := lipgloss.NewStyle()
+			if cursorSelectionStatus != editor.SelectionNone {
+				baseStyle = selectionStyle
+			}
+			contentBuilder.WriteString(baseStyle.Render(cursorModeStyle.Render(" ")))
+		}
+		contentBuilder.WriteString("\n")
+		renderedDisplayLineCount++
+	}
+
+	for renderedDisplayLineCount < m.viewport.Height {
+		tildeStyle := m.theme.LineNumberStyle
+		if m.showLineNumbers && m.showTildeIndicator {
+			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
+		}
+		contentBuilder.WriteString("\n")
+		renderedDisplayLineCount++
+	}
+
+	finalContentSlice := strings.TrimSuffix(contentBuilder.String(), "\n")
+	m.viewport.SetContent(finalContentSlice)
+}
+
+// updateVisualTopLine adjusts the current visual top line based on the cursor's position.
+// It ensures that the cursor is always visible within the viewport.
+// If the cursor is above the current top line, it moves the top line up.
+// If the cursor is below the current top line, it moves the top line down.
+func (m *Model) updateVisualTopLine() {
+	if m.fullVisualLayoutHeight > 0 {
+		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
+			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
+		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
+			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
+		}
+
+		maxPossibleTopLine := 0
+		if m.fullVisualLayoutHeight > m.viewport.Height {
+			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height
+		}
+		if m.currentVisualTopLine > maxPossibleTopLine {
+			m.currentVisualTopLine = maxPossibleTopLine
+		}
+		if m.currentVisualTopLine < 0 {
+			m.currentVisualTopLine = 0
+		}
+	} else {
+		m.currentVisualTopLine = 0
+	}
+
+	m.viewport.YOffset = 0
+}
+
+// wrapLine function wraps a single line of text to fit within the specified width.
+func wrapLine(line string, width int) []string {
+	if width <= 0 {
+		if line == "" {
+			return []string{""}
+		}
+		return []string{line}
+	}
+	if line == "" {
+		return []string{""}
+	}
+
+	var wrappedLines []string
+	runes := []rune(line)
+	lineLen := len(runes)
+	start := 0
+
+	for start < lineLen {
+		if start+width >= lineLen {
+			wrappedLines = append(wrappedLines, string(runes[start:]))
+			break
+		}
+		end := min(start+width, lineLen)
+		lastSpace := -1
+		for i := end - 1; i >= start; i-- {
+			if unicode.IsSpace(runes[i]) {
+				lastSpace = i
+				break
+			}
+		}
+		if lastSpace >= start {
+			wrappedLines = append(wrappedLines, string(runes[start:lastSpace]))
+			start = lastSpace + 1
+			for start < lineLen && unicode.IsSpace(runes[start]) {
+				start++
+			}
+		} else {
+			wrappedLines = append(wrappedLines, string(runes[start:end]))
+			start = end
+		}
+	}
+	if len(wrappedLines) == 0 && lineLen > 0 {
+		return []string{line}
+	}
+	if len(wrappedLines) == 0 {
+		return []string{""}
+	}
+	return wrappedLines
+}

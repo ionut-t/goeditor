@@ -44,19 +44,25 @@ var DefaultTheme = Theme{
 }
 
 type Model struct {
-	editor          editor.Editor
-	viewport        viewport.Model
-	width           int
-	height          int
-	showLineNumbers bool
-	showStatusLine  bool
-	theme           Theme
-	StatusLineFunc  func() string
-	err             error
-	message         string
-	yanked          bool
-	disableVimMode  bool
-	showMessages    bool
+	editor                  editor.Editor
+	viewport                viewport.Model
+	width                   int
+	height                  int
+	showLineNumbers         bool
+	showTildeIndicator      bool
+	showStatusLine          bool
+	theme                   Theme
+	StatusLineFunc          func() string
+	err                     error
+	message                 string
+	yanked                  bool
+	disableVimMode          bool
+	showMessages            bool
+	fullVisualLayoutHeight  int              // Total number of visual lines in the entire buffer
+	cursorAbsoluteVisualRow int              // Cursor's current row index in the full visual layout
+	currentVisualTopLine    int              // Top line of the current visual slice
+	visualLayoutCache       []VisualLineInfo // Cache of visual line information for the current slice
+	clampedCursorLogicalCol int              // Clamped cursor column in the current visual slice
 }
 
 type messageMsg string
@@ -101,7 +107,7 @@ func New(width, height int) Model {
 	editor := editor.New(&atottoClipboard{})
 	vp := viewport.New(width, height-2)
 
-	model := Model{
+	m := Model{
 		editor:          editor,
 		viewport:        vp,
 		showLineNumbers: true,
@@ -109,22 +115,19 @@ func New(width, height int) Model {
 		theme:           DefaultTheme,
 	}
 
-	model.SetSize(width, height)
+	m.SetSize(width, height)
 
-	return model
+	return m
 }
 
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.viewport.Width = width
-	m.viewport.Height = height - 2 // Adjust for status and command lines
+	m.viewport.Height = height - 2
 
-	// Calculate available width (like in updateViewport)
 	lineNumWidth := 0
 	if m.showLineNumbers {
-		// ... (calculate lineNumWidth based on max lines / relative setting) ...
-		// Example simplified calculation:
 		maxLineNum := m.editor.GetBuffer().LineCount()
 		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
 		lineNumWidth = max(4, maxWidth) + 1
@@ -135,29 +138,54 @@ func (m *Model) SetSize(width, height int) {
 		availableWidth = 1
 	}
 
-	// Update editor state
 	state := m.editor.GetState()
 	state.ViewportWidth = m.viewport.Width
 	state.AvailableWidth = availableWidth
 	state.ViewportHeight = height - 2
 	m.editor.SetState(state)
 
-	m.updateViewport()
+	if m.fullVisualLayoutHeight > 0 {
+		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
+			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
+		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
+			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
+		}
+
+		maxPossibleTopLine := 0
+		if m.fullVisualLayoutHeight > m.viewport.Height {
+			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height
+		}
+		if m.currentVisualTopLine > maxPossibleTopLine {
+			m.currentVisualTopLine = maxPossibleTopLine
+		}
+		if m.currentVisualTopLine < 0 {
+			m.currentVisualTopLine = 0
+		}
+	} else {
+		m.currentVisualTopLine = 0
+	}
+
+	m.viewport.YOffset = 0
 }
 
+// SetContent sets the content of the editor
 func (m *Model) SetContent(content []byte) {
 	m.editor.SetContent(content)
-	m.updateViewport()
 }
 
+// WithTheme allows setting a custom theme for the editor
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 }
 
+// HideLineNumbers controls whether to show line numbers in the viewport
 func (m *Model) HideLineNumbers(hide bool) {
 	m.showLineNumbers = !hide
 }
 
+// ShowLineNumbers controls whether to show relative line numbers in the viewport
+// If Vim mode is disabled, this will not have any effect.
+// If line numbers are hidden, this will not have any effect.
 func (m *Model) ShowRelativeLineNumbers(show bool) {
 	if m.disableVimMode {
 		return
@@ -166,44 +194,64 @@ func (m *Model) ShowRelativeLineNumbers(show bool) {
 	m.editor.ShowRelativeLineNumbers(show)
 }
 
+// ShowTildeIndicator controls whether to show the tilde indicator in the viewport
+// If line numbers are hidden, this will not have any effect.
+func (m *Model) ShowTildeIndicator(show bool) {
+	m.showTildeIndicator = show
+}
+
+// HideStatusLine controls whether to show the status line at the bottom of the viewport
+// If Vim mode is disabled, this will not have any effect.
 func (m *Model) HideStatusLine(hide bool) {
 	m.showStatusLine = !hide
 }
 
+// ShowMessages controls whether to show messages in the command line
+// This is useful for displaying messages like "1 line yanked" or "File saved successfully".
+// If Vim mode is disabled, this will not have any effect.
+// If set to false, messages will not be displayed in the command line.
+// Instead, they will be handled internally and not shown to the user.
 func (m *Model) ShowMessages(show bool) {
 	m.showMessages = show
 }
 
+// GetSavedContent returns the saved content of the editor buffer
+// This content is what was last saved to disk, and may not reflect the current state of the editor.
+// It is useful for operations that require the last saved state, such as saving to a file.
 func (m *Model) GetSavedContent() string {
 	return m.editor.GetBuffer().GetSavedContent()
 }
 
+// GetCurrentContent returns the current content of the editor buffer
+// This content may not be saved yet, as it reflects the current state of the editor.
 func (m *Model) GetCurrentContent() string {
 	return m.editor.GetBuffer().GetCurrentContent()
 }
 
+// HasChanges checks if the editor has unsaved changes
 func (m *Model) HasChanges() bool {
 	return m.editor.GetBuffer().IsModified()
 }
 
+// GetEditor returns the underlying editor instance
 func (m *Model) GetEditor() editor.Editor {
 	return m.editor
 }
 
+// DisableVimMode allows disabling Vim mode in the editor
+// This will disable all Vim-specific features and revert to a simpler text editor mode.
+// If Vim mode is disabled, the editor will not respond to Vim keybindings.
 func (m *Model) DisableVimMode(disable bool) {
 	m.disableVimMode = disable
 	m.editor.DisableVimMode(disable)
 }
 
-// Init initializes the Bubbletea application
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
 
-// Update processes messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
-		cmd  tea.Cmd
 		cmds []tea.Cmd
 	)
 
@@ -213,74 +261,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		// Handle key message by converting to editor.Key
-		key := convertBubbleKey(msg)
-
-		// Process the key in the editor
-		err := m.editor.HandleKey(key)
+		keyEvent := convertBubbleKey(msg)
+		err := m.editor.HandleKey(keyEvent)
 		if err != nil {
-			return m, func() tea.Msg {
+			cmds = append(cmds, func() tea.Msg {
 				return errMsg(err)
-			}
+			})
 		}
 
-		// Update viewport content
-		m.updateViewport()
+		m.editor.ScrollViewport()
 
-		// Check if editor requested to quit
-		if m.editor.GetState().Quit {
-			// return m, tea.Quit
-		}
+		m.calculateVisualMetrics()
 
-	case tea.WindowSizeMsg:
-		// // Handle window resize
-		// m.width = msg.Width
-		// m.height = msg.Height
-
-		// // Resize viewport while leaving room for status/command lines
-		// m.viewport.Width = msg.Width
-		// m.viewport.Height = msg.Height - 2 // Save space for status and command lines
-
-		// // Update editor's viewport size too
-		// state := m.editor.GetState()
-		// state.ViewportWidth = msg.Width
-		// state.ViewportHeight = msg.Height - 2
-		// m.editor.SetState(state)
-
-		// // Update viewport content
-		// m.updateViewport()
+		m.updateVisualTopLine()
 
 	case messageMsg:
-		// The editor signaled that its state (e.g., cleared message) changed.
-		// We just need to ensure the UI redraws with the latest state.
 		m.message = string(msg)
 		m.err = nil
-		m.updateViewport()
+		cmds = append(cmds, m.dispatchClearMsg())
 
-		return m, m.dispatchClearMsg()
+	case errMsg:
+		m.message = ""
+		m.err = msg
+		cmds = append(cmds, m.dispatchClearMsg())
 
 	case yankMsg:
 		if m.showMessages {
 			m.message = msg.message
 		}
-
 		m.err = nil
 		m.yanked = true
-		m.updateViewport()
-
-		return m, tea.Batch(
-			m.dispatchClearMsg(),
-			m.dispatchClearYankMsg(),
-		)
-
-	case errMsg:
-		// The editor signaled that its state (e.g., cleared message) changed.
-		// We just need to ensure the UI redraws with the latest state.
-		m.message = ""
-		m.err = msg
-		m.updateViewport()
-
-		return m, m.dispatchClearMsg()
+		cmds = append(cmds, m.dispatchClearMsg(), m.dispatchClearYankMsg())
 
 	case clearMsg:
 		m.message = ""
@@ -289,16 +300,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearYankMsg:
 		m.yanked = false
 		m.editor.SetNormalMode()
-		m.updateViewport()
 
+	case QuitMsg:
+		return m, tea.Quit
 	}
 
 	cmds = append(cmds, m.listenForEditorUpdate())
 
-	// Handle viewport updates
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+	var viewportCmd tea.Cmd
+	m.viewport, viewportCmd = m.viewport.Update(msg)
 
+	cmds = append(cmds, viewportCmd)
+
+	m.calculateVisualMetrics()
+	m.renderVisibleSlice()
 	return m, tea.Batch(cmds...)
 }
 
@@ -389,7 +404,7 @@ func (m *Model) getStatusLine() string {
 
 func (m *Model) listenForEditorUpdate() tea.Cmd {
 	return func() tea.Msg {
-		editorChan := m.editor.GetUpdateSignalChan() // Get the channel via interface method
+		editorChan := m.editor.GetUpdateSignalChan()
 		// Block here waiting for a signal from the editor's Goroutine
 		signal := <-editorChan
 
