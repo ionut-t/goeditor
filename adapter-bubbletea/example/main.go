@@ -60,15 +60,8 @@ func main() {
 	textEditor.ShowMessages(true)
 	textEditor.Focus()
 
-	highlightedWords := map[string]lipgloss.Style{
-		"TODO":  lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true),
-		"FIXME": lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
-	}
-
-	textEditor.SetHighlightedWords(highlightedWords)
-
 	if content, err := os.ReadFile("test.md"); err == nil {
-		textEditor.SetContent(content)
+		textEditor.SetBytes(content)
 	}
 
 	m := Model{

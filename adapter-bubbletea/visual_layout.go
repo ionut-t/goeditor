@@ -29,7 +29,7 @@ func (m *Model) calculateVisualMetrics() {
 		maxLineNum := len(allLogicalLines)
 		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
 		if state.RelativeNumbers && !m.disableVimMode {
-			relWidth := len(strconv.Itoa(max(1, m.viewport.Height))) // viewport.Height used for approximation
+			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
 			maxWidth = max(maxWidth, relWidth)
 		}
 		lineNumWidth = max(4, maxWidth) + 1
@@ -333,16 +333,7 @@ func (m *Model) renderVisibleSlice() {
 					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 					if isCursorOnThisChar && m.isFocused {
-						cursorModeStyle := m.theme.NormalModeStyle
-						switch state.Mode {
-						case editor.InsertMode:
-							cursorModeStyle = m.theme.InsertModeStyle
-						case editor.VisualMode, editor.VisualLineMode:
-							cursorModeStyle = m.theme.VisualModeStyle
-						case editor.CommandMode:
-							cursorModeStyle = m.theme.CommandModeStyle
-						}
-						styledSegment.WriteString(cursorModeStyle.Render(string(chRuneToStyle)))
+						styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
 					} else {
 						styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
 					}
@@ -360,16 +351,7 @@ func (m *Model) renderVisibleSlice() {
 				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 				if isCursorOnChar && m.isFocused {
-					cursorModeStyle := m.theme.NormalModeStyle
-					switch state.Mode {
-					case editor.InsertMode:
-						cursorModeStyle = m.theme.InsertModeStyle
-					case editor.VisualMode, editor.VisualLineMode:
-						cursorModeStyle = m.theme.VisualModeStyle
-					case editor.CommandMode:
-						cursorModeStyle = m.theme.CommandModeStyle
-					}
-					styledSegment.WriteString(cursorModeStyle.Render(string(chRuneToStyle)))
+					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
 				} else {
 					styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
 				}
@@ -392,15 +374,6 @@ func (m *Model) renderVisibleSlice() {
 		}
 
 		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
-			cursorModeStyle := m.theme.NormalModeStyle
-			switch state.Mode {
-			case editor.InsertMode:
-				cursorModeStyle = m.theme.InsertModeStyle
-			case editor.VisualMode, editor.VisualLineMode:
-				cursorModeStyle = m.theme.VisualModeStyle
-			case editor.CommandMode:
-				cursorModeStyle = m.theme.CommandModeStyle
-			}
 			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
 			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
@@ -408,7 +381,7 @@ func (m *Model) renderVisibleSlice() {
 			if cursorBlockSelectionStatus != editor.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
-			contentBuilder.WriteString(baseStyleForCursorBlock.Render(cursorModeStyle.Render(" ")))
+			contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
 		}
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
@@ -425,6 +398,47 @@ func (m *Model) renderVisibleSlice() {
 	}
 
 	finalContentSlice := strings.TrimSuffix(contentBuilder.String(), "\n")
+
+	if m.placeholder != "" && m.IsEmpty() {
+		placeholderRunes := []rune(m.placeholder)
+		styledPlaceholder := strings.Builder{}
+
+		lineNumWidth := 0
+		if m.showLineNumbers {
+			maxLineNum := 1
+			maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
+			state := m.editor.GetState()
+			if state.RelativeNumbers && !m.disableVimMode {
+				relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
+				maxWidth = max(maxWidth, relWidth)
+			}
+			lineNumWidth = max(4, maxWidth) + 1
+			lineNumWidth = min(lineNumWidth, 10)
+			lineNumStr := "1"
+			lineNumStyle := m.theme.LineNumberStyle
+			if m.theme.CurrentLineNumberStyle.String() != "" {
+				lineNumStyle = m.theme.CurrentLineNumberStyle
+			}
+			styledPlaceholder.WriteString(lineNumStyle.Width(lineNumWidth-1).Render(lineNumStr) + " ")
+		}
+
+		cursorRendered := false
+		for i, r := range placeholderRunes {
+			if i == 0 && m.isFocused {
+				styledPlaceholder.WriteString(m.getCursorStyles().Foreground(m.theme.PlaceholderStyle.GetForeground()).Render(string(r)))
+				cursorRendered = true
+			} else {
+				styledPlaceholder.WriteString(m.theme.PlaceholderStyle.Render(string(r)))
+			}
+		}
+		// If placeholder is empty, still render a cursor block
+		if !cursorRendered && m.isFocused {
+			styledPlaceholder.WriteString(m.getCursorStyles().Render(" "))
+		}
+
+		finalContentSlice = styledPlaceholder.String()
+	}
+
 	m.viewport.SetContent(finalContentSlice)
 }
 
@@ -505,4 +519,18 @@ func wrapLine(line string, width int) []string {
 		return []string{""}
 	}
 	return wrappedLines
+}
+
+func (m *Model) getCursorStyles() lipgloss.Style {
+	state := m.editor.GetState()
+	switch state.Mode {
+	case editor.InsertMode:
+		return m.theme.InsertModeStyle
+	case editor.VisualMode, editor.VisualLineMode:
+		return m.theme.VisualModeStyle
+	case editor.CommandMode:
+		return m.theme.CommandModeStyle
+	default:
+		return m.theme.NormalModeStyle
+	}
 }

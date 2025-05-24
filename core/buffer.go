@@ -34,6 +34,7 @@ type Buffer interface {
 	IsModified() bool          // Check if buffer has been modified
 	SaveContent()              // Save content
 	SetContent(content []byte) // Set content (from file or other source)
+	IsEmpty() bool             // Check if buffer is empty
 }
 
 // SearchOptions represents options for search operations
@@ -67,6 +68,10 @@ func NewBufferFromBytes(content []byte) Buffer {
 	b.SetContent(content)
 	b.SaveContent()
 	return &b
+}
+
+func (b *textBuffer) IsEmpty() bool {
+	return len(b.lines) == 1 && len(b.lines[0]) == 0
 }
 
 func (b *textBuffer) SetContent(content []byte) {

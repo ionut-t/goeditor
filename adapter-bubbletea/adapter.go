@@ -26,6 +26,7 @@ type Theme struct {
 	SelectionStyle         lipgloss.Style
 	ErrorStyle             lipgloss.Style
 	HighlighYankStyle      lipgloss.Style
+	PlaceholderStyle       lipgloss.Style
 }
 
 var DefaultTheme = Theme{
@@ -41,6 +42,7 @@ var DefaultTheme = Theme{
 	CurrentLineNumberStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Width(4).Align(lipgloss.Right),
 	SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
 	HighlighYankStyle:      lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
+	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 }
 
 type Model struct {
@@ -65,6 +67,7 @@ type Model struct {
 	clampedCursorLogicalCol int              // Clamped cursor column in the current visual slice
 	highlightedWords        map[string]lipgloss.Style
 	isFocused               bool
+	placeholder             string
 }
 
 type messageMsg string
@@ -171,9 +174,17 @@ func (m *Model) SetSize(width, height int) {
 	m.viewport.YOffset = 0
 }
 
-// SetContent sets the content of the editor.
-func (m *Model) SetContent(content []byte) {
+// SetBytes sets the content of the editor.
+func (m *Model) SetBytes(content []byte) {
+	if len(content) == 0 {
+		content = []byte("\n")
+	}
 	m.editor.SetContent(content)
+}
+
+// SetContent sets the content of the editor from a string.
+func (m *Model) SetContent(content string) {
+	m.SetBytes([]byte(content))
 }
 
 // WithTheme allows setting a custom theme for the editor.
@@ -321,6 +332,16 @@ func (m *Model) SetCommandMode() error {
 	return m.editor.SetCommandMode()
 }
 
+// SetPlaceholder sets the placeholder text for the editor.
+func (m *Model) SetPlaceholder(placeholder string) {
+	m.placeholder = placeholder
+}
+
+// IsEmpty checks if the editor buffer is empty.
+func (m *Model) IsEmpty() bool {
+	return m.editor.GetBuffer().IsEmpty()
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
@@ -393,6 +414,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.calculateVisualMetrics()
 	m.renderVisibleSlice()
+
 	return m, tea.Batch(cmds...)
 }
 
