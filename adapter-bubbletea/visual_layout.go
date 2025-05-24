@@ -332,7 +332,7 @@ func (m *Model) renderVisibleSlice() {
 					currentScreenColForChar := lineNumWidth + idxInSegment
 					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-					if isCursorOnThisChar {
+					if isCursorOnThisChar && m.isFocused {
 						cursorModeStyle := m.theme.NormalModeStyle
 						switch state.Mode {
 						case editor.InsertMode:
@@ -359,7 +359,7 @@ func (m *Model) renderVisibleSlice() {
 				currentScreenColForChar := lineNumWidth + charIdx
 				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-				if isCursorOnChar {
+				if isCursorOnChar && m.isFocused {
 					cursorModeStyle := m.theme.NormalModeStyle
 					switch state.Mode {
 					case editor.InsertMode:
@@ -391,7 +391,7 @@ func (m *Model) renderVisibleSlice() {
 			}
 		}
 
-		if isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment {
+		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
 			cursorModeStyle := m.theme.NormalModeStyle
 			switch state.Mode {
 			case editor.InsertMode:

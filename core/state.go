@@ -605,3 +605,23 @@ func (e *editor) ResetPendingCount() {
 		e.UpdateCommand("") // Clear count display when reset
 	}
 }
+
+func (e *editor) IsNormalMode() bool {
+	return e.state.Mode == NormalMode
+}
+
+func (e *editor) IsInsertMode() bool {
+	return e.state.Mode == InsertMode
+}
+
+func (e *editor) IsVisualMode() bool {
+	return e.state.Mode == VisualMode
+}
+
+func (e *editor) IsVisualLineMode() bool {
+	return e.state.Mode == VisualLineMode
+}
+
+func (e *editor) IsCommandMode() bool {
+	return e.state.Mode == CommandMode
+}

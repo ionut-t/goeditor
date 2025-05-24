@@ -58,6 +58,7 @@ func (m Model) View() string {
 func main() {
 	textEditor := editor.New(80, 20)
 	textEditor.ShowMessages(true)
+	textEditor.Focus()
 
 	highlightedWords := map[string]lipgloss.Style{
 		"TODO":  lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true),

@@ -64,6 +64,7 @@ type Model struct {
 	visualLayoutCache       []VisualLineInfo // Cache of visual line information for the current slice
 	clampedCursorLogicalCol int              // Clamped cursor column in the current visual slice
 	highlightedWords        map[string]lipgloss.Style
+	isFocused               bool
 }
 
 type messageMsg string
@@ -255,6 +256,46 @@ func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
 	m.highlightedWords = words
 }
 
+// Focus sets the editor to focused state.
+func (m *Model) Focus() {
+	m.isFocused = true
+}
+
+// Blur sets the editor to unfocused state.
+func (m *Model) Blur() {
+	m.isFocused = false
+}
+
+// IsFocused returns whether the editor is currently focused.
+func (m *Model) IsFocused() bool {
+	return m.isFocused
+}
+
+// IsNormalMode returns whether the editor is in normal mode.
+func (m *Model) IsNormalMode() bool {
+	return m.editor.IsNormalMode()
+}
+
+// IsInsertMode returns whether the editor is in insert mode.
+func (m *Model) IsInsertMode() bool {
+	return m.editor.IsInsertMode()
+}
+
+// IsVisualMode returns whether the editor is in visual mode.
+func (m *Model) IsVisualMode() bool {
+	return m.editor.IsVisualMode()
+}
+
+// IsVisualLineMode returns whether the editor is in visual line mode.
+func (m *Model) IsVisualLineMode() bool {
+	return m.editor.IsVisualLineMode()
+}
+
+// IsCommandMode returns whether the editor is in command mode.
+func (m *Model) IsCommandMode() bool {
+	return m.editor.IsCommandMode()
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
@@ -266,6 +307,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if !m.IsFocused() {
+			break
+		}
+
 		if m.editor.GetState().Quit {
 			return m, tea.Quit
 		}

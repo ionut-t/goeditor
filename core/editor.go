@@ -63,6 +63,11 @@ type Editor interface {
 	ResetPendingCount()
 
 	ShowRelativeLineNumbers(bool)
+	IsNormalMode() bool
+	IsInsertMode() bool
+	IsVisualMode() bool
+	IsVisualLineMode() bool
+	IsCommandMode() bool
 }
 
 type Clipboard interface {
