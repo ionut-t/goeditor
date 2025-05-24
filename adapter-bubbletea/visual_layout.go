@@ -186,9 +186,6 @@ func (m *Model) renderVisibleSlice() {
 		lineNumWidth = min(lineNumWidth, 10)
 	}
 
-	// ========================================================================
-	// >>> Build Content String for the *Visible Slice* of the Viewport <<<
-	// ========================================================================
 	var contentBuilder strings.Builder
 	renderedDisplayLineCount := 0
 
@@ -199,7 +196,7 @@ func (m *Model) renderVisibleSlice() {
 		if startRenderVisualRow < 0 {
 			startRenderVisualRow = 0
 		}
-		maxTop := max(m.fullVisualLayoutHeight-m.viewport.Height, 0)
+		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height)
 		if startRenderVisualRow > maxTop {
 			startRenderVisualRow = maxTop
 		}
@@ -216,13 +213,20 @@ func (m *Model) renderVisibleSlice() {
 	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
 		if len(m.visualLayoutCache) > m.cursorAbsoluteVisualRow {
 			vliAtCursor := m.visualLayoutCache[m.cursorAbsoluteVisualRow]
-			visualColInSegment := max(m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol, 0)
+			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
 			targetScreenColForCursor = lineNumWidth + visualColInSegment
 		} else if m.fullVisualLayoutHeight > 0 {
 			targetScreenColForCursor = lineNumWidth
 		}
 	} else if m.fullVisualLayoutHeight == 0 {
 		targetScreenColForCursor = lineNumWidth
+	}
+
+	clampedCursorRowForLineNumbers := m.editor.GetBuffer().GetCursor().Position.Row
+	if len(allLogicalLines) == 0 {
+		clampedCursorRowForLineNumbers = 0
+	} else {
+		clampedCursorRowForLineNumbers = max(0, min(clampedCursorRowForLineNumbers, len(allLogicalLines)-1))
 	}
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
@@ -232,22 +236,12 @@ func (m *Model) renderVisibleSlice() {
 		vli := m.visualLayoutCache[absVisRowIdxToRender]
 		currentSliceRow := renderedDisplayLineCount
 
-		// Get the cursor's original logical row for line number highlighting
-		clampedCursorRow := max(m.editor.GetBuffer().GetCursor().Position.Row, 0)
-		if len(allLogicalLines) > 0 && clampedCursorRow >= len(allLogicalLines) {
-			clampedCursorRow = len(allLogicalLines) - 1
-		}
-
-		if len(allLogicalLines) == 0 {
-			clampedCursorRow = 0
-		}
-
 		if m.showLineNumbers {
 			lineNumStr := ""
 			currentLineNumberStyle := m.theme.LineNumberStyle
 			if vli.IsFirstSegment {
-				if state.RelativeNumbers && !m.disableVimMode && vli.LogicalRow != clampedCursorRow {
-					relNum := vli.LogicalRow - clampedCursorRow
+				if state.RelativeNumbers && !m.disableVimMode && vli.LogicalRow != clampedCursorRowForLineNumbers {
+					relNum := vli.LogicalRow - clampedCursorRowForLineNumbers
 					if relNum < 0 {
 						relNum = -relNum
 					}
@@ -255,7 +249,7 @@ func (m *Model) renderVisibleSlice() {
 				} else {
 					lineNumStr = strconv.Itoa(vli.LogicalRow + 1)
 				}
-				if vli.LogicalRow == clampedCursorRow {
+				if vli.LogicalRow == clampedCursorRowForLineNumbers {
 					currentLineNumberStyle = m.theme.CurrentLineNumberStyle
 				}
 			}
@@ -265,38 +259,128 @@ func (m *Model) renderVisibleSlice() {
 		segmentRunes := []rune(vli.Content)
 		styledSegment := strings.Builder{}
 
-		for charIdx, chRune := range segmentRunes {
-			bufferCol := vli.LogicalStartCol + charIdx
-			bufferPos := editor.Position{Row: vli.LogicalRow, Col: bufferCol}
-			selectionStatus := m.editor.GetSelectionStatus(bufferPos)
-			charStyle := lipgloss.NewStyle()
-			if selectionStatus != editor.SelectionNone {
-				charStyle = selectionStyle
-			}
+		charIdx := 0
+		segmentLen := len(segmentRunes)
 
-			currentScreenColForChar := lineNumWidth + charIdx
-			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+		for charIdx < segmentLen {
+			currentLogicalCharCol := vli.LogicalStartCol + charIdx
+			currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
-			if isCursorOnChar {
-				cursorModeStyle := m.theme.NormalModeStyle
-				switch state.Mode {
-				case editor.InsertMode:
-					cursorModeStyle = m.theme.InsertModeStyle
-				case editor.VisualMode, editor.VisualLineMode:
-					cursorModeStyle = m.theme.VisualModeStyle
-				case editor.CommandMode:
-					cursorModeStyle = m.theme.CommandModeStyle
+			baseCharStyle := lipgloss.NewStyle()
+			charsToAdvance := 1
+
+			var bestMatchStyle lipgloss.Style
+			bestMatchLen := 0
+
+			if len(m.highlightedWords) > 0 {
+				for wordToHighlight, style := range m.highlightedWords {
+					wordRunes := []rune(wordToHighlight)
+					currentWordLen := len(wordRunes)
+					if currentWordLen == 0 {
+						continue
+					}
+
+					if charIdx+currentWordLen <= segmentLen {
+						match := true
+						for k := 0; k < currentWordLen; k++ {
+							if segmentRunes[charIdx+k] != wordRunes[k] {
+								match = false
+								break
+							}
+						}
+						if match {
+							// Whole word check
+							isWholeWord := true
+							// Check character before the match (within segmentRunes)
+							if charIdx > 0 {
+								prevChar := segmentRunes[charIdx-1]
+								if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
+									isWholeWord = false
+								}
+							}
+							// Check character after the match (within segmentRunes)
+							if charIdx+currentWordLen < segmentLen {
+								nextChar := segmentRunes[charIdx+currentWordLen]
+								if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
+									isWholeWord = false
+								}
+							}
+
+							if isWholeWord && currentWordLen > bestMatchLen {
+								bestMatchLen = currentWordLen
+								bestMatchStyle = style
+							}
+						}
+					}
 				}
-				styledSegment.WriteString(charStyle.Render(cursorModeStyle.Render(string(chRune))))
-			} else {
-				styledSegment.WriteString(charStyle.Render(string(chRune)))
 			}
+
+			if bestMatchLen > 0 {
+				for k := range bestMatchLen {
+					idxInSegment := charIdx + k
+					chRuneToStyle := segmentRunes[idxInSegment]
+					logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
+					posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
+
+					charSpecificRenderStyle := bestMatchStyle
+
+					selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
+					if selectionStatus != editor.SelectionNone {
+						charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
+					}
+
+					currentScreenColForChar := lineNumWidth + idxInSegment
+					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+					if isCursorOnThisChar {
+						cursorModeStyle := m.theme.NormalModeStyle
+						switch state.Mode {
+						case editor.InsertMode:
+							cursorModeStyle = m.theme.InsertModeStyle
+						case editor.VisualMode, editor.VisualLineMode:
+							cursorModeStyle = m.theme.VisualModeStyle
+						case editor.CommandMode:
+							cursorModeStyle = m.theme.CommandModeStyle
+						}
+						styledSegment.WriteString(cursorModeStyle.Render(string(chRuneToStyle)))
+					} else {
+						styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
+					}
+				}
+				charsToAdvance = bestMatchLen
+			} else {
+				chRuneToStyle := segmentRunes[charIdx]
+
+				selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
+				if selectionStatus != editor.SelectionNone {
+					baseCharStyle = selectionStyle
+				}
+
+				currentScreenColForChar := lineNumWidth + charIdx
+				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+				if isCursorOnChar {
+					cursorModeStyle := m.theme.NormalModeStyle
+					switch state.Mode {
+					case editor.InsertMode:
+						cursorModeStyle = m.theme.InsertModeStyle
+					case editor.VisualMode, editor.VisualLineMode:
+						cursorModeStyle = m.theme.VisualModeStyle
+					case editor.CommandMode:
+						cursorModeStyle = m.theme.CommandModeStyle
+					}
+					styledSegment.WriteString(cursorModeStyle.Render(string(chRuneToStyle)))
+				} else {
+					styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
+				}
+			}
+			charIdx += charsToAdvance
 		}
 		contentBuilder.WriteString(styledSegment.String())
 
 		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+len(segmentRunes)) == targetScreenColForCursor)
 		isCursorAtLogicalEndOfLineAndThisIsLastSegment := false
-		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRow {
+		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRowForLineNumbers {
 			logicalLineLen := 0
 			if vli.LogicalRow >= 0 && vli.LogicalRow < len(allLogicalLines) {
 				logicalLineLen = len([]rune(allLogicalLines[vli.LogicalRow]))
@@ -317,13 +401,14 @@ func (m *Model) renderVisibleSlice() {
 			case editor.CommandMode:
 				cursorModeStyle = m.theme.CommandModeStyle
 			}
+			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
+			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
-			cursorSelectionStatus := m.editor.GetSelectionStatus(editor.Position{Row: clampedCursorRow, Col: m.clampedCursorLogicalCol})
-			baseStyle := lipgloss.NewStyle()
-			if cursorSelectionStatus != editor.SelectionNone {
-				baseStyle = selectionStyle
+			baseStyleForCursorBlock := lipgloss.NewStyle()
+			if cursorBlockSelectionStatus != editor.SelectionNone {
+				baseStyleForCursorBlock = selectionStyle
 			}
-			contentBuilder.WriteString(baseStyle.Render(cursorModeStyle.Render(" ")))
+			contentBuilder.WriteString(baseStyleForCursorBlock.Render(cursorModeStyle.Render(" ")))
 		}
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
@@ -334,6 +419,7 @@ func (m *Model) renderVisibleSlice() {
 		if m.showLineNumbers && m.showTildeIndicator {
 			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
 		}
+
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
 	}

@@ -63,6 +63,7 @@ type Model struct {
 	currentVisualTopLine    int              // Top line of the current visual slice
 	visualLayoutCache       []VisualLineInfo // Cache of visual line information for the current slice
 	clampedCursorLogicalCol int              // Clamped cursor column in the current visual slice
+	highlightedWords        map[string]lipgloss.Style
 }
 
 type messageMsg string
@@ -108,11 +109,12 @@ func New(width, height int) Model {
 	vp := viewport.New(width, height-2)
 
 	m := Model{
-		editor:          editor,
-		viewport:        vp,
-		showLineNumbers: true,
-		showStatusLine:  true,
-		theme:           DefaultTheme,
+		editor:           editor,
+		viewport:         vp,
+		showLineNumbers:  true,
+		showStatusLine:   true,
+		theme:            DefaultTheme,
+		highlightedWords: make(map[string]lipgloss.Style),
 	}
 
 	m.SetSize(width, height)
@@ -244,6 +246,13 @@ func (m *Model) GetEditor() editor.Editor {
 func (m *Model) DisableVimMode(disable bool) {
 	m.disableVimMode = disable
 	m.editor.DisableVimMode(disable)
+}
+
+// SetHighlightedWords allows setting highlighted words in the editor
+// These words will be styled with the provided lipgloss styles.
+// This is useful for highlighting specific keywords or phrases in the text.
+func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
+	m.highlightedWords = words
 }
 
 func (m Model) Init() tea.Cmd {
