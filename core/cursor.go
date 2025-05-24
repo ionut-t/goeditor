@@ -218,15 +218,15 @@ func (c *Cursor) MoveRightOrDown(buffer Buffer, count, availableWidth int) error
 			return err // Return error if already at buffer end
 		}
 		// If moved down successfully, move to start of the new line
-		c.MoveToLineStart(availableWidth) // Pass width to update Preferred correctly
+		c.MoveToLineStart()
 		return nil
 	}
 }
 
 // MoveToLineStart moves the cursor to the start of the current line (col 0)
-func (c *Cursor) MoveToLineStart(availableWidth int) {
+func (c *Cursor) MoveToLineStart() {
 	c.Position.Col = 0
-	c.Preferred = 0 // Visual column is also 0
+	c.Preferred = 0
 }
 
 // MoveToLineEnd moves the cursor to the *last character* of the current line

@@ -166,7 +166,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 			moveErr = cursor.MoveRightOrDown(buffer, 1, col) // Horizontal moves ignore count
 			movementAttempted = true
 		case key.Rune == '0' || key.Key == KeyHome:
-			cursor.MoveToLineStart(availableWidth) // Ignores count
+			cursor.MoveToLineStart() // Ignores count
 			movementAttempted = true
 		case key.Rune == '$' || key.Key == KeyEnd:
 			cursor.MoveToLineEnd(buffer, availableWidth) // Ignores count

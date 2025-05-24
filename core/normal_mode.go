@@ -116,7 +116,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			// Start of count (unless it follows '0' motion)
 			if m.pendingKey.Rune == '0' { // Check local pendingKey for '0' motion
 				cursor := buffer.GetCursor()
-				cursor.MoveToLineStart(availableWidth)
+				cursor.MoveToLineStart()
 				buffer.SetCursor(cursor)                 // Update buffer cursor!
 				m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear pending '0' motion key
 				// Start the count state with the current digit
@@ -143,7 +143,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear any other pending op (like 'd')
 		editor.ResetPendingCount()               // Ensure no count is active (redundant but safe)
 		cursor := buffer.GetCursor()
-		cursor.MoveToLineStart(availableWidth)
+		cursor.MoveToLineStart()
 		buffer.SetCursor(cursor) // Update buffer cursor!
 		actionTaken = true
 		// Don't return yet, let subsequent logic handle potential errors/updates
@@ -193,7 +193,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	case key.Rune == '0': // Already handled if it was the first key
 		// If we reach here, '0' might be part of a count, but non-digit followed
 		// Or just pressed '0' -> move handled above
-		cursor.MoveToLineStart(availableWidth) // Ensure effect if pressed standalonavailableWidthe
+		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
 		cursor.MoveToLineEnd(buffer, availableWidth) // Move to last char
 	case key.Rune == '^' || key.Key == KeyHome:
@@ -237,7 +237,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.SetInsertMode()
 
 	case key.Rune == 'o': // Open line below
-		cursor.MoveToLineEnd(buffer, availableWidth) // Go to end of current line
+		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
 		buffer.SetCursor(cursor)
 		buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
 		cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
@@ -247,7 +247,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.SetInsertMode()
 
 	case key.Rune == 'O': // Open line above
-		cursor.MoveToLineStart(availableWidth)                     // Go to start of current linavailableWidthe
+		cursor.MoveToLineStart()                                   // Go to start of current linavailableWidthe
 		buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
@@ -396,16 +396,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		if countWasPending {
 			editor.ResetPendingCount()
 		}
-
 	}
-
-	// // If an action was taken or attempted, clear the pending count and command display
-	// // unless the error was due to start/end of line/buffer for movement.
-	// if m.pendingCount != nil && key.Rune != '0' && (key.Rune < '1' || key.Rune > '9') {
-	// 	// Clear count if a non-digit command was executed
-	// 	m.pendingCount = nil
-	// 	editor.UpdateCommand("") // Clear count display
-	// }
 
 	// Update cursor in buffer if no error or only boundary error
 	if (err == nil && moveErr == nil) ||
@@ -467,11 +458,6 @@ func deleteLines(editor Editor, buffer Buffer, count int) (err *Error) {
 
 	if err == nil {
 		editor.SaveHistory()
-		// msg := fmt.Sprintf("%d lines deleted", linesDeleted)
-		// if linesDeleted == 1 {
-		// 	msg = "1 line deleted"
-		// }
-		// editor.DispatchMessage(LinesDeletedMessage, msg)
 	}
 
 	return err

@@ -169,7 +169,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	case key.Rune == 'b':
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
 	case key.Rune == '0' || key.Key == KeyHome:
-		cursor.MoveToLineStart(availableWidth)
+		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
 		cursor.MoveToLineEnd(buffer, availableWidth)
 	case key.Rune == '^':
