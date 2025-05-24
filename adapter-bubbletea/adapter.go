@@ -133,7 +133,7 @@ func (m *Model) SetSize(width, height int) {
 		maxLineNum := m.editor.GetBuffer().LineCount()
 		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
 		lineNumWidth = max(4, maxWidth) + 1
-		lineNumWidth = min(lineNumWidth, 10) // Example cap
+		lineNumWidth = min(lineNumWidth, 10)
 	}
 	availableWidth := m.viewport.Width - lineNumWidth
 	if availableWidth <= 0 {
@@ -170,22 +170,22 @@ func (m *Model) SetSize(width, height int) {
 	m.viewport.YOffset = 0
 }
 
-// SetContent sets the content of the editor
+// SetContent sets the content of the editor.
 func (m *Model) SetContent(content []byte) {
 	m.editor.SetContent(content)
 }
 
-// WithTheme allows setting a custom theme for the editor
+// WithTheme allows setting a custom theme for the editor.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 }
 
-// HideLineNumbers controls whether to show line numbers in the viewport
+// HideLineNumbers controls whether to show line numbers in the viewport.
 func (m *Model) HideLineNumbers(hide bool) {
 	m.showLineNumbers = !hide
 }
 
-// ShowLineNumbers controls whether to show relative line numbers in the viewport
+// ShowLineNumbers controls whether to show relative line numbers in the viewport.
 // If Vim mode is disabled, this will not have any effect.
 // If line numbers are hidden, this will not have any effect.
 func (m *Model) ShowRelativeLineNumbers(show bool) {
@@ -196,19 +196,19 @@ func (m *Model) ShowRelativeLineNumbers(show bool) {
 	m.editor.ShowRelativeLineNumbers(show)
 }
 
-// ShowTildeIndicator controls whether to show the tilde indicator in the viewport
+// ShowTildeIndicator controls whether to show the tilde indicator in the viewport.
 // If line numbers are hidden, this will not have any effect.
 func (m *Model) ShowTildeIndicator(show bool) {
 	m.showTildeIndicator = show
 }
 
-// HideStatusLine controls whether to show the status line at the bottom of the viewport
+// HideStatusLine controls whether to show the status line at the bottom of the viewport.
 // If Vim mode is disabled, this will not have any effect.
 func (m *Model) HideStatusLine(hide bool) {
 	m.showStatusLine = !hide
 }
 
-// ShowMessages controls whether to show messages in the command line
+// ShowMessages controls whether to show messages in the command line.
 // This is useful for displaying messages like "1 line yanked" or "File saved successfully".
 // If Vim mode is disabled, this will not have any effect.
 // If set to false, messages will not be displayed in the command line.
@@ -224,7 +224,7 @@ func (m *Model) GetSavedContent() string {
 	return m.editor.GetBuffer().GetSavedContent()
 }
 
-// GetCurrentContent returns the current content of the editor buffer
+// GetCurrentContent returns the current content of the editor buffer.
 // This content may not be saved yet, as it reflects the current state of the editor.
 func (m *Model) GetCurrentContent() string {
 	return m.editor.GetBuffer().GetCurrentContent()
@@ -240,7 +240,7 @@ func (m *Model) GetEditor() editor.Editor {
 	return m.editor
 }
 
-// DisableVimMode allows disabling Vim mode in the editor
+// DisableVimMode allows disabling Vim mode in the editor.
 // This will disable all Vim-specific features and revert to a simpler text editor mode.
 // If Vim mode is disabled, the editor will not respond to Vim keybindings.
 func (m *Model) DisableVimMode(disable bool) {
@@ -248,7 +248,7 @@ func (m *Model) DisableVimMode(disable bool) {
 	m.editor.DisableVimMode(disable)
 }
 
-// SetHighlightedWords allows setting highlighted words in the editor
+// SetHighlightedWords allows setting highlighted words in the editor.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.
 func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
@@ -326,7 +326,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the UI
 func (m Model) View() string {
 	state := m.editor.GetState()
 
@@ -381,7 +380,6 @@ func (m *Model) getStatusLine() string {
 
 	state := m.editor.GetState()
 
-	// Construct status line
 	var statusLine string
 	switch state.Mode {
 	case editor.NormalMode:
@@ -396,7 +394,6 @@ func (m *Model) getStatusLine() string {
 		statusLine = m.theme.CommandModeStyle.Render(" COMMAND ")
 	}
 
-	// Add rest of status line info
 	cursor := m.editor.GetBuffer().GetCursor()
 
 	cursorInfo := fmt.Sprintf("%d/%d ", cursor.Position.Row+1, cursor.Position.Col+1)
@@ -414,7 +411,6 @@ func (m *Model) getStatusLine() string {
 func (m *Model) listenForEditorUpdate() tea.Cmd {
 	return func() tea.Msg {
 		editorChan := m.editor.GetUpdateSignalChan()
-		// Block here waiting for a signal from the editor's Goroutine
 		signal := <-editorChan
 
 		switch signal := signal.(type) {
@@ -467,12 +463,10 @@ func convertBubbleKey(msg tea.KeyMsg) editor.KeyEvent {
 		key.Rune = rune(msg.Runes[0])
 	}
 
-	// Set modifiers
 	if msg.Alt {
 		key.Modifiers |= editor.ModAlt
 	}
 
-	// Handle special keys
 	switch msg.Type {
 	case tea.KeyEnter:
 		key.Key = editor.KeyEnter
