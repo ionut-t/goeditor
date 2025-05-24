@@ -282,7 +282,7 @@ func (m *Model) renderVisibleSlice() {
 
 					if charIdx+currentWordLen <= segmentLen {
 						match := true
-						for k := 0; k < currentWordLen; k++ {
+						for k := range currentWordLen {
 							if segmentRunes[charIdx+k] != wordRunes[k] {
 								match = false
 								break
