@@ -14,7 +14,7 @@ type Model struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.editor.CursorBlink()
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -59,6 +59,7 @@ func main() {
 	textEditor := editor.New(80, 20)
 	textEditor.ShowMessages(true)
 	textEditor.Focus()
+	textEditor.SetCursorBlinkMode(true)
 
 	if content, err := os.ReadFile("test.md"); err == nil {
 		textEditor.SetBytes(content)

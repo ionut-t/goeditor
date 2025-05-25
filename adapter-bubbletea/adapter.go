@@ -1,6 +1,7 @@
 package bubble_adapter
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -45,6 +46,25 @@ var DefaultTheme = Theme{
 	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 }
 
+type cursorBlinkMsg struct{}
+type cursorBlinkCanceledMsg struct{}
+type resumeBlinkCycleMsg struct{}
+
+type CursorMode int
+
+const (
+	CursorBlink CursorMode = iota
+	CursorSteady
+)
+
+const cursorBlinkInterval = 500 * time.Millisecond
+const cursorActivityResetDelay = 50 * time.Millisecond
+
+type cursorBlinkContext struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
 type Model struct {
 	editor                  editor.Editor
 	viewport                viewport.Model
@@ -68,6 +88,9 @@ type Model struct {
 	highlightedWords        map[string]lipgloss.Style
 	isFocused               bool
 	placeholder             string
+	cursorMode              CursorMode
+	cursorVisible           bool
+	cursorBlinkContext      *cursorBlinkContext
 }
 
 type messageMsg string
@@ -119,6 +142,11 @@ func New(width, height int) Model {
 		showStatusLine:   true,
 		theme:            DefaultTheme,
 		highlightedWords: make(map[string]lipgloss.Style),
+		cursorMode:       CursorSteady,
+		cursorVisible:    true,
+		cursorBlinkContext: &cursorBlinkContext{
+			ctx: context.Background(),
+		},
 	}
 
 	m.SetSize(width, height)
@@ -342,6 +370,25 @@ func (m *Model) IsEmpty() bool {
 	return m.editor.GetBuffer().IsEmpty()
 }
 
+// SetCursorMode sets the cursor mode for the editor.
+func (m *Model) SetCursorMode(mode CursorMode) {
+	m.cursorMode = mode
+	if mode == CursorBlink {
+		m.cursorVisible = true
+	} else {
+		m.cursorVisible = m.isFocused
+	}
+}
+
+// SetCursorBlinkMode sets the cursor mode to blinking or steady.
+func (m *Model) SetCursorBlinkMode(blink bool) {
+	if blink {
+		m.SetCursorMode(CursorBlink)
+	} else {
+		m.SetCursorMode(CursorSteady)
+	}
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
@@ -367,6 +414,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, func() tea.Msg {
 				return errMsg(err)
 			})
+		}
+
+		m.cursorVisible = true
+		if m.cursorBlinkContext != nil && m.cursorBlinkContext.cancel != nil {
+			m.cursorBlinkContext.cancel()
+		}
+
+		if m.cursorMode == CursorBlink {
+			cmds = append(cmds, m.restartBlinkCycleCmd())
 		}
 
 		m.editor.ScrollViewport()
@@ -403,6 +459,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case QuitMsg:
 		return m, tea.Quit
+
+	case cursorBlinkMsg:
+		if m.isFocused && m.cursorMode == CursorBlink {
+			m.cursorVisible = !m.cursorVisible
+			cmds = append(cmds, m.CursorBlink())
+		} else {
+			m.cursorVisible = m.isFocused
+		}
+
+	case resumeBlinkCycleMsg:
+		if m.isFocused && m.cursorMode == CursorBlink {
+			m.cursorVisible = true
+			cmds = append(cmds, m.CursorBlink())
+		}
 	}
 
 	cmds = append(cmds, m.listenForEditorUpdate())
@@ -593,4 +663,40 @@ func convertBubbleKey(msg tea.KeyMsg) editor.KeyEvent {
 	}
 
 	return key
+}
+
+// CursorBlink is the main command for the blinking cursor effect (toggling visibility)
+func (m *Model) CursorBlink() tea.Cmd {
+	if m.cursorMode != CursorBlink || !m.isFocused {
+		m.cursorVisible = m.isFocused
+		return nil
+	}
+
+	if m.cursorBlinkContext != nil && m.cursorBlinkContext.cancel != nil {
+		m.cursorBlinkContext.cancel()
+	}
+
+	ctx, cancel := context.WithTimeout(m.cursorBlinkContext.ctx, cursorBlinkInterval)
+	m.cursorBlinkContext.cancel = cancel
+
+	return func() tea.Msg {
+		defer cancel()
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			return cursorBlinkMsg{}
+		}
+		return cursorBlinkCanceledMsg{}
+	}
+}
+
+// restartBlinkCycleCmd is used after user activity to delay the resumption of blinking.
+func (m *Model) restartBlinkCycleCmd() tea.Cmd {
+	if m.cursorMode != CursorBlink || !m.isFocused {
+		m.cursorVisible = m.isFocused
+		return nil
+	}
+
+	return tea.Tick(cursorActivityResetDelay, func(t time.Time) tea.Msg {
+		return resumeBlinkCycleMsg{}
+	})
 }

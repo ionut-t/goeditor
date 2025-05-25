@@ -332,7 +332,7 @@ func (m *Model) renderVisibleSlice() {
 					currentScreenColForChar := lineNumWidth + idxInSegment
 					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-					if isCursorOnThisChar && m.isFocused {
+					if isCursorOnThisChar && m.isFocused && m.cursorVisible {
 						styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
 					} else {
 						styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
@@ -350,7 +350,7 @@ func (m *Model) renderVisibleSlice() {
 				currentScreenColForChar := lineNumWidth + charIdx
 				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-				if isCursorOnChar && m.isFocused {
+				if isCursorOnChar && m.isFocused && m.cursorVisible {
 					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
 				} else {
 					styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
@@ -381,7 +381,11 @@ func (m *Model) renderVisibleSlice() {
 			if cursorBlockSelectionStatus != editor.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
-			contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
+
+			if m.cursorVisible {
+				contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
+			}
+
 		}
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
@@ -422,18 +426,12 @@ func (m *Model) renderVisibleSlice() {
 			styledPlaceholder.WriteString(lineNumStyle.Width(lineNumWidth-1).Render(lineNumStr) + " ")
 		}
 
-		cursorRendered := false
 		for i, r := range placeholderRunes {
-			if i == 0 && m.isFocused {
+			if i == 0 && m.isFocused && m.cursorVisible {
 				styledPlaceholder.WriteString(m.getCursorStyles().Foreground(m.theme.PlaceholderStyle.GetForeground()).Render(string(r)))
-				cursorRendered = true
 			} else {
 				styledPlaceholder.WriteString(m.theme.PlaceholderStyle.Render(string(r)))
 			}
-		}
-		// If placeholder is empty, still render a cursor block
-		if !cursorRendered && m.isFocused {
-			styledPlaceholder.WriteString(m.getCursorStyles().Render(" "))
 		}
 
 		finalContentSlice = styledPlaceholder.String()
