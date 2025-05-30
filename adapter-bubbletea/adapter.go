@@ -389,6 +389,44 @@ func (m *Model) SetCursorBlinkMode(blink bool) {
 	}
 }
 
+// SetCursorPosition sets the cursor position in the editor.
+func (m *Model) SetCursorPosition(row, col int) error {
+	if row < 0 || col < 0 {
+		return fmt.Errorf("invalid cursor position: (%d, %d)", row, col)
+	}
+
+	if m.editor.GetBuffer().IsEmpty() {
+		return fmt.Errorf("cannot set cursor position on an empty buffer")
+	}
+
+	cursor := m.editor.GetBuffer().GetCursor()
+	cursor.Position.Row = row
+	cursor.Position.Col = col
+
+	cursor.Position.Row = max(0, cursor.Position.Row)
+	cursor.Position.Col = max(0, cursor.Position.Col)
+
+	m.editor.GetBuffer().SetCursor(cursor)
+
+	return nil
+}
+
+// SetCursorPositionEnd sets the cursor position to the end of the editor buffer.
+func (m *Model) SetCursorPositionEnd() error {
+	if m.editor.GetBuffer().IsEmpty() {
+		return fmt.Errorf("cannot set cursor position on an empty buffer")
+	}
+
+	cursor := m.editor.GetBuffer().GetCursor()
+	lastLine := m.editor.GetBuffer().LineCount() - 1
+	cursor.Position.Row = max(0, lastLine)
+	cursor.Position.Col = m.editor.GetBuffer().LineRuneCount(lastLine)
+
+	m.editor.GetBuffer().SetCursor(cursor)
+
+	return nil
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }

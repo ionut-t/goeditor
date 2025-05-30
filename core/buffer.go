@@ -24,10 +24,7 @@ type Buffer interface {
 	// Cursor
 	GetCursor() Cursor
 	SetCursor(Cursor)
-	// Simplified: MoveCursor is now part of Editor logic using Buffer methods
-	// MoveCursor(direction CursorDirection, count int) error
 
-	// Searching (Interface unchanged, implementation below)
 	Find(pattern string, start Position, options SearchOptions) (Position, bool) // Find next/prev
 	// Replace(pattern string, replacement string, options SearchOptions) int // Implement later if needed
 
