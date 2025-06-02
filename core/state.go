@@ -35,6 +35,8 @@ type State struct {
 	VimMode bool
 
 	AvailableWidth int // Width available for text rendering
+
+	WithCommandMode bool // Whether command mode is enabled
 }
 
 // InitialState creates a default state
@@ -53,6 +55,7 @@ func InitialState() State {
 		RelativeNumbers: false, // Default to absolute numbers
 		Quit:            false,
 		VimMode:         true,
+		WithCommandMode: true,
 	}
 }
 
@@ -125,6 +128,14 @@ func (e *editor) IsVimMode() bool {
 	return e.state.VimMode
 }
 
+func (e *editor) DisableCommandMode(disable bool) {
+	e.state.WithCommandMode = !disable
+}
+
+func (e *editor) HasCommandMode() bool {
+	return e.state.WithCommandMode
+}
+
 func (e *editor) ShowRelativeLineNumbers(show bool) {
 	e.state.RelativeNumbers = show
 }
@@ -163,6 +174,10 @@ func (e *editor) SetVisualLineMode() error {
 }
 
 func (e *editor) SetCommandMode() error {
+	if !e.state.WithCommandMode {
+		return nil
+	}
+
 	return e.setMode(CommandMode)
 }
 

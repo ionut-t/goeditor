@@ -288,6 +288,12 @@ func (m *Model) DisableVimMode(disable bool) {
 	m.editor.DisableVimMode(disable)
 }
 
+// DisableCommandMode allows disabling command mode in the editor.
+// This will disable the command mode functionality, meaning the editor will not respond to command mode keybindings.
+func (m *Model) DisableCommandMode(disable bool) {
+	m.editor.DisableCommandMode(disable)
+}
+
 // SetHighlightedWords allows setting highlighted words in the editor.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.
@@ -494,9 +500,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearYankMsg:
 		m.yanked = false
 		m.editor.SetNormalMode()
-
-	case QuitMsg:
-		return m, tea.Quit
 
 	case cursorBlinkMsg:
 		if m.isFocused && m.cursorMode == CursorBlink {

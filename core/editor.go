@@ -31,6 +31,8 @@ type Editor interface {
 	SetCommandMode() error
 	DisableVimMode(bool)
 	IsVimMode() bool
+	DisableCommandMode(bool)
+	HasCommandMode() bool
 
 	// Event handling
 	HandleKey(key KeyEvent) error // Process a key press

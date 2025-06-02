@@ -1,4 +1,4 @@
-todo # Lorem Ipsum Dolor Sit Amet
+# Lorem Ipsum Dolor Sit Amet
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Mauris placerat felis ac magna placerat.
 Cras et massa sed libero tincidunt interdum. Pellentesque habitant morbi tristique senectus et netus.
