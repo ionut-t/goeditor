@@ -109,6 +109,12 @@ type yankMsg struct {
 
 type clearYankMsg struct{}
 
+type RenameMsg struct {
+	FileName string
+}
+
+type DeleteFileMsg struct{}
+
 func (m *Model) dispatchClearMsg() tea.Cmd {
 	return tea.Tick(time.Second*3, func(t time.Time) tea.Msg {
 		return clearMsg{}
@@ -652,6 +658,12 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case editor.QuitSignal:
 			return QuitMsg{}
+
+		case editor.RenameSignal:
+			return RenameMsg{FileName: signal.Value()}
+
+		case editor.DeleteFileSignal:
+			return DeleteFileMsg{}
 		}
 
 		return nil

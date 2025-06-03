@@ -34,6 +34,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			os.Exit(1)
 		}
 
+	case editor.RenameMsg:
+		if err := os.Rename("test.md", msg.FileName); err != nil {
+			log.Println("Error renaming file:", err)
+			os.Exit(1)
+		}
+
+	case editor.DeleteFileMsg:
+		if err := os.Remove("test.md"); err != nil {
+			log.Println("Error deleting file:", err)
+			os.Exit(1)
+		}
+
+		return m, tea.Quit
+
 	case editor.QuitMsg:
 		return m, tea.Quit
 	}

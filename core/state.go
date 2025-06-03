@@ -255,7 +255,6 @@ func (e *editor) ExecuteCommand(cmd string) error {
 	parts := strings.Fields(cmd)
 	command := parts[0]
 	args := parts[1:]
-	_ = args // Prevent unused variable error for now
 
 	// TODO: Add range parsing (e.g., :%s/foo/bar/g)
 
@@ -315,6 +314,21 @@ func (e *editor) ExecuteCommand(cmd string) error {
 			}
 		}
 		return ErrInvalidCommand
+
+	case "rename":
+		if len(args) != 1 {
+			return ErrRenameFailed
+		}
+
+		e.DispatchSignal(RenameSignal{
+			fileName: args[0],
+		})
+
+		return nil
+
+	case "delete", "del":
+		e.DispatchSignal(DeleteFileSignal{})
+		return nil
 
 	default:
 		// Handle line number navigation (e.g., ":10")

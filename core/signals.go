@@ -36,7 +36,17 @@ func (u UndoSignal) Value() {}
 
 type RedoSignal struct{}
 
-func (r RedoSignal) Value() {}
+type RenameSignal struct {
+	fileName string
+}
+
+func (r RenameSignal) Value() string {
+	return r.fileName
+}
+
+type DeleteFileSignal struct{}
+
+func (d DeleteFileSignal) Value() {}
 
 type MessageSignal struct {
 	id    string

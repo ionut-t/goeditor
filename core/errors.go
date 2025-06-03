@@ -17,6 +17,7 @@ var (
 	ErrInvalidMotion      = errors.New("invalid motion")
 	ErrDeleteRunes        = errors.New("cannot delete runes")
 	ErrNoChangesToSave    = errors.New("no changes to save")
+	ErrRenameFailed       = errors.New("rename requires a single argument (rename new_filename)")
 )
 
 type ErrorId int
