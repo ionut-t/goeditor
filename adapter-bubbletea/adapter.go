@@ -543,15 +543,19 @@ func (m Model) View() string {
 	var commandLine string
 
 	if !m.disableVimMode {
-		commandLine = state.CommandLine
+		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
 	}
 
 	if m.message != "" {
-		commandLine = m.theme.MessageStyle.Render(m.message)
+		commandLine = m.theme.MessageStyle.
+			Background(m.theme.CommandLineStyle.GetBackground()).
+			Render(m.message)
 	}
 
 	if m.err != nil {
-		commandLine = m.theme.ErrorStyle.Render(m.err.Error())
+		commandLine = m.theme.ErrorStyle.
+			Background(m.theme.CommandLineStyle.GetBackground()).
+			Render(m.err.Error())
 	}
 
 	statusLine := m.getStatusLine()
