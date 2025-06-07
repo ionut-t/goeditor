@@ -1,4 +1,4 @@
-package bubble_adapter
+package editor
 
 import (
 	"strconv"
