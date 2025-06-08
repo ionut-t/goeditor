@@ -171,7 +171,7 @@ func (m *Model) renderVisibleSlice() {
 
 	selectionStyle := m.theme.SelectionStyle
 	if m.yanked {
-		selectionStyle = m.theme.HighlighYankStyle
+		selectionStyle = m.theme.HighlightYankStyle
 	}
 
 	lineNumWidth := 0
