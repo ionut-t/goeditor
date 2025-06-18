@@ -1,4 +1,4 @@
-package editor
+package adapter_bubbletea
 
 import (
 	"context"

@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/ionut-t/goeditor/adapter-bubbletea/editor"
+	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
 type Model struct {
