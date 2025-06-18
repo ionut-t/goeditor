@@ -28,12 +28,8 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		if !editor.IsVimMode() {
 			return nil
 		}
-		err := editor.SetNormalMode()
-
-		return &Error{
-			err: err,
-			id:  ErrInvalidModeId,
-		}
+		editor.SetNormalMode()
+		return nil
 
 	case KeyBackspace:
 		if col > 0 {

@@ -21,12 +21,8 @@ func (m *commandMode) Exit(editor Editor, buffer Buffer) {
 func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
 	switch key.Key {
 	case KeyEscape:
-		err := editor.SetVisualMode()
-
-		return &Error{
-			err: err,
-			id:  ErrInvalidModeId,
-		}
+		editor.SetVisualMode()
+		return nil
 
 	case KeyBackspace:
 		if len(m.commandBuffer) > 0 {
@@ -37,12 +33,7 @@ func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Err
 			editor.UpdateCommand(":" + m.commandBuffer) // Update display
 		} else {
 			// Backspace on empty command line goes back to normal mode
-			err := editor.SetVisualMode()
-
-			return &Error{
-				err: err,
-				id:  ErrInvalidModeId,
-			}
+			editor.SetVisualMode()
 		}
 		return nil
 

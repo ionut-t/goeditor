@@ -157,28 +157,28 @@ func (e *editor) setMode(modeName Mode) error {
 	return nil
 }
 
-func (e *editor) SetNormalMode() error {
-	return e.setMode(NormalMode)
+func (e *editor) SetNormalMode() {
+	e.setMode(NormalMode)
 }
 
-func (e *editor) SetInsertMode() error {
-	return e.setMode(InsertMode)
+func (e *editor) SetInsertMode() {
+	e.setMode(InsertMode)
 }
 
-func (e *editor) SetVisualMode() error {
-	return e.setMode(VisualMode)
+func (e *editor) SetVisualMode() {
+	e.setMode(VisualMode)
 }
 
-func (e *editor) SetVisualLineMode() error {
-	return e.setMode(VisualLineMode)
+func (e *editor) SetVisualLineMode() {
+	e.setMode(VisualLineMode)
 }
 
-func (e *editor) SetCommandMode() error {
+func (e *editor) SetCommandMode() {
 	if !e.state.WithCommandMode {
-		return nil
+		return
 	}
 
-	return e.setMode(CommandMode)
+	e.setMode(CommandMode)
 }
 
 func (e *editor) GetBuffer() Buffer {

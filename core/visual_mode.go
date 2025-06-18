@@ -57,12 +57,8 @@ func (m *visualMode) SetCurrentCount(count *int) {
 
 func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
 	if key.Key == KeyEscape {
-		err := editor.SetNormalMode()
-
-		return &Error{
-			err: err,
-			id:  ErrInvalidModeId,
-		}
+		editor.SetNormalMode()
+		return nil
 	}
 
 	cursor := buffer.GetCursor() // Get current cursor state
@@ -86,13 +82,6 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			buffer.SetCursor(cursor)   // Set cursor position in buffer
 			editor.SaveHistory()
 			editor.SetNormalMode() // Exit visual mode after action
-
-			if modeErr := editor.SetNormalMode(); modeErr != nil {
-				err = &Error{
-					id:  ErrInvalidModeId,
-					err: modeErr,
-				}
-			}
 		}
 		actionTaken = true
 		editor.ResetPendingCount()
@@ -114,12 +103,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			cursor.Position = finalPos // Update cursor position based on function result
 			buffer.SetCursor(cursor)   // Set cursor position in buffer
 			editor.SaveHistory()
-			if modeErr := editor.SetNormalMode(); modeErr != nil {
-				err = &Error{
-					id:  ErrInvalidModeId,
-					err: modeErr,
-				}
-			}
+			editor.SetNormalMode()
 		}
 
 		actionTaken = true

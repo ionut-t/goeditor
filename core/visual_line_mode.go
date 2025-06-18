@@ -50,12 +50,8 @@ func (m *visualLineMode) SetCurrentCount(count *int) {
 
 func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
 	if key.Key == KeyEscape {
-		err := editor.SetNormalMode()
-
-		return &Error{
-			err: err,
-			id:  ErrInvalidModeId,
-		}
+		editor.SetNormalMode()
+		return nil
 	}
 
 	// if ShouldHandlePendingKey(m) {

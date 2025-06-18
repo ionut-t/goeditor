@@ -24,11 +24,11 @@ type Editor interface {
 
 	// Mode handling
 	GetMode() EditorMode
-	SetNormalMode() error
-	SetInsertMode() error
-	SetVisualMode() error
-	SetVisualLineMode() error
-	SetCommandMode() error
+	SetNormalMode()
+	SetInsertMode()
+	SetVisualMode()
+	SetVisualLineMode()
+	SetCommandMode()
 	DisableVimMode(bool)
 	IsVimMode() bool
 	DisableCommandMode(bool)

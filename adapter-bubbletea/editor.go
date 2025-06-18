@@ -348,28 +348,28 @@ func (m *Model) IsCommandMode() bool {
 }
 
 // SetNormalMode sets the editor to normal mode.
-func (m *Model) SetNormalMode() error {
-	return m.editor.SetNormalMode()
+func (m *Model) SetNormalMode() {
+	m.editor.SetNormalMode()
 }
 
 // SetInsertMode sets the editor to insert mode.
-func (m *Model) SetInsertMode() error {
-	return m.editor.SetInsertMode()
+func (m *Model) SetInsertMode() {
+	m.editor.SetInsertMode()
 }
 
 // SetVisualMode sets the editor to visual mode.
-func (m *Model) SetVisualMode() error {
-	return m.editor.SetVisualMode()
+func (m *Model) SetVisualMode() {
+	m.editor.SetVisualMode()
 }
 
 // SetVisualLineMode sets the editor to visual line mode.
-func (m *Model) SetVisualLineMode() error {
-	return m.editor.SetVisualLineMode()
+func (m *Model) SetVisualLineMode() {
+	m.editor.SetVisualLineMode()
 }
 
 // SetCommandMode sets the editor to command mode.
-func (m *Model) SetCommandMode() error {
-	return m.editor.SetCommandMode()
+func (m *Model) SetCommandMode() {
+	m.editor.SetCommandMode()
 }
 
 // SetPlaceholder sets the placeholder text for the editor.
