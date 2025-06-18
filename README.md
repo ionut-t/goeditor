@@ -45,7 +45,7 @@ import (
     "log"
 
     tea "github.com/charmbracelet/bubbletea"
-    "github.com/ionut-t/goeditor/adapter-bubbletea/editor"
+    editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
 
 func main() {
