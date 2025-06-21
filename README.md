@@ -10,7 +10,7 @@ A feature-rich, Vim-inspired text editor library for Go.
 - **Vim-style keybindings**: Navigate and edit text efficiently with familiar Vim commands
 - **Unicode support**: Full support for international characters and emojis
 - **Undo/Redo**: Navigate through your editing history
-- **Search functionality**: Find text within your document
+- **Search functionality**: Find text within your document (in progress)
 - **Clipboard integration**: Copy, cut, and paste with system clipboard support
 - **Line wrapping**: Automatic word-wrap for long lines
 - **Extensible architecture**: Easy to add new modes and commands
