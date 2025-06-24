@@ -110,7 +110,7 @@ m.WithTheme(theme)
 - **Line movement**: `0` (start), `$` (end), `^` (first non-blank)
 - **Document movement**: `g` (first line), `G` (last line)
 - **Editing**: `x` (delete char), `dd` (delete line), `D` (delete to end of line)
-- **Mode switching**: `i` (insert), `a` (append), `v` (visual), `V` (visual line)
+- **Mode switching**: `i` (insert), `v` (visual), `V` (visual line), `:` (command)
 - **Undo/Redo**: `u` (undo), `U` (redo)
 - **Copy/Paste**: `y` (yank), `p` (paste)
 
@@ -214,15 +214,27 @@ For direct usage of the core editor without the Bubble Tea UI:
 
 ```go
 import (
+    "github.com/atotto/clipboard"
     "github.com/ionut-t/goeditor/core"
 )
+
+// Implement core.Clipboard interface
+type atottoClipboard struct{}
+
+func (c *atottoClipboard) Write(text string) error {
+	return clipboard.WriteAll(text)
+}
+
+func (c *atottoClipboard) Read() (string, error) {
+	return clipboard.ReadAll()
+}
 
 // Create a new buffer
 buffer := core.NewBuffer()
 buffer.SetContent([]byte("Hello, World!"))
 
 // Create an editor
-clipboard := &MyClipboardImpl{} // Implement core.Clipboard interface
+clipboard := &atottoClipboard{}
 editor := core.New(clipboard)
 
 // Handle key events
