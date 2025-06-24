@@ -21,7 +21,7 @@ func (m *commandMode) Exit(editor Editor, buffer Buffer) {
 func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
 	switch key.Key {
 	case KeyEscape:
-		editor.SetVisualMode()
+		editor.SetNormalMode()
 		return nil
 
 	case KeyBackspace:
