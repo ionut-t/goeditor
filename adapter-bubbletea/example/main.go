@@ -11,6 +11,7 @@ import (
 
 type Model struct {
 	editor editor.Model
+	file   string
 }
 
 func (m Model) Init() tea.Cmd {
@@ -29,19 +30,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case editor.SaveMsg:
-		if err := os.WriteFile("test.md", []byte(msg), 0644); err != nil {
+		if err := os.WriteFile(m.file, []byte(msg), 0644); err != nil {
 			log.Println("Error saving file:", err)
 			os.Exit(1)
 		}
 
 	case editor.RenameMsg:
-		if err := os.Rename("test.md", msg.FileName); err != nil {
+		if err := os.Rename(m.file, msg.FileName); err != nil {
 			log.Println("Error renaming file:", err)
 			os.Exit(1)
 		}
 
 	case editor.DeleteFileMsg:
-		if err := os.Remove("test.md"); err != nil {
+		if err := os.Remove(m.file); err != nil {
 			log.Println("Error deleting file:", err)
 			os.Exit(1)
 		}
@@ -70,17 +71,31 @@ func (m Model) View() string {
 }
 
 func main() {
+	lang := "markdown"
+
+	if len(os.Args) > 1 {
+		lang = os.Args[1]
+	}
+
+	file := "test.md"
+
+	if lang == "sql" {
+		file = "test.sql"
+	}
+
 	textEditor := editor.New(80, 20)
 	textEditor.ShowMessages(true)
 	textEditor.Focus()
 	textEditor.SetCursorBlinkMode(true)
+	textEditor.SetLanguage(lang, "catppuccin-mocha")
 
-	if content, err := os.ReadFile("test.md"); err == nil {
+	if content, err := os.ReadFile(file); err == nil {
 		textEditor.SetBytes(content)
 	}
 
 	m := Model{
 		editor: textEditor,
+		file:   file,
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())

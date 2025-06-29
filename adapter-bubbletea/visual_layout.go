@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 )
 
@@ -164,8 +165,8 @@ func (m *Model) calculateVisualMetrics() {
 	m.cursorAbsoluteVisualRow = absoluteTargetVisualRow
 }
 
-// renderVisibleSlice renders the calculated slice of the visual layout to the viewport.
-func (m *Model) renderVisibleSlice() {
+// renderVisibleSliceDefault renders the calculated slice of the visual layout to the viewport.
+func (m *Model) renderVisibleSliceDefault() {
 	state := m.editor.GetState()
 	allLogicalLines := m.editor.GetBuffer().GetLines()
 
@@ -440,6 +441,15 @@ func (m *Model) renderVisibleSlice() {
 	m.viewport.SetContent(finalContentSlice)
 }
 
+// renderVisibleSlice renders the visible slice of the visual layout.
+func (m *Model) renderVisibleSlice() {
+	if m.highlighter != nil {
+		m.renderVisibleSliceWithSyntax()
+	} else {
+		m.renderVisibleSliceDefault()
+	}
+}
+
 // updateVisualTopLine adjusts the current visual top line based on the cursor's position.
 // It ensures that the cursor is always visible within the viewport.
 // If the cursor is above the current top line, it moves the top line up.
@@ -531,4 +541,477 @@ func (m *Model) getCursorStyles() lipgloss.Style {
 	default:
 		return m.theme.NormalModeStyle
 	}
+}
+
+// renderVisibleSliceWithSyntax is the modified version of renderVisibleSlice with syntax highlighting support
+func (m *Model) renderVisibleSliceWithSyntax() {
+	state := m.editor.GetState()
+	allLogicalLines := m.editor.GetBuffer().GetLines()
+
+	selectionStyle := m.theme.SelectionStyle
+	if m.yanked {
+		selectionStyle = m.theme.HighlightYankStyle
+	}
+
+	lineNumWidth := 0
+	if m.showLineNumbers {
+		maxLineNum := len(allLogicalLines)
+		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
+		if state.RelativeNumbers && !m.disableVimMode {
+			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
+			maxWidth = max(maxWidth, relWidth)
+		}
+		lineNumWidth = max(4, maxWidth) + 1
+		lineNumWidth = min(lineNumWidth, 10)
+	}
+
+	var contentBuilder strings.Builder
+	renderedDisplayLineCount := 0
+
+	startRenderVisualRow := m.currentVisualTopLine
+	if m.fullVisualLayoutHeight == 0 {
+		startRenderVisualRow = 0
+	} else {
+		if startRenderVisualRow < 0 {
+			startRenderVisualRow = 0
+		}
+		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height)
+		if startRenderVisualRow > maxTop {
+			startRenderVisualRow = maxTop
+		}
+	}
+
+	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height, m.fullVisualLayoutHeight)
+
+	targetVisualRowInSlice := -1
+	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {
+		targetVisualRowInSlice = m.cursorAbsoluteVisualRow - startRenderVisualRow
+	}
+
+	targetScreenColForCursor := -1
+	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
+		if len(m.visualLayoutCache) > m.cursorAbsoluteVisualRow {
+			vliAtCursor := m.visualLayoutCache[m.cursorAbsoluteVisualRow]
+			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
+			targetScreenColForCursor = lineNumWidth + visualColInSegment
+		} else if m.fullVisualLayoutHeight > 0 {
+			targetScreenColForCursor = lineNumWidth
+		}
+	} else if m.fullVisualLayoutHeight == 0 {
+		targetScreenColForCursor = lineNumWidth
+	}
+
+	clampedCursorRowForLineNumbers := m.editor.GetBuffer().GetCursor().Position.Row
+	if len(allLogicalLines) == 0 {
+		clampedCursorRowForLineNumbers = 0
+	} else {
+		clampedCursorRowForLineNumbers = max(0, min(clampedCursorRowForLineNumbers, len(allLogicalLines)-1))
+	}
+
+	// Cache token positions for each logical line we're rendering
+	lineTokenCache := make(map[int][]highlighter.TokenPosition)
+	if m.highlighter != nil {
+		// Pre-tokenize all visible logical lines
+		for absVisRowIdx := startRenderVisualRow; absVisRowIdx < endRenderVisualRow; absVisRowIdx++ {
+			if absVisRowIdx < 0 || absVisRowIdx >= len(m.visualLayoutCache) {
+				continue
+			}
+			vli := m.visualLayoutCache[absVisRowIdx]
+			if vli.IsFirstSegment && vli.LogicalRow < len(allLogicalLines) {
+				if _, cached := lineTokenCache[vli.LogicalRow]; !cached {
+					tokens := m.highlighter.GetTokensForLine(vli.LogicalRow, allLogicalLines)
+					lineTokenCache[vli.LogicalRow] = highlighter.GetTokenPositions(tokens)
+				}
+			}
+		}
+	}
+
+	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
+		if absVisRowIdxToRender < 0 || absVisRowIdxToRender >= len(m.visualLayoutCache) {
+			break
+		}
+		vli := m.visualLayoutCache[absVisRowIdxToRender]
+		currentSliceRow := renderedDisplayLineCount
+
+		// Render line number
+		if m.showLineNumbers {
+			lineNumStr := ""
+			currentLineNumberStyle := m.theme.LineNumberStyle
+			if vli.IsFirstSegment {
+				if state.RelativeNumbers && !m.disableVimMode && vli.LogicalRow != clampedCursorRowForLineNumbers {
+					relNum := vli.LogicalRow - clampedCursorRowForLineNumbers
+					if relNum < 0 {
+						relNum = -relNum
+					}
+					lineNumStr = strconv.Itoa(relNum)
+				} else {
+					lineNumStr = strconv.Itoa(vli.LogicalRow + 1)
+				}
+				if vli.LogicalRow == clampedCursorRowForLineNumbers {
+					currentLineNumberStyle = m.theme.CurrentLineNumberStyle
+				}
+			}
+			contentBuilder.WriteString(currentLineNumberStyle.Width(lineNumWidth-1).Render(lineNumStr) + " ")
+		}
+
+		// Get token positions for this line
+		var tokenPositions []highlighter.TokenPosition
+		if m.highlighter != nil {
+			if positions, ok := lineTokenCache[vli.LogicalRow]; ok {
+				tokenPositions = positions
+			}
+		}
+
+		// Render the segment
+		if len(tokenPositions) > 0 {
+			m.renderSegmentWithSyntax(
+				vli,
+				tokenPositions,
+				&contentBuilder,
+				currentSliceRow,
+				targetVisualRowInSlice,
+				targetScreenColForCursor,
+				lineNumWidth,
+				selectionStyle,
+				clampedCursorRowForLineNumbers,
+			)
+		} else {
+			// Fall back to original rendering logic (without syntax highlighting)
+			m.renderSegmentPlain(
+				vli,
+				&contentBuilder,
+				currentSliceRow,
+				targetVisualRowInSlice,
+				targetScreenColForCursor,
+				lineNumWidth,
+				selectionStyle,
+			)
+		}
+
+		// Handle cursor at end of line
+		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+len([]rune(vli.Content))) == targetScreenColForCursor)
+		isCursorAtLogicalEndOfLineAndThisIsLastSegment := false
+		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRowForLineNumbers {
+			logicalLineLen := 0
+			if vli.LogicalRow >= 0 && vli.LogicalRow < len(allLogicalLines) {
+				logicalLineLen = len([]rune(allLogicalLines[vli.LogicalRow]))
+			}
+
+			if m.clampedCursorLogicalCol == logicalLineLen && (vli.LogicalStartCol+len([]rune(vli.Content)) == logicalLineLen) {
+				isCursorAtLogicalEndOfLineAndThisIsLastSegment = true
+			}
+		}
+
+		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
+			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
+			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
+
+			baseStyleForCursorBlock := lipgloss.NewStyle()
+			if cursorBlockSelectionStatus != editor.SelectionNone {
+				baseStyleForCursorBlock = selectionStyle
+			}
+
+			if m.cursorVisible {
+				contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
+			}
+		}
+
+		contentBuilder.WriteString("\n")
+		renderedDisplayLineCount++
+	}
+
+	// Render empty lines with tildes
+	for renderedDisplayLineCount < m.viewport.Height {
+		tildeStyle := m.theme.LineNumberStyle
+		if m.showLineNumbers && m.showTildeIndicator {
+			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
+		}
+		contentBuilder.WriteString("\n")
+		renderedDisplayLineCount++
+	}
+
+	finalContentSlice := strings.TrimSuffix(contentBuilder.String(), "\n")
+
+	// Handle placeholder
+	if m.placeholder != "" && m.IsEmpty() {
+		placeholderRunes := []rune(m.placeholder)
+		styledPlaceholder := strings.Builder{}
+
+		if m.showLineNumbers {
+			lineNumStr := "1"
+			lineNumStyle := m.theme.LineNumberStyle
+			if m.theme.CurrentLineNumberStyle.String() != "" {
+				lineNumStyle = m.theme.CurrentLineNumberStyle
+			}
+			styledPlaceholder.WriteString(lineNumStyle.Width(lineNumWidth-1).Render(lineNumStr) + " ")
+		}
+
+		for i, r := range placeholderRunes {
+			if i == 0 && m.isFocused && m.cursorVisible {
+				styledPlaceholder.WriteString(m.getCursorStyles().Foreground(m.theme.PlaceholderStyle.GetForeground()).Render(string(r)))
+			} else {
+				styledPlaceholder.WriteString(m.theme.PlaceholderStyle.Render(string(r)))
+			}
+		}
+
+		finalContentSlice = styledPlaceholder.String()
+	}
+
+	m.viewport.SetContent(finalContentSlice)
+}
+
+// renderSegmentWithSyntax renders a segment with syntax highlighting
+func (m *Model) renderSegmentWithSyntax(
+	vli VisualLineInfo,
+	tokenPositions []highlighter.TokenPosition,
+	contentBuilder *strings.Builder,
+	currentSliceRow int,
+	targetVisualRowInSlice int,
+	targetScreenColForCursor int,
+	lineNumWidth int,
+	selectionStyle lipgloss.Style,
+	clampedCursorRowForLineNumbers int) {
+	segmentRunes := []rune(vli.Content)
+	styledSegment := strings.Builder{}
+
+	charIdx := 0
+	segmentLen := len(segmentRunes)
+
+	for charIdx < segmentLen {
+		currentLogicalCharCol := vli.LogicalStartCol + charIdx
+		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
+
+		// Find the token for this position
+		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, currentLogicalCharCol)
+
+		// Get base style from syntax highlighting
+		baseCharStyle := lipgloss.NewStyle()
+		if hasToken && m.highlighter != nil {
+			baseCharStyle = m.highlighter.GetStyleForToken(token.Type)
+		}
+
+		// Check for highlighted words (this takes precedence over syntax highlighting)
+		charsToAdvance := 1
+		var bestMatchStyle lipgloss.Style
+		bestMatchLen := 0
+
+		if len(m.highlightedWords) > 0 {
+			for wordToHighlight, style := range m.highlightedWords {
+				wordRunes := []rune(wordToHighlight)
+				currentWordLen := len(wordRunes)
+				if currentWordLen == 0 {
+					continue
+				}
+
+				if charIdx+currentWordLen <= segmentLen {
+					match := true
+					for k := range currentWordLen {
+						if segmentRunes[charIdx+k] != wordRunes[k] {
+							match = false
+							break
+						}
+					}
+					if match {
+						// Whole word check
+						isWholeWord := true
+						// Check character before the match
+						if charIdx > 0 {
+							prevChar := segmentRunes[charIdx-1]
+							if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
+								isWholeWord = false
+							}
+						}
+						// Check character after the match
+						if charIdx+currentWordLen < segmentLen {
+							nextChar := segmentRunes[charIdx+currentWordLen]
+							if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
+								isWholeWord = false
+							}
+						}
+
+						if isWholeWord && currentWordLen > bestMatchLen {
+							bestMatchLen = currentWordLen
+							bestMatchStyle = style
+						}
+					}
+				}
+			}
+		}
+
+		if bestMatchLen > 0 {
+			// Render highlighted word
+			for k := range bestMatchLen {
+				idxInSegment := charIdx + k
+				chRuneToStyle := segmentRunes[idxInSegment]
+				logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
+				posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
+
+				charSpecificRenderStyle := bestMatchStyle
+
+				// Apply selection style if needed
+				selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
+				if selectionStatus != editor.SelectionNone {
+					charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
+				}
+
+				currentScreenColForChar := lineNumWidth + idxInSegment
+				isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+				if isCursorOnThisChar && m.isFocused && m.cursorVisible {
+					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+				} else {
+					styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
+				}
+			}
+			charsToAdvance = bestMatchLen
+		} else {
+			// Normal character rendering with syntax highlighting
+			chRuneToStyle := segmentRunes[charIdx]
+
+			// Apply selection style on top of syntax highlighting
+			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
+			if selectionStatus != editor.SelectionNone {
+				baseCharStyle = baseCharStyle.Background(selectionStyle.GetBackground())
+			}
+
+			currentScreenColForChar := lineNumWidth + charIdx
+			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+			if isCursorOnChar && m.isFocused && m.cursorVisible {
+				styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+			} else {
+				styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
+			}
+		}
+
+		charIdx += charsToAdvance
+	}
+
+	contentBuilder.WriteString(styledSegment.String())
+}
+
+// renderSegmentPlain renders a segment without syntax highlighting (fallback)
+func (m *Model) renderSegmentPlain(
+	vli VisualLineInfo,
+	contentBuilder *strings.Builder,
+	currentSliceRow int,
+	targetVisualRowInSlice int,
+	targetScreenColForCursor int,
+	lineNumWidth int,
+	selectionStyle lipgloss.Style,
+) {
+	segmentRunes := []rune(vli.Content)
+	styledSegment := strings.Builder{}
+
+	charIdx := 0
+	segmentLen := len(segmentRunes)
+
+	for charIdx < segmentLen {
+		currentLogicalCharCol := vli.LogicalStartCol + charIdx
+		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
+
+		baseCharStyle := lipgloss.NewStyle()
+		charsToAdvance := 1
+
+		var bestMatchStyle lipgloss.Style
+		bestMatchLen := 0
+
+		// Check for highlighted words
+		if len(m.highlightedWords) > 0 {
+			for wordToHighlight, style := range m.highlightedWords {
+				wordRunes := []rune(wordToHighlight)
+				currentWordLen := len(wordRunes)
+				if currentWordLen == 0 {
+					continue
+				}
+
+				if charIdx+currentWordLen <= segmentLen {
+					match := true
+					for k := range currentWordLen {
+						if segmentRunes[charIdx+k] != wordRunes[k] {
+							match = false
+							break
+						}
+					}
+					if match {
+						// Whole word check
+						isWholeWord := true
+						if charIdx > 0 {
+							prevChar := segmentRunes[charIdx-1]
+							if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
+								isWholeWord = false
+							}
+						}
+						if charIdx+currentWordLen < segmentLen {
+							nextChar := segmentRunes[charIdx+currentWordLen]
+							if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
+								isWholeWord = false
+							}
+						}
+
+						if isWholeWord && currentWordLen > bestMatchLen {
+							bestMatchLen = currentWordLen
+							bestMatchStyle = style
+						}
+					}
+				}
+			}
+		}
+
+		if bestMatchLen > 0 {
+			for k := range bestMatchLen {
+				idxInSegment := charIdx + k
+				chRuneToStyle := segmentRunes[idxInSegment]
+				logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
+				posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
+
+				charSpecificRenderStyle := bestMatchStyle
+
+				selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
+				if selectionStatus != editor.SelectionNone {
+					charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
+				}
+
+				currentScreenColForChar := lineNumWidth + idxInSegment
+				isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+				if isCursorOnThisChar && m.isFocused && m.cursorVisible {
+					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+				} else {
+					styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
+				}
+			}
+			charsToAdvance = bestMatchLen
+		} else {
+			chRuneToStyle := segmentRunes[charIdx]
+
+			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
+			if selectionStatus != editor.SelectionNone {
+				baseCharStyle = selectionStyle
+			}
+
+			currentScreenColForChar := lineNumWidth + charIdx
+			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
+
+			if isCursorOnChar && m.isFocused && m.cursorVisible {
+				styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+			} else {
+				styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
+			}
+		}
+		charIdx += charsToAdvance
+	}
+
+	contentBuilder.WriteString(styledSegment.String())
+}
+
+// handleContentChange is called when the content of the editor changes.
+func (m *Model) handleContentChange() {
+	if m.highlighter != nil {
+		currentLine := m.editor.GetBuffer().GetCursor().Position.Row
+		m.highlighter.InvalidateLine(currentLine)
+		m.highlighter.Tokenize(m.editor.GetBuffer().GetLines())
+	}
+	m.calculateVisualMetrics()
+	m.updateVisualTopLine()
 }

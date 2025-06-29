@@ -19,7 +19,8 @@ A feature-rich, Vim-inspired text editor library for Go.
 
 - **Custom Themes**: Customizable color schemes and styles with [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - **Line numbers**: Optional absolute or relative line numbering
-- **Syntax highlighting**: Customizable word highlighting with styles
+- **Syntax highlighting**: Automatic syntax highlighting for various languages (Go, Python, Markdown, etc.)
+- **Customizable word highlighting**: Highlight specific words with custom styles
 - **Status line**: Shows current mode, cursor position, and file status
 - **Command Line**: Display messages and command input.
 - **Responsive**: Adapts to terminal size changes
@@ -80,7 +81,9 @@ m.HideLineNumbers(true)
 // Set placeholder text
 m.SetPlaceholder("Start typing...")
 
-// Highlight specific words
+// Set language for syntax highlighting
+m.SetLanguage("go", "catppuccin-mocha")
+// OR Highlight specific words
 highlights := map[string]lipgloss.Style{
     "TODO":     lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true),
     "FIXME":    lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
@@ -219,13 +222,13 @@ import (
 )
 
 // Implement core.Clipboard interface
-type atottoClipboard struct{}
+type clipboardImpl struct{}
 
-func (c *atottoClipboard) Write(text string) error {
+func (c *clipboardImpl) Write(text string) error {
 	return clipboard.WriteAll(text)
 }
 
-func (c *atottoClipboard) Read() (string, error) {
+func (c *clipboardImpl) Read() (string, error) {
 	return clipboard.ReadAll()
 }
 
@@ -234,7 +237,7 @@ buffer := core.NewBuffer()
 buffer.SetContent([]byte("Hello, World!"))
 
 // Create an editor
-clipboard := &atottoClipboard{}
+clipboard := &clipboardImpl{}
 editor := core.New(clipboard)
 
 // Handle key events
@@ -248,6 +251,15 @@ content := editor.GetBuffer().GetCurrentContent()
 ## Examples
 
 See [adapter-bubbletea/example/main.go](adapter-bubbletea/example/main.go).
+
+## Acknowledgements
+
+This project utilizes the following excellent libraries:
+
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea): A powerful TUI framework for Go.
+- [Chroma](https://github.com/alecthomas/chroma): A general purpose syntax highlighter in pure Go.
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss): Style definitions for nice terminal layouts.
+- [atotto/clipboard](https://github.com/atotto/clipboard): A cross-platform clipboard package for Go.
 
 ## License
 

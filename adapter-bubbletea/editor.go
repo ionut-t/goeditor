@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 )
 
@@ -91,6 +92,8 @@ type Model struct {
 	cursorMode              CursorMode
 	cursorVisible           bool
 	cursorBlinkContext      *cursorBlinkContext
+	highlighter             *highlighter.Highlighter
+	language                string
 }
 
 type messageMsg string
@@ -127,18 +130,18 @@ func (m *Model) dispatchClearYankMsg() tea.Cmd {
 	})
 }
 
-type atottoClipboard struct{}
+type clipboardImpl struct{}
 
-func (c *atottoClipboard) Write(text string) error {
+func (c *clipboardImpl) Write(text string) error {
 	return clipboard.WriteAll(text)
 }
 
-func (c *atottoClipboard) Read() (string, error) {
+func (c *clipboardImpl) Read() (string, error) {
 	return clipboard.ReadAll()
 }
 
 func New(width, height int) Model {
-	editor := editor.New(&atottoClipboard{})
+	editor := editor.New(&clipboardImpl{})
 	vp := viewport.New(width, height-2)
 
 	m := Model{
@@ -224,6 +227,26 @@ func (m *Model) SetContent(content string) {
 // WithTheme allows setting a custom theme for the editor.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
+}
+
+// SetLanguage sets the programming language for syntax highlighting.
+//
+// If the language is empty, syntax highlighting will be disabled.
+//
+// The theme parameter allows specifying a Chroma theme for the syntax highlighter.
+// For a full list of available themes, see: https://github.com/alecthomas/chroma/blob/master/styles
+func (m *Model) SetLanguage(language string, theme string) {
+	m.language = language
+	if language == "" {
+		m.highlighter = nil
+		return
+	}
+	m.highlighter = highlighter.New(language, theme)
+}
+
+// WithSyntaxHighlighter allows setting a custom syntax highlighter.
+func (m *Model) WithSyntaxHighlighter(highlighter *highlighter.Highlighter) {
+	m.highlighter = highlighter
 }
 
 // HideLineNumbers controls whether to show line numbers in the viewport.
@@ -465,6 +488,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return errMsg(err)
 			})
 		}
+
+		/* TODO: Optimize to only tokenize changed lines if possible. */
+		m.handleContentChange()
 
 		m.cursorVisible = true
 		if m.cursorBlinkContext != nil && m.cursorBlinkContext.cancel != nil {
