@@ -71,6 +71,11 @@ func (sh *Highlighter) Tokenize(lines []string) {
 	sh.cache = make(map[int][]chroma.Token)
 
 	content := strings.Join(lines, "\n")
+	// Ensure content ends with a newline for consistent tokenization,
+	// especially for single lines or the last line of a file.
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
 	if content == "" {
 		return
 	}
