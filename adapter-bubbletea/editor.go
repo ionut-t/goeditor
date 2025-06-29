@@ -94,6 +94,7 @@ type Model struct {
 	cursorBlinkContext      *cursorBlinkContext
 	highlighter             *highlighter.Highlighter
 	language                string
+	highlighterTheme        string
 }
 
 type messageMsg string
@@ -236,11 +237,17 @@ func (m *Model) WithTheme(theme Theme) {
 // The theme parameter allows specifying a Chroma theme for the syntax highlighter.
 // For a full list of available themes, see: https://github.com/alecthomas/chroma/blob/master/styles
 func (m *Model) SetLanguage(language string, theme string) {
+	if m.language == language && m.highlighterTheme == theme {
+		return
+	}
+
 	m.language = language
+	m.highlighterTheme = theme
 	if language == "" {
 		m.highlighter = nil
 		return
 	}
+
 	m.highlighter = highlighter.New(language, theme)
 }
 
