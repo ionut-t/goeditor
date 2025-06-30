@@ -103,7 +103,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			cursor.Position = finalPos // Update cursor position based on function result
 			buffer.SetCursor(cursor)   // Set cursor position in buffer
 			editor.SaveHistory()
-			editor.SetNormalMode()
+			editor.SetInsertMode()
 		}
 
 		actionTaken = true
