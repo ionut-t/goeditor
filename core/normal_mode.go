@@ -186,7 +186,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	case key.Rune == 'w':
 		moveErr = cursor.MoveWordForward(buffer, count, availableWidth)
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, availableWidth)
+		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth)
 	case key.Rune == 'b':
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
 		// case key.Rune == 'e': // Add 'e' - move end of word

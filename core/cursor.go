@@ -386,54 +386,68 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int) e
 	return nil
 }
 
-// MoveWordToEnd moves the cursor to the end of the current word (Vim 'e' behavior)
-// (For simplicity, not implementing count for 'e')
-func (c *Cursor) MoveWordToEnd(buffer Buffer, availableWidth int) error {
+// MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e' behavior).
+func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, availableWidth int) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
-	lineRunes := buffer.GetLineRunes(c.Position.Row)
-	lineLen := len(lineRunes)
-	if c.Position.Col >= lineLen { // Already at or past end
-		return nil // Or maybe try moving to next line's word end? For now, no-op.
+
+	for i := range count {
+		pos := c.Position.Col + 1
+
+		// This loop handles moving across lines to find the next word end.
+	searchLoop:
+		for {
+			lineRunes := buffer.GetLineRunes(c.Position.Row)
+			lineLen := len(lineRunes)
+
+			// If our starting position is beyond the current line, we need to move to the next.
+			if pos >= lineLen {
+				if c.Position.Row >= buffer.LineCount()-1 {
+					// We are at the end of the buffer.
+					if i == 0 {
+						return ErrEndOfBuffer
+					} // If we haven't moved at all, it's an error.
+					goto endMove // Otherwise, we just stop here.
+				}
+				// Move to the start of the next line.
+				c.Position.Row++
+				pos = 0
+				// The searchLoop will restart, processing the new line.
+				continue
+			}
+
+			// 1. Skip any whitespace to find the start of the next word/punctuation.
+			for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
+				pos++
+			}
+
+			// If skipping whitespace took us to the end of the line, restart the search
+			// on the next line.
+			if pos >= lineLen {
+				continue
+			}
+
+			// 2. Now we are at the start of a word or punctuation. Find its end.
+			if isWordChar(lineRunes[pos]) {
+				for pos < lineLen && isWordChar(lineRunes[pos]) {
+					pos++
+				}
+			} else { // Punctuation
+				for pos < lineLen && !isWordChar(lineRunes[pos]) && !isWhiteSpace(lineRunes[pos]) {
+					pos++
+				}
+			}
+
+			// pos is now one char *past* the end. We want to be on the end.
+			c.Position.Col = pos - 1
+			// We've found the word end for this iteration of the count,
+			// so we break out of the searchLoop.
+			break searchLoop
+		}
 	}
 
-	pos := c.Position.Col
-
-	// If on whitespace, move right first to find the next word/punct
-	if isWhiteSpace(lineRunes[pos]) {
-		for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
-			pos++
-		}
-		if pos >= lineLen { // Moved off end of line
-			c.Position.Col = lineLen
-			c.Preferred = c.Position.Col % availableWidth
-			return nil
-		}
-	}
-
-	// Now on a non-whitespace character
-	currentChar := lineRunes[pos]
-
-	// If on word char, move to its end
-	if isWordChar(currentChar) {
-		for pos < lineLen && isWordChar(lineRunes[pos]) {
-			pos++
-		}
-	} else { // On punctuation
-		for pos < lineLen && !isWordChar(lineRunes[pos]) && !isWhiteSpace(lineRunes[pos]) {
-			pos++
-		}
-	}
-
-	// Resulting pos is *after* the end of the word/punctuation block
-	// 'e' command moves *onto* the last character
-	if pos > 0 {
-		c.Position.Col = pos - 1
-	} else {
-		c.Position.Col = 0 // Stay at 0 if word was at start
-	}
-
+endMove:
 	c.Preferred = c.Position.Col % availableWidth
 	return nil
 }
