@@ -74,20 +74,26 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 
 	// --- Visual Mode Actions ---
 	switch key.Rune {
-	case 'd', 'x': // Delete selected text
+	case 'd', 'x': // Delete/Cut selected text
+		if key.Rune == 'x' {
+			_ = editor.Copy('x')
+		}
+
 		var finalPos Position
 		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+
 		if err == nil {
-			cursor.Position = finalPos // Update cursor position based on function result
-			buffer.SetCursor(cursor)   // Set cursor position in buffer
+			cursor.Position = finalPos
+			buffer.SetCursor(cursor)
 			editor.SaveHistory()
-			editor.SetNormalMode() // Exit visual mode after action
+			editor.SetNormalMode()
 		}
+
 		actionTaken = true
 		editor.ResetPendingCount()
 
 	case 'y': // Yank (Copy) selected text
-		if copyErr := editor.Copy(); copyErr != nil {
+		if copyErr := editor.Copy('y'); copyErr != nil {
 			err = &Error{
 				id:  ErrCopyFailedId,
 				err: copyErr,
@@ -132,7 +138,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		count = *state.PendingCount
 		countWasPending = true
 		editor.SetState(state)
-		editor.UpdateCommand("") // Clear count display
+		editor.UpdateCommand("")
 	}
 
 	col := cursor.Position.Col
@@ -150,6 +156,8 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
 	case key.Rune == 'w':
 		moveErr = cursor.MoveWordForward(buffer, count, availableWidth)
+	case key.Rune == 'e':
+		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth)
 	case key.Rune == 'b':
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
 	case key.Rune == '0' || key.Key == KeyHome:
@@ -158,8 +166,10 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		cursor.MoveToLineEnd(buffer, availableWidth)
 	case key.Rune == '^':
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
+	case key.Rune == 'g':
+		cursor.MoveToBufferStart()
 	case key.Rune == 'G':
-		moveErr = cursor.MoveToBufferEnd(buffer, availableWidth)
+		cursor.MoveToBufferEnd(buffer, availableWidth)
 
 	case key.Key == KeyEnter:
 		if count > 0 {
@@ -169,7 +179,6 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			editor.ResetPendingCount()
 		}
 	default:
-		// Ignore other keys or beep?
 		if countWasPending {
 			editor.ResetPendingCount()
 		}
@@ -192,7 +201,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.ResetPendingCount()
 	}
 
-	return err // Return actual errors from movement
+	return err
 }
 
 // deleteVisualSelection handles the logic for deleting the text within a visual selection.
@@ -210,13 +219,8 @@ func deleteVisualSelection(buffer Buffer, startPos, endPos Position) (Position, 
 		count := endSel.Col - startSel.Col + 1 // Inclusive delete
 		if count > 0 {
 			err = buffer.DeleteRunesAt(startSel.Row, startSel.Col, count)
-			// errorMessage = delErr.Error()
-			// err = ErrDeleteRunes
-			// finalCursorPos is already startSel, which is correct here
 		}
 	} else {
-		// Multi-line selection deletion (more complex)
-
 		// 1. Delete from startCol to end of startLine
 		startLine := buffer.GetLineRunes(startSel.Row)
 		startLineLen := len(startLine) // Use rune count if buffer stores runes directly

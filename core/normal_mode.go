@@ -189,10 +189,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth)
 	case key.Rune == 'b':
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
-		// case key.Rune == 'e': // Add 'e' - move end of word
-	case key.Rune == '0': // Already handled if it was the first key
-		// If we reach here, '0' might be part of a count, but non-digit followed
-		// Or just pressed '0' -> move handled above
+	case key.Rune == '0':
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
 		cursor.MoveToLineEnd(buffer, availableWidth) // Move to last char
@@ -201,7 +198,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	case key.Rune == 'g':
 		cursor.MoveToBufferStart() // Move to first line
 	case key.Rune == 'G':
-		moveErr = cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line
+		cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
 		if count == 0 {
 			moveErr = cursor.MoveDown(buffer, count, availableWidth)

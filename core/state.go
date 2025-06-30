@@ -456,7 +456,7 @@ func (e *editor) Paste() (int, error) {
 }
 
 // Copy extracts text based on visual selection or current line and writes to clipboard.
-func (e *editor) Copy() error {
+func (e *editor) Copy(r rune) error {
 	if e.clipboard == nil {
 		return errors.New("clipboard handler not set")
 	}
@@ -556,6 +556,10 @@ func (e *editor) Copy() error {
 	if err := e.clipboard.Write(content); err != nil {
 		errMsg := fmt.Sprintf("failed to copy to clipboard: %v", err)
 		return errors.New(errMsg)
+	}
+
+	if r == 'x' {
+		return nil
 	}
 
 	signal := YankSignal{

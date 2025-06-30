@@ -287,17 +287,10 @@ func (c *Cursor) MoveToBufferStart() {
 }
 
 // MoveToBufferEnd moves the cursor to the start of the last line
-func (c *Cursor) MoveToBufferEnd(buffer Buffer, availableWidth int) error {
+func (c *Cursor) MoveToBufferEnd(buffer Buffer, availableWidth int) {
 	lastLine := max(buffer.LineCount()-1, 0)
 	c.Position.Row = lastLine
-	// Option 1: Go to logical column 0
-	// c.Position.Col = 0
-	// c.Preferred = 0
-
-	// Option 2: Go to first non-blank (like Vim's G)
-	c.MoveToFirstNonBlank(buffer, availableWidth) // This updates Col and Preferred
-
-	return nil
+	c.MoveToFirstNonBlank(buffer, availableWidth)
 }
 
 // --- Word Movement (Using Unicode and Runes) ---

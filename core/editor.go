@@ -51,7 +51,7 @@ type Editor interface {
 	Undo() error
 	Redo() error
 	Paste() (int, error) // Paste from clipboard
-	Copy() error         // Copy to clipboard
+	Copy(r rune) error   // Copy to clipboard
 
 	// Viewport scrolling (Could be part of UpdateState or separate)
 	ScrollViewport()
