@@ -218,6 +218,7 @@ func (m *Model) SetBytes(content []byte) {
 		content = []byte("\n")
 	}
 	m.editor.SetContent(content)
+	m.handleContentChange()
 }
 
 // SetContent sets the content of the editor from a string.
