@@ -165,7 +165,6 @@ func (b *textBuffer) SetCursor(cursor Cursor) {
 	}
 
 	b.cursor = cursor
-	// Preferred column usually updated by movement actions, not direct sets
 }
 
 // --- Buffer Modification (using Runes, more robust newline handling) ---

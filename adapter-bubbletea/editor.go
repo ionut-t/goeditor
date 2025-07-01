@@ -655,6 +655,16 @@ func (m *Model) getStatusLine() string {
 	return statusLine
 }
 
+// SetMaxHistory sets the maximum number of history entries for undo/redo.
+// This allows controlling how many undo steps are kept in memory.
+// If set to 0, no history will be kept.
+// The default value is 1000.
+// If the number of history entries exceeds this limit, the oldest entries will be removed.
+// This is useful for managing memory usage in the editor.
+func (m *Model) SetMaxHistory(max uint32) {
+	m.editor.SetMaxHistory(max)
+}
+
 func (m *Model) listenForEditorUpdate() tea.Cmd {
 	return func() tea.Msg {
 		editorChan := m.editor.GetUpdateSignalChan()

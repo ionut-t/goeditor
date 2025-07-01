@@ -36,10 +36,11 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
 	var err *Error
-	actionTaken := false               // Track if the key (or sequence) resulted in an action
-	state := editor.GetState()         // Get state once
-	pendingCount := state.PendingCount // Use count from state
+	actionTaken := false // Track if the key (or sequence) resulted in an action
+	state := editor.GetState()
+	pendingCount := state.PendingCount
 	availableWidth := state.AvailableWidth
+	skipCursorUpdate := false
 
 	// --- Handle Pending Operation (e.g., after 'd') ---
 	if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
@@ -369,14 +370,16 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 				err: undoErr,
 			}
 		}
+		skipCursorUpdate = true
 
-	case key.Rune == 'U': // Redo
+	case key.Rune == 'U': // Redo (Note: this is uppercase U)
 		if redoErr := editor.Redo(); redoErr != nil {
 			err = &Error{
-				id:  ErrUndoFailedId,
+				id:  ErrRedoFailedId,
 				err: redoErr,
 			}
 		}
+		skipCursorUpdate = true
 
 	case key.Key == KeyBackspace: // Delete character before cursor
 		moveErr = cursor.MoveLeft(buffer, count, availableWidth)
@@ -396,11 +399,12 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	}
 
 	// Update cursor in buffer if no error or only boundary error
-	if (err == nil && moveErr == nil) ||
+	// SKIP THIS IF WE JUST DID UNDO/REDO
+	if !skipCursorUpdate && ((err == nil && moveErr == nil) ||
 		errors.Is(moveErr, ErrEndOfBuffer) ||
 		errors.Is(moveErr, ErrStartOfBuffer) ||
 		errors.Is(moveErr, ErrEndOfLine) ||
-		errors.Is(moveErr, ErrStartOfLine) {
+		errors.Is(moveErr, ErrStartOfLine)) {
 		buffer.SetCursor(cursor) // Update the buffer's cursor state
 		// Don't return boundary errors as fatal errors to the editor loop
 		if err != nil && !(errors.Is(moveErr, ErrEndOfBuffer) || errors.Is(moveErr, ErrStartOfBuffer) || errors.Is(moveErr, ErrEndOfLine) || errors.Is(moveErr, ErrStartOfLine)) {

@@ -66,11 +66,12 @@ type editor struct {
 	modes       map[Mode]EditorMode
 	state       State
 
-	// Undo/Redo History (Simple Implementation)
 	// IMPROVEMENT: Use a more efficient history mechanism (diffs, ring buffer)
-	history      []string  // Store snapshots of buffer content as strings
-	historyPos   int       // Current position in the history (-1 = initial state)
-	maxHistory   int       // Max number of undo steps
+	history       []string // Store snapshots of buffer content as strings
+	cursorHistory []Cursor // Store cursor states corresponding to history
+	historyPos    int      // Current position in the history (-1 = initial state)
+	maxHistory    uint32   // Max number of history entries
+
 	clipboard    Clipboard // Clipboard interface for copy/paste
 	updateSignal chan Signal
 }
@@ -78,14 +79,15 @@ type editor struct {
 // New creates a new editor instance
 func New(clipboard Clipboard) Editor {
 	e := &editor{
-		buffer:       NewBuffer(),
-		modes:        make(map[Mode]EditorMode),
-		state:        InitialState(), // Use initial state function
-		history:      []string{},     // Initialize history
-		historyPos:   -1,             // Start before the first save
-		maxHistory:   100,            // Default history size
-		clipboard:    clipboard,
-		updateSignal: make(chan Signal, 100), // Buffered channel for updates
+		buffer:        NewBuffer(),
+		modes:         make(map[Mode]EditorMode),
+		state:         InitialState(), // Use initial state function
+		history:       []string{},     // Initialize history
+		cursorHistory: []Cursor{},     // Initialize cursor history
+		historyPos:    -1,             // Start before the first save
+		maxHistory:    1000,           // Default history size
+		clipboard:     clipboard,
+		updateSignal:  make(chan Signal, 100), // Buffered channel for updates
 	}
 
 	// Register modes (pass editor instance if modes need it during init)
@@ -111,6 +113,12 @@ func New(clipboard Clipboard) Editor {
 	e.SaveHistory()
 
 	return e
+}
+
+// SetMaxHistory allows setting the maximum number of history entries.
+// Default is 1000.
+func (e *editor) SetMaxHistory(max uint32) {
+	e.maxHistory = max
 }
 
 func (e *editor) DisableVimMode(disable bool) {
@@ -189,6 +197,7 @@ func (e *editor) SetBuffer(buffer Buffer) {
 	e.buffer = buffer
 	// Reset history when buffer changes completely
 	e.history = []string{}
+	e.cursorHistory = []Cursor{}
 	e.historyPos = -1
 	e.SaveHistory()                                       // Save the new buffer's initial state
 	e.UpdateStatus(fmt.Sprintf("-- %s --", e.state.Mode)) // Update status
@@ -377,51 +386,64 @@ func (e *editor) ScrollViewport() {
 
 // --- History Management (Simple Snapshot Implementation) ---
 func (e *editor) SaveHistory() {
-	// Only save if buffer has actually changed since last save?
-	// The current approach saves on *potential* changes (e.g., entering insert mode)
-	// Or after *any* successful modification.
-
-	currentState := e.buffer.GetCurrentContent() // Inefficient for large buffers
+	currentState := e.buffer.GetCurrentContent()
+	currentCursor := e.buffer.GetCursor()
 
 	// If we used Undo, truncate the future history
 	if e.historyPos < len(e.history)-1 {
 		e.history = e.history[:e.historyPos+1]
+		e.cursorHistory = e.cursorHistory[:e.historyPos+1]
 	}
 
 	// Avoid saving duplicate state if no changes occurred
-	if len(e.history) > 0 && e.history[e.historyPos] == currentState {
-		return
+	if len(e.history) > 0 && e.historyPos >= 0 && e.historyPos < len(e.history) {
+		if e.history[e.historyPos] == currentState {
+			// Even if content is the same, update cursor position if it changed
+			if e.historyPos < len(e.cursorHistory) {
+				savedCursor := e.cursorHistory[e.historyPos]
+				if savedCursor.Position.Row != currentCursor.Position.Row ||
+					savedCursor.Position.Col != currentCursor.Position.Col {
+					e.cursorHistory[e.historyPos] = currentCursor
+				}
+			}
+			return
+		}
 	}
 
 	// Add the new state
 	e.history = append(e.history, currentState)
+	e.cursorHistory = append(e.cursorHistory, currentCursor)
 	e.historyPos = len(e.history) - 1
 
+	maxHistory := int(e.maxHistory)
+
 	// Limit history size
-	if len(e.history) > e.maxHistory {
+	if len(e.history) > maxHistory {
 		// Remove the oldest entry
-		e.history = e.history[len(e.history)-e.maxHistory:]
-		e.historyPos = len(e.history) - 1 // Adjust position
+		e.history = e.history[len(e.history)-maxHistory:]
+		e.cursorHistory = e.cursorHistory[len(e.cursorHistory)-maxHistory:]
+		e.historyPos = len(e.history) - 1
 	}
 }
 
 func (e *editor) Undo() error {
-	if e.historyPos <= 0 { // Cannot undo past the initial state
+	if e.historyPos <= 0 {
 		return errors.New("already at oldest change")
 	}
 
 	e.historyPos--
 	prevStateContent := e.history[e.historyPos]
+	prevCursor := e.cursorHistory[e.historyPos]
 
 	if prevStateContent == "" {
-		prevStateContent = "\n" // Handle empty buffer case
+		prevStateContent = "\n"
 	}
 
-	// Preserve cursor position before loading state, then try to restore
-	// IMPROVEMENT: History entries should store cursor position too.
+	e.buffer.SetContent([]byte(prevStateContent))
+	e.buffer.SetCursor(prevCursor)
 
-	e.buffer.SetContent([]byte(prevStateContent)) // Set content from string
-	e.ScrollViewport()                            // Ensure viewport is correct
+	e.ScrollViewport()
+
 	return nil
 }
 
@@ -432,10 +454,13 @@ func (e *editor) Redo() error {
 
 	e.historyPos++
 	nextStateContent := e.history[e.historyPos]
+	nextCursor := e.cursorHistory[e.historyPos]
 
 	e.buffer.SetContent([]byte(nextStateContent))
+	e.buffer.SetCursor(nextCursor)
 
-	e.ScrollViewport() // Ensure viewport is correct
+	e.ScrollViewport()
+
 	return nil
 }
 
@@ -635,7 +660,7 @@ func (e *editor) Quit() {
 func (e *editor) ResetPendingCount() {
 	if e.state.PendingCount != nil {
 		e.state.PendingCount = nil
-		e.UpdateCommand("") // Clear count display when reset
+		e.UpdateCommand("")
 	}
 }
 

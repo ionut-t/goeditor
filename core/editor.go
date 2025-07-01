@@ -70,6 +70,8 @@ type Editor interface {
 	IsVisualMode() bool
 	IsVisualLineMode() bool
 	IsCommandMode() bool
+
+	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
 }
 
 type Clipboard interface {
