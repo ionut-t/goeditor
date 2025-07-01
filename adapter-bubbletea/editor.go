@@ -59,7 +59,7 @@ const (
 )
 
 const cursorBlinkInterval = 500 * time.Millisecond
-const cursorActivityResetDelay = 50 * time.Millisecond
+const cursorActivityResetDelay = 250 * time.Millisecond
 
 type cursorBlinkContext struct {
 	ctx    context.Context
