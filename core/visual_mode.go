@@ -102,6 +102,30 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		actionTaken = true
 		editor.ResetPendingCount()
 
+	case 'p':
+		var finalPos Position
+		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+
+		if err == nil {
+			cursor.Position = finalPos
+			buffer.SetCursor(cursor)
+			editor.SaveHistory()
+			editor.SetNormalMode()
+		}
+
+		var pasteErr error
+		count, pasteErr = editor.Paste()
+
+		if pasteErr != nil {
+			err = &Error{
+				id:  ErrFailedToPasteId,
+				err: pasteErr,
+			}
+		}
+
+		actionTaken = true
+		editor.ResetPendingCount()
+
 	case 'c': // Change selected text (delete + enter insert)
 		var finalPos Position
 		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)

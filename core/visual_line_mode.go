@@ -54,10 +54,6 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
-	// if ShouldHandlePendingKey(m) {
-	// 	return HandlePendingKey(m, editor, buffer, key)
-	// }
-
 	cursor := buffer.GetCursor() // Get current cursor state
 	var err *Error
 	actionTaken := false // Flag if an action was performed
@@ -103,6 +99,39 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 			}
 		}
 		actionTaken = true
+
+	case 'p':
+		startRow, endRow := m.startPos.Row, cursor.Position.Row
+		if startRow > endRow {
+			startRow, endRow = endRow, startRow // Ensure start <= end
+		}
+
+		initialCursor := buffer.GetCursor()
+		initialCursor.Position.Row = startRow
+		buffer.SetCursor(initialCursor)
+
+		err = deleteLineRange(editor, buffer, startRow, endRow)
+
+		if err == nil {
+			editor.SaveHistory()
+			editor.SetNormalMode()
+		}
+
+		actionTaken = true
+
+		var pasteErr error
+		count, pasteErr = editor.Paste()
+
+		if pasteErr != nil {
+			err = &Error{
+				id:  ErrFailedToPasteId,
+				err: pasteErr,
+			}
+		}
+
+		actionTaken = true
+		editor.ResetPendingCount()
+
 	case 'c': // Change selected text (delete + enter insert)
 		var finalPos Position
 		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
@@ -118,7 +147,6 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Mode Switches
 	case 'v': // Switch to character-wise visual mode
-		// Keep selection start, just change mode
 		editor.SetVisualMode() // Switch to character-wise visual mode
 		actionTaken = true     // Mode switch is an action
 	case 'V':
@@ -128,7 +156,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	if actionTaken {
 		return err
-	} // Return if delete/yank/change/mode switch was performed
+	} // Return if delete/yank/paste/change/mode switch was performed
 
 	// --- Visual Line Mode Movements (Update selection end row) ---
 	// Only row movements are relevant for selection extent
