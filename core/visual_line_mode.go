@@ -133,11 +133,16 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.ResetPendingCount()
 
 	case 'c': // Change selected text (delete + enter insert)
-		var finalPos Position
-		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
-		if err == nil {
-			cursor.Position = finalPos // Update cursor position based on function result
-			buffer.SetCursor(cursor)   // Set cursor position in buffer
+		startRow, endRow := m.startPos.Row, cursor.Position.Row
+		if startRow > endRow {
+			startRow, endRow = endRow, startRow // Ensure start <= end
+		}
+
+		initialCursor := buffer.GetCursor()
+		initialCursor.Position.Row = startRow
+		buffer.SetCursor(initialCursor)
+
+		if err = deleteLineRange(editor, buffer, startRow, endRow); err == nil {
 			editor.SaveHistory()
 			editor.SetInsertMode()
 		}
