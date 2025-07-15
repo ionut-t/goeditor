@@ -15,6 +15,13 @@ const (
 	SelectionLine                           // Position is part of a line-wise visual selection
 )
 
+type copyType int
+
+const (
+	yankType copyType = iota
+	cutType
+)
+
 // Editor represents the main editor interface
 type Editor interface {
 	// Buffer manipulation
@@ -50,8 +57,8 @@ type Editor interface {
 	SaveHistory() // Indicate a state should be saved for undo
 	Undo() error
 	Redo() error
-	Paste() (int, error) // Paste from clipboard
-	Copy(r rune) error   // Copy to clipboard
+	Paste() (int, error)    // Paste from clipboard
+	Copy(op copyType) error // Copy to clipboard
 
 	// Viewport scrolling (Could be part of UpdateState or separate)
 	ScrollViewport()

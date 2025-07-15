@@ -70,7 +70,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected lines
 		if key.Rune == 'x' {
-			_ = editor.Copy('x')
+			_ = editor.Copy(cutType)
 		}
 
 		startRow, endRow := m.startPos.Row, cursor.Position.Row
@@ -92,7 +92,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		actionTaken = true
 
 	case 'y': // Yank selected lines
-		if copyErr := editor.Copy('y'); copyErr != nil {
+		if copyErr := editor.Copy(yankType); copyErr != nil {
 			err = &Error{
 				id:  ErrCopyFailedId,
 				err: copyErr,
@@ -133,6 +133,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.ResetPendingCount()
 
 	case 'c': // Change selected text (delete + enter insert)
+		_ = editor.Copy(cutType)
 		startRow, endRow := m.startPos.Row, cursor.Position.Row
 		if startRow > endRow {
 			startRow, endRow = endRow, startRow // Ensure start <= end

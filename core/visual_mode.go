@@ -76,7 +76,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected text
 		if key.Rune == 'x' {
-			_ = editor.Copy('x')
+			_ = editor.Copy(cutType)
 		}
 
 		var finalPos Position
@@ -93,7 +93,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.ResetPendingCount()
 
 	case 'y': // Yank (Copy) selected text
-		if copyErr := editor.Copy('y'); copyErr != nil {
+		if copyErr := editor.Copy(yankType); copyErr != nil {
 			err = &Error{
 				id:  ErrCopyFailedId,
 				err: copyErr,
@@ -127,6 +127,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.ResetPendingCount()
 
 	case 'c': // Change selected text (delete + enter insert)
+		_ = editor.Copy(cutType)
 		var finalPos Position
 		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 		if err == nil {
