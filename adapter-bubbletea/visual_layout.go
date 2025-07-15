@@ -611,7 +611,27 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	// Cache token positions for each logical line we're rendering
 	lineTokenCache := make(map[int][]highlighter.TokenPosition)
 	if m.highlighter != nil {
-		// Pre-tokenize all visible logical lines
+		extraHighlightedContextLines := int(m.extraHighlightedContextLines)
+
+		// Pre-tokenize all visible logical lines, with context
+		startLogicalLine := -1
+		endLogicalLine := -1
+		if len(m.visualLayoutCache) > 0 && m.fullVisualLayoutHeight > 0 {
+			startRenderVisualRowClamped := max(0, min(startRenderVisualRow, len(m.visualLayoutCache)-1))
+			endRenderVisualRowClamped := max(0, min(endRenderVisualRow, len(m.visualLayoutCache)-1))
+
+			startLogicalLine = m.visualLayoutCache[startRenderVisualRowClamped].LogicalRow
+			endLogicalLine = m.visualLayoutCache[endRenderVisualRowClamped].LogicalRow + 1
+
+			// Expand the range for better syntax highlighting context
+			expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
+			expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
+
+			if expandedStartLine < expandedEndLine {
+				m.highlighter.Tokenize(allLogicalLines, expandedStartLine, expandedEndLine)
+			}
+		}
+
 		for absVisRowIdx := startRenderVisualRow; absVisRowIdx < endRenderVisualRow; absVisRowIdx++ {
 			if absVisRowIdx < 0 || absVisRowIdx >= len(m.visualLayoutCache) {
 				continue
@@ -673,7 +693,6 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				targetScreenColForCursor,
 				lineNumWidth,
 				selectionStyle,
-				clampedCursorRowForLineNumbers,
 			)
 		} else {
 			// Fall back to original rendering logic (without syntax highlighting)
@@ -769,8 +788,7 @@ func (m *Model) renderSegmentWithSyntax(
 	targetVisualRowInSlice int,
 	targetScreenColForCursor int,
 	lineNumWidth int,
-	selectionStyle lipgloss.Style,
-	clampedCursorRowForLineNumbers int) {
+	selectionStyle lipgloss.Style) {
 	segmentRunes := []rune(vli.Content)
 	styledSegment := strings.Builder{}
 
@@ -1010,7 +1028,6 @@ func (m *Model) handleContentChange() {
 	if m.highlighter != nil {
 		currentLine := m.editor.GetBuffer().GetCursor().Position.Row
 		m.highlighter.InvalidateLine(currentLine)
-		m.highlighter.Tokenize(m.editor.GetBuffer().GetLines())
 	}
 	m.calculateVisualMetrics()
 	m.updateVisualTopLine()

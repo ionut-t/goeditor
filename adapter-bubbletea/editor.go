@@ -67,34 +67,35 @@ type cursorBlinkContext struct {
 }
 
 type Model struct {
-	editor                  editor.Editor
-	viewport                viewport.Model
-	width                   int
-	height                  int
-	showLineNumbers         bool
-	showTildeIndicator      bool
-	showStatusLine          bool
-	theme                   Theme
-	StatusLineFunc          func() string
-	err                     error
-	message                 string
-	yanked                  bool
-	disableVimMode          bool
-	showMessages            bool
-	fullVisualLayoutHeight  int              // Total number of visual lines in the entire buffer
-	cursorAbsoluteVisualRow int              // Cursor's current row index in the full visual layout
-	currentVisualTopLine    int              // Top line of the current visual slice
-	visualLayoutCache       []VisualLineInfo // Cache of visual line information for the current slice
-	clampedCursorLogicalCol int              // Clamped cursor column in the current visual slice
-	highlightedWords        map[string]lipgloss.Style
-	isFocused               bool
-	placeholder             string
-	cursorMode              CursorMode
-	cursorVisible           bool
-	cursorBlinkContext      *cursorBlinkContext
-	highlighter             *highlighter.Highlighter
-	language                string
-	highlighterTheme        string
+	editor                       editor.Editor
+	viewport                     viewport.Model
+	width                        int
+	height                       int
+	showLineNumbers              bool
+	showTildeIndicator           bool
+	showStatusLine               bool
+	theme                        Theme
+	StatusLineFunc               func() string
+	err                          error
+	message                      string
+	yanked                       bool
+	disableVimMode               bool
+	showMessages                 bool
+	fullVisualLayoutHeight       int              // Total number of visual lines in the entire buffer
+	cursorAbsoluteVisualRow      int              // Cursor's current row index in the full visual layout
+	currentVisualTopLine         int              // Top line of the current visual slice
+	visualLayoutCache            []VisualLineInfo // Cache of visual line information for the current slice
+	clampedCursorLogicalCol      int              // Clamped cursor column in the current visual slice
+	highlightedWords             map[string]lipgloss.Style
+	isFocused                    bool
+	placeholder                  string
+	cursorMode                   CursorMode
+	cursorVisible                bool
+	cursorBlinkContext           *cursorBlinkContext
+	highlighter                  *highlighter.Highlighter
+	language                     string
+	highlighterTheme             string
+	extraHighlightedContextLines uint16
 }
 
 type messageMsg string
@@ -250,6 +251,20 @@ func (m *Model) SetLanguage(language string, theme string) {
 	}
 
 	m.highlighter = highlighter.New(language, theme)
+
+	if language == "markdown" && m.extraHighlightedContextLines == 0 {
+		m.extraHighlightedContextLines = 100
+	}
+}
+
+// SetExtraHighlightedContextLines sets the number of extra lines to highlight around the cursor.
+// This is useful for languages like Markdown where context around the cursor is important and code blocks may span multiple lines.
+// For example, if set to 100, the highlighter will highlight 100 lines above and below the cursor position.
+// This allows for better context when editing Markdown documents, especially when code blocks or large sections are present.
+// If the buffer is very large, this should not be set too high to avoid performance issues.
+// The default value is 100 for Markdown and 0 for other languages.
+func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
+	m.extraHighlightedContextLines = lines
 }
 
 // WithSyntaxHighlighter allows setting a custom syntax highlighter.

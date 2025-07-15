@@ -60,19 +60,18 @@ func (sh *Highlighter) InvalidateLine(lineNum int) {
 	delete(sh.cache, lineNum)
 }
 
-// Tokenize tokenizes the entire content and populates the cache.
-// This is necessary for languages like Markdown that have multi-line structures.
-/* TODO: Optimize to only tokenize changed lines/current line/selection or to render fewer lines for large files */
-func (sh *Highlighter) Tokenize(lines []string) {
+// Tokenize tokenizes only the visible range of lines.
+func (sh *Highlighter) Tokenize(lines []string, startLine, endLine int) {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
 
-	// Clear existing cache
-	sh.cache = make(map[int][]chroma.Token)
+	// Clear cache only for the viewport lines
+	for i := startLine; i < endLine; i++ {
+		delete(sh.cache, i)
+	}
 
-	content := strings.Join(lines, "\n")
-	// Ensure content ends with a newline for consistent tokenization,
-	// especially for single lines or the last line of a file.
+	// Join only the lines in the viewport
+	content := strings.Join(lines[startLine:endLine], "\n")
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
@@ -82,15 +81,14 @@ func (sh *Highlighter) Tokenize(lines []string) {
 
 	iterator, err := sh.lexer.Tokenise(nil, content)
 	if err != nil {
-		// On error, cache empty tokens to avoid re-tokenizing on every render
-		for i := range lines {
+		for i := startLine; i < endLine; i++ {
 			sh.cache[i] = []chroma.Token{}
 		}
 		return
 	}
 
 	tokens := iterator.Tokens()
-	lineNum := 0
+	lineNum := startLine
 	sh.cache[lineNum] = []chroma.Token{}
 
 	for _, token := range tokens {
@@ -112,15 +110,6 @@ func (sh *Highlighter) Tokenize(lines []string) {
 
 // GetTokensForLine returns syntax tokens for a specific line.
 func (sh *Highlighter) GetTokensForLine(lineNum int, lines []string) []chroma.Token {
-	sh.cacheMutex.RLock()
-	// If cache is empty, we need to tokenize. We check for line 0 as a heuristic.
-	_, cached := sh.cache[0]
-	sh.cacheMutex.RUnlock()
-
-	if !cached {
-		sh.Tokenize(lines)
-	}
-
 	sh.cacheMutex.RLock()
 	defer sh.cacheMutex.RUnlock()
 	if tokens, ok := sh.cache[lineNum]; ok {
