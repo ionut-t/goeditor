@@ -524,3 +524,59 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, availableWidth int) 
 	c.Preferred = c.Position.Col % availableWidth // Update preferred visual column
 	return nil
 }
+
+func (c *Cursor) MoveBlockBackward(buffer Buffer, count int) error {
+	if c.Position.Row <= 0 {
+		return ErrStartOfBuffer
+	}
+
+	// Skip non-empty lines
+	for c.Position.Row > 0 {
+		line := buffer.GetLineRunes(c.Position.Row)
+		if len(line) == 0 {
+			break
+		}
+		c.Position.Row--
+	}
+
+	// Skip empty lines
+	for c.Position.Row > 0 {
+		line := buffer.GetLineRunes(c.Position.Row)
+		if len(line) != 0 {
+			break
+		}
+		c.Position.Row--
+	}
+
+	c.Position.Col = 0
+
+	return nil
+}
+
+func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
+	if c.Position.Row >= buffer.LineCount()-1 {
+		return ErrEndOfBuffer
+	}
+
+	// Skip non-empty lines
+	for c.Position.Row < buffer.LineCount()-1 {
+		line := buffer.GetLineRunes(c.Position.Row)
+		if len(line) == 0 {
+			break
+		}
+		c.Position.Row++
+	}
+
+	// Skip empty lines
+	for c.Position.Row < buffer.LineCount()-1 {
+		line := buffer.GetLineRunes(c.Position.Row)
+		if len(line) != 0 {
+			break
+		}
+		c.Position.Row++
+	}
+
+	c.Position.Col = 0
+
+	return nil
+}
