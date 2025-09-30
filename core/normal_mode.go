@@ -184,6 +184,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
+	case key.Rune == '{':
+		moveErr = cursor.MoveBlockBackward(buffer, count)
+	case key.Rune == '}':
+		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
 		moveErr = cursor.MoveWordForward(buffer, count, availableWidth)
 	case key.Rune == 'e':

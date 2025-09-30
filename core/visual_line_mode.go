@@ -206,6 +206,12 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 			moveErr = cursor.MoveRightOrDown(buffer, 1, col)
 			movementAttempted = true
+		case key.Rune == '{':
+			moveErr = cursor.MoveBlockBackward(buffer, count)
+			movementAttempted = true
+		case key.Rune == '}':
+			moveErr = cursor.MoveBlockForward(buffer, count)
+			movementAttempted = true
 		case key.Rune == '0' || key.Key == KeyHome:
 			cursor.MoveToLineStart()
 			movementAttempted = true
