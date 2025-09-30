@@ -30,6 +30,8 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/ionut-t/goeditor/core v0.1.8 h1:3+BKf8q6yHnBrzu69A0xiGi4dXS52OpONcYGvlJ/NVk=
 github.com/ionut-t/goeditor/core v0.1.8/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
+github.com/ionut-t/goeditor/core v0.1.9 h1:POYSb501KnIT2pAPuYjeMXR/xb/VatuLgF2J2Ah9Djs=
+github.com/ionut-t/goeditor/core v0.1.9/go.mod h1:sFe2iuAcaU8xyaYiiPEZBoY+0N+rljwdGH75msGiyBU=
 github.com/lucasb-eyer/go-colorful v1.2.0 h1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=
 github.com/lucasb-eyer/go-colorful v1.2.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
