@@ -482,6 +482,9 @@ func (m *Model) SetCursorPositionEnd() error {
 
 	m.editor.GetBuffer().SetCursor(cursor)
 
+	m.calculateVisualMetrics()
+	m.updateVisualTopLine()
+
 	return nil
 }
 
