@@ -37,6 +37,12 @@ type State struct {
 	AvailableWidth int // Width available for text rendering
 
 	WithCommandMode bool // Whether command mode is enabled
+
+	WithInsertMode bool // Whether insert mode is enabled
+
+	WithVisualMode bool // Whether visual mode is enabled
+
+	WithVisualLineMode bool // Whether visual line mode is enabled
 }
 
 // InitialState creates a default state
@@ -55,7 +61,11 @@ func InitialState() State {
 		RelativeNumbers: false, // Default to absolute numbers
 		Quit:            false,
 		VimMode:         true,
-		WithCommandMode: true,
+
+		WithCommandMode:    true,
+		WithInsertMode:     true,
+		WithVisualMode:     true,
+		WithVisualLineMode: true,
 	}
 }
 
@@ -140,8 +150,16 @@ func (e *editor) DisableCommandMode(disable bool) {
 	e.state.WithCommandMode = !disable
 }
 
-func (e *editor) HasCommandMode() bool {
-	return e.state.WithCommandMode
+func (e *editor) DisableInsertMode(disable bool) {
+	e.state.WithInsertMode = !disable
+}
+
+func (e *editor) DisableVisualMode(disable bool) {
+	e.state.WithVisualMode = !disable
+}
+
+func (e *editor) DisableVisualLineMode(disable bool) {
+	e.state.WithVisualLineMode = !disable
 }
 
 func (e *editor) ShowRelativeLineNumbers(show bool) {
@@ -170,14 +188,26 @@ func (e *editor) SetNormalMode() {
 }
 
 func (e *editor) SetInsertMode() {
+	if !e.state.WithInsertMode {
+		return
+	}
+
 	e.setMode(InsertMode)
 }
 
 func (e *editor) SetVisualMode() {
+	if !e.state.WithVisualMode {
+		return
+	}
+
 	e.setMode(VisualMode)
 }
 
 func (e *editor) SetVisualLineMode() {
+	if !e.state.WithVisualLineMode {
+		return
+	}
+
 	e.setMode(VisualLineMode)
 }
 

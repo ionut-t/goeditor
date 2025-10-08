@@ -346,6 +346,24 @@ func (m *Model) DisableCommandMode(disable bool) {
 	m.editor.DisableCommandMode(disable)
 }
 
+// DisableInsertMode allows disabling insert mode in the editor.
+// This will disable the insert mode functionality, meaning the editor will not respond to insert mode keybindings.
+func (m *Model) DisableInsertMode(disable bool) {
+	m.editor.DisableInsertMode(disable)
+}
+
+// DisableVisualMode allows disabling visual mode in the editor.
+// This will disable the visual mode functionality, meaning the editor will not respond to visual mode keybindings.
+func (m *Model) DisableVisualMode(disable bool) {
+	m.editor.DisableVisualMode(disable)
+}
+
+// DisableVisualLineMode allows disabling visual line mode in the editor.
+// This will disable the visual line mode functionality, meaning the editor will not respond to visual line mode keybindings.
+func (m *Model) DisableVisualLineMode(disable bool) {
+	m.editor.DisableVisualLineMode(disable)
+}
+
 // SetHighlightedWords allows setting highlighted words in the editor.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.

@@ -223,22 +223,34 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		editor.ResetPendingCount() // Clear count if entering insert mode
 
 	case key.Rune == 'I': // Insert at first non-blank
+		if !state.WithInsertMode {
+			return nil
+		}
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 		buffer.SetCursor(cursor) // Update buffer's cursor
 		editor.SetInsertMode()
 		editor.ResetPendingCount() // Clear count if entering insert mode
 
 	case key.Rune == 'a': // Insert after cursor
+		if !state.WithInsertMode {
+			return nil
+		}
 		cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
 		buffer.SetCursor(cursor)                    // Update buffer's cursor
 		editor.SetInsertMode()
 
 	case key.Rune == 'A': // Insert at end of line
+		if !state.WithInsertMode {
+			return nil
+		}
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Move *after* last char
 		buffer.SetCursor(cursor)                          // Update buffer's cursor
 		editor.SetInsertMode()
 
 	case key.Rune == 'o': // Open line below
+		if !state.WithInsertMode {
+			return nil
+		}
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
 		buffer.SetCursor(cursor)
 		buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
