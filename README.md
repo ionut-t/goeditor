@@ -92,7 +92,7 @@ highlights := map[string]lipgloss.Style{
 m.SetHighlightedWords(highlights)
 
 // Set cursor to blink
-m.SetCursorBlinkMode(true)
+textEditor.SetCursorMode(editor.CursorBlink)
 
 // Custom theme
 theme := editor.Theme{
@@ -154,10 +154,10 @@ HasChanges() bool
 IsEmpty() bool
 
 // Mode Control
-SetNormalMode() error
-SetInsertMode() error
-SetVisualMode() error
-SetCommandMode() error
+SetNormalMode()
+SetInsertMode()
+SetVisualMode()
+SetCommandMode()
 DisableVimMode(disable bool)
 
 // Display Options
@@ -192,21 +192,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
     case editor.SaveMsg:
         // Handle save event
-        content := string(msg)
+        content := msg.Content
         // Save to file...
 
     case editor.QuitMsg:
         // Handle quit event
         return m, tea.Quit
 
-    case editor.RenameMsg:
-        // Handle rename event
-        newName := msg.FileName
-        // Rename file...
+    case editor.YankMsg:
+        // Content was yanked (copied)
+        content := msg.Content
+        // you can dispatch a message to the user
+        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes yanked", len(content)), 3 * time.Second)
 
-    case editor.DeleteFileMsg:
-        // Handle delete event
-        // Delete file...
+    case editor.DeleteMsg:
+        // Content was deleted
+        content := msg.Content
+        // you can dispatch a message to the user
+        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes deleted", len(content)), 3 * time.Second)
+
+    case editor.PasteMsg:
+        // Content was pasted
+        content := msg.Content
+        // you can dispatch a message to the user
+        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes pasted", len(content)), 3 * time.Second)
+
+    case editor.ErrorMsg:
+        // An error occurred in the editor
+        err := msg.Error
+        // you can dispatch an error to the user
+        return m, m.editor.DispatchError(err, 3 * time.Second)
     }
 }
 ```
