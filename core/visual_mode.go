@@ -73,9 +73,15 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil
 	}
 
+	state := editor.GetState()
+
 	// --- Visual Mode Actions ---
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected text
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		if key.Rune == 'x' {
 			_ = editor.Copy(cutType)
 		}
@@ -106,6 +112,10 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.ResetPendingCount()
 
 	case 'p':
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		var finalPos Position
 		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 
@@ -132,6 +142,10 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.ResetPendingCount()
 
 	case 'c': // Change selected text (delete + enter insert)
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		_ = editor.Copy(cutType)
 		var finalPos Position
 		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
@@ -159,7 +173,6 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	// --- Visual Mode Movements (Update selection end) ---
 	// Allow regular normal mode movements, they just extend the selection
-	state := editor.GetState()
 	availableWidth := state.AvailableWidth
 
 	countWasPending := false

@@ -264,6 +264,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.SetInsertMode()
 
 	case key.Rune == 'O': // Open line above
+		if !state.WithInsertMode {
+			return nil
+		}
 		cursor.MoveToLineStart()                                   // Go to start of current linavailableWidthe
 		buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
@@ -296,6 +299,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	// Editing commands (single key or start of sequence)
 	case key.Rune == 'x': // Delete character under cursor
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		if cursor.Position.Col < lineLen { // Only delete if cursor is on a char
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count)
@@ -315,6 +322,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete character before cursor
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		if cursor.Position.Col > 0 {
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
 			if err == nil {
@@ -330,11 +341,19 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		}
 
 	case key.Rune == 'D': // Delete to end of line (equivalent to d$)
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		var deletedContent string
 		deletedContent, err = deleteToEndOfLine(editor, buffer)
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		if cursor.Position.Col < lineLen {
 			delCount := lineLen - cursor.Position.Col
@@ -348,6 +367,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			editor.SetInsertMode()   // Enter insert mode
 		}
 	case key.Rune == 'd': // Start 'delete' operation
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		m.pendingKey = key
 		// Don't clear count yet
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
@@ -355,16 +378,24 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'c': // Start 'change' operation
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		m.pendingKey = key
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the next key (motion)
 
-	case key.Rune == 'y': // Start 'yank' operation (TODO)
-		m.pendingKey = key
-		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
-		return nil // Wait for the next key (motion)
+	// case key.Rune == 'y': // Start 'yank' operation (TODO)
+	// m.pendingKey = key
+	// editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+	// return nil // Wait for the next key (motion)
 
 	case key.Rune == 'p':
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		content, pasteErr := editor.Paste()
 		count = len(content)
 

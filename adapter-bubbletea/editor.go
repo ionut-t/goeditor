@@ -398,7 +398,8 @@ func (m *Model) DisableCommandMode(disable bool) {
 }
 
 // DisableInsertMode allows disabling insert mode in the editor.
-// This will disable the insert mode functionality, meaning the editor will not respond to insert mode keybindings.
+// This will disable the insert mode functionality, meaning the editor will not respond to insert mode keybindings
+// and will prevent text modifications.
 func (m *Model) DisableInsertMode(disable bool) {
 	m.editor.DisableInsertMode(disable)
 }

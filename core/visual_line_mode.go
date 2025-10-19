@@ -66,9 +66,15 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
+	state := editor.GetState()
+
 	// --- Visual Line Mode Actions ---
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected lines
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		if key.Rune == 'x' {
 			_ = editor.Copy(cutType)
 		}
@@ -102,6 +108,10 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		actionTaken = true
 
 	case 'p':
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		startRow, endRow := m.startPos.Row, cursor.Position.Row
 		if startRow > endRow {
 			startRow, endRow = endRow, startRow // Ensure start <= end
@@ -136,6 +146,10 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.ResetPendingCount()
 
 	case 'c': // Change selected text (delete + enter insert)
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		_ = editor.Copy(cutType)
 		startRow, endRow := m.startPos.Row, cursor.Position.Row
 		if startRow > endRow {
