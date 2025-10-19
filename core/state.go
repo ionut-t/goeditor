@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -166,11 +165,8 @@ func (e *editor) ShowRelativeLineNumbers(show bool) {
 	e.state.RelativeNumbers = show
 }
 
-func (e *editor) setMode(modeName Mode) error {
-	newMode, ok := e.modes[modeName]
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrInvalidMode, modeName)
-	}
+func (e *editor) setMode(modeName Mode) {
+	newMode := e.modes[modeName]
 
 	if e.currentMode != nil {
 		e.currentMode.Exit(e, e.buffer) // Pass buffer to Exit
@@ -179,8 +175,6 @@ func (e *editor) setMode(modeName Mode) error {
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter
-
-	return nil
 }
 
 func (e *editor) SetNormalMode() {
@@ -246,9 +240,12 @@ func (e *editor) GetUpdateSignalChan() <-chan Signal {
 	return e.updateSignal // Return the read-only channel
 }
 
-func (e *editor) HandleKey(key KeyEvent) error {
+func (e *editor) HandleKey(key KeyEvent) *EditorError {
 	if e.currentMode == nil {
-		return ErrInvalidMode
+		return &EditorError{
+			id:  ErrInvalidModeId,
+			err: errors.New("no current mode set"),
+		}
 	}
 
 	// Let the current mode handle the key
@@ -257,11 +254,7 @@ func (e *editor) HandleKey(key KeyEvent) error {
 	// Update derived state AFTER handling key
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
 
-	if err != nil {
-		return err.err
-	}
-
-	return nil
+	return err
 }
 
 func (e *editor) GetState() State {
@@ -281,11 +274,14 @@ func (e *editor) UpdateStatus(status string) {
 
 // UpdateCommand is a helper for modes to update the command line
 func (e *editor) UpdateCommand(cmd string) {
+	if cmd != "" {
+		e.DispatchSignal(CommandSignal{})
+	}
 	e.state.CommandLine = cmd
 }
 
 // ExecuteCommand executes a command string (typically entered in command mode)
-func (e *editor) ExecuteCommand(cmd string) error {
+func (e *editor) ExecuteCommand(cmd string) *EditorError {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
 		return nil
@@ -300,7 +296,10 @@ func (e *editor) ExecuteCommand(cmd string) error {
 	switch command {
 	case "q", "quit":
 		if e.buffer.IsModified() {
-			return errors.New("unsaved changes (use q! to override)")
+			return &EditorError{
+				id:  ErrUnsavedChangesId,
+				err: ErrUnsavedChanges,
+			}
 		}
 		e.state.Quit = true
 		e.Quit()
@@ -312,12 +311,22 @@ func (e *editor) ExecuteCommand(cmd string) error {
 		return nil
 
 	case "w", "write":
-		if !e.buffer.IsModified() {
-			return ErrNoChangesToSave
+		// If a path is provided, use it; else nil to indicate current file
+		// TODO: Improve file handling
+		if len(args) > 0 {
+			path := args[0]
+			e.Save(&path)
+		} else {
+			if !e.buffer.IsModified() {
+				return &EditorError{
+					id:  ErrNoChangesToSaveId,
+					err: ErrNoChangesToSave,
+				}
+			}
+
+			e.Save(nil)
 		}
 
-		e.DispatchMessage(ChangesSavedMessage)
-		e.Save()
 		return nil
 
 	case "wq":
@@ -331,7 +340,7 @@ func (e *editor) ExecuteCommand(cmd string) error {
 	case "wq!":
 		err := e.ExecuteCommand("w")
 		if err != nil {
-			e.DispatchError(ErrFailedToSaveId, fmt.Errorf("write failed: %s, quitting anyway", err))
+			return err
 		}
 		return e.ExecuteCommand("q!") // Force quit
 
@@ -343,20 +352,26 @@ func (e *editor) ExecuteCommand(cmd string) error {
 			switch args[0] {
 			case "relativenumber", "rnu":
 				e.state.RelativeNumbers = true
-				e.DispatchMessage(RelativeNumbersEnabledMessage)
+				e.DispatchSignal(RelativeNumbersSignal{enabled: true})
 				return nil
 			case "norelativenumber", "nornu":
 				e.state.RelativeNumbers = false
-				e.DispatchMessage(RelativeNumbersDisabledMessage)
+				e.DispatchSignal(RelativeNumbersSignal{enabled: false})
 				return nil
 				// Add 'number'/'nonu' later if needed
 			}
 		}
-		return ErrInvalidCommand
+		return &EditorError{
+			id:  ErrInvalidCommandId,
+			err: ErrInvalidCommand,
+		}
 
 	case "rename":
 		if len(args) != 1 {
-			return ErrRenameFailed
+			return &EditorError{
+				id:  ErrRenameFailedId,
+				err: ErrRenameFailed,
+			}
 		}
 
 		e.DispatchSignal(RenameSignal{
@@ -372,7 +387,7 @@ func (e *editor) ExecuteCommand(cmd string) error {
 	default:
 		// Handle line number navigation (e.g., ":10")
 		lineNum := -1
-		_, scanErr := fmt.Sscan(command, &lineNum) // Use different var name
+		_, scanErr := fmt.Sscan(command, &lineNum)
 		if scanErr == nil && lineNum > 0 {
 			targetRow := lineNum - 1 // User enters 1-based, we use 0-based
 			cursor := e.buffer.GetCursor()
@@ -392,7 +407,10 @@ func (e *editor) ExecuteCommand(cmd string) error {
 			e.ScrollViewport() // Ensure jumped-to line is visible
 			return nil
 		}
-		return ErrInvalidCommand
+		return &EditorError{
+			id:  ErrInvalidCommandId,
+			err: ErrInvalidCommand,
+		}
 	}
 }
 
@@ -456,14 +474,16 @@ func (e *editor) SaveHistory() {
 	}
 }
 
-func (e *editor) Undo() error {
+func (e *editor) Undo() (string, error) {
 	if e.historyPos <= 0 {
-		return errors.New("already at oldest change")
+		return "", errors.New("already at oldest change")
 	}
 
 	e.historyPos--
 	prevStateContent := e.history[e.historyPos]
 	prevCursor := e.cursorHistory[e.historyPos]
+
+	currentStateContent := e.buffer.GetCurrentContent()
 
 	if prevStateContent == "" {
 		prevStateContent = "\n"
@@ -474,13 +494,15 @@ func (e *editor) Undo() error {
 
 	e.ScrollViewport()
 
-	return nil
+	return currentStateContent, nil
 }
 
-func (e *editor) Redo() error {
+func (e *editor) Redo() (string, error) {
 	if e.historyPos >= len(e.history)-1 {
-		return errors.New("already at newest change")
+		return "", errors.New("already at newest change")
 	}
+
+	currentContent := e.buffer.GetCurrentContent()
 
 	e.historyPos++
 	nextStateContent := e.history[e.historyPos]
@@ -491,13 +513,13 @@ func (e *editor) Redo() error {
 
 	e.ScrollViewport()
 
-	return nil
+	return currentContent, nil
 }
 
-func (e *editor) Paste() (int, error) {
+func (e *editor) Paste() (string, error) {
 	content, err := e.clipboard.Read()
 	if err != nil {
-		return 0, fmt.Errorf("failed to read clipboard: %w", err)
+		return "", fmt.Errorf("failed to read clipboard: %w", err)
 	}
 
 	// Insert content at the current cursor position
@@ -507,7 +529,7 @@ func (e *editor) Paste() (int, error) {
 	// Update the state to reflect the new content
 	e.SaveHistory() // Save the new state after pasting
 
-	return len(content), nil
+	return content, nil
 }
 
 // Copy extracts text based on visual selection or current line and writes to clipboard.
@@ -553,7 +575,6 @@ func (e *editor) Copy(op copyType) error {
 
 	// Extract the content based on the calculated range
 	var contentBuilder strings.Builder
-	linesCopied := 0
 
 	if start.Row == end.Row {
 		// Single line copy/selection
@@ -568,7 +589,6 @@ func (e *editor) Copy(op copyType) error {
 		if sliceStartCol < sliceEndCol { // Ensure valid slice range
 			contentBuilder.WriteString(string(lineRunes[sliceStartCol:sliceEndCol]))
 		}
-		linesCopied = 1
 
 	} else {
 		// Multi-line selection
@@ -580,13 +600,11 @@ func (e *editor) Copy(op copyType) error {
 			contentBuilder.WriteString(string(firstLineRunes[sliceStartCol:]))
 		}
 		contentBuilder.WriteRune('\n') // Newline after first partial line
-		linesCopied++
 
 		// 2. Intermediate full lines
 		for r := start.Row + 1; r < end.Row; r++ {
 			contentBuilder.WriteString(string(buffer.GetLineRunes(r)))
 			contentBuilder.WriteRune('\n')
-			linesCopied++
 		}
 
 		// 3. Last line part
@@ -597,7 +615,6 @@ func (e *editor) Copy(op copyType) error {
 		if sliceEndCol > 0 { // Only copy if end is not before beginning
 			contentBuilder.WriteString(string(lastLineRunes[:sliceEndCol]))
 		}
-		linesCopied++
 	}
 
 	// Add trailing newline for line-wise operations
@@ -618,8 +635,7 @@ func (e *editor) Copy(op copyType) error {
 	}
 
 	signal := YankSignal{
-		totalLines:   linesCopied,
-		isVisualLine: e.currentMode.Name() == VisualLineMode,
+		content: content,
 	}
 
 	e.DispatchSignal(signal)
@@ -667,24 +683,15 @@ func (e *editor) GetSelectionStatus(pos Position) SelectionType {
 	return SelectionNone
 }
 
-func (e *editor) Save() {
+func (e *editor) Save(path *string) {
 	e.buffer.SaveContent()
-	signal := SaveSignal{content: e.buffer.GetSavedContent()}
-
-	select {
-	case e.updateSignal <- signal:
-	default:
-		log.Println("Editor: Failed to send SaveSignal - channel full or not ready")
-	}
+	signal := SaveSignal{path: path, content: e.buffer.GetSavedContent()}
+	e.DispatchSignal(signal)
 }
 
 func (e *editor) Quit() {
 	e.state.Quit = true
-	select {
-	case e.updateSignal <- QuitSignal{}:
-	default:
-		log.Println("Editor: Failed to send QuitSignal - channel full or not ready")
-	}
+	e.DispatchSignal(QuitSignal{})
 }
 
 func (e *editor) ResetPendingCount() {

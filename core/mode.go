@@ -20,7 +20,7 @@ type EditorMode interface {
 	// HandleKey processes a key press. It can return an error or signal a mode change.
 	// It takes the current editor *state* and returns the *new desired state*.
 	// This makes state management more explicit.
-	HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error
+	HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError
 	Enter(editor Editor, buffer Buffer) // Called when entering the mode
 	Exit(editor Editor, buffer Buffer)  // Called when exiting the mode
 }

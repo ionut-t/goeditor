@@ -17,8 +17,8 @@ type Buffer interface {
 	LineCount() int                  // Get number of lines
 
 	// Modification
-	InsertRunesAt(row, col int, runes []rune) error // Insert runes (handles newlines)
-	DeleteRunesAt(row, col int, count int) *Error   // Delete runes (handles newlines)
+	InsertRunesAt(row, col int, runes []rune) error     // Insert runes (handles newlines)
+	DeleteRunesAt(row, col int, count int) *EditorError // Delete runes (handles newlines)
 	// ReplaceRunesAt(row, col int, count int, runes []rune) error // Replace (can be Delete + Insert)
 
 	// Cursor
@@ -231,13 +231,13 @@ func (b *textBuffer) InsertRunesAt(row, col int, runes []rune) error {
 }
 
 // DeleteRunesAt deletes count runes starting at the specified position. Handles crossing lines.
-func (b *textBuffer) DeleteRunesAt(row, col int, count int) *Error {
+func (b *textBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 	if count <= 0 {
 		return nil
 	} // Nothing to delete
 
 	if row < 0 || row >= len(b.lines) {
-		return &Error{
+		return &EditorError{
 			id:  ErrInvalidPositionId,
 			err: fmt.Errorf("%s: row %d out of bounds [0, %d)", ErrInvalidPosition, row, len(b.lines)),
 		}
@@ -247,7 +247,7 @@ func (b *textBuffer) DeleteRunesAt(row, col int, count int) *Error {
 	lineLen := len(line)
 
 	if col < 0 || col > lineLen { // Allow deleting *from* len(line) if merging lines
-		return &Error{
+		return &EditorError{
 			id:  ErrInvalidPositionId,
 			err: fmt.Errorf("%s: col %d out of bounds [0, %d]", ErrInvalidPosition, col, lineLen),
 		}

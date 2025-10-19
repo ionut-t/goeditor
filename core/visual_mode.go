@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 )
 
 type visualMode struct {
@@ -55,14 +56,14 @@ func (m *visualMode) SetCurrentCount(count *int) {
 	m.currentCount = count
 }
 
-func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
+func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
 		editor.SetNormalMode()
 		return nil
 	}
 
 	cursor := buffer.GetCursor() // Get current cursor state
-	var err *Error
+	var err *EditorError
 	actionTaken := false // Flag if an action (delete, yank) was performed
 
 	count, processedDigit := getMoveCount(m, editor, key)
@@ -80,7 +81,8 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		}
 
 		var finalPos Position
-		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		var contentDeleted string
+		contentDeleted, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 
 		if err == nil {
 			cursor.Position = finalPos
@@ -91,10 +93,11 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 
 		actionTaken = true
 		editor.ResetPendingCount()
+		editor.DispatchSignal(DeleteSignal{content: contentDeleted})
 
 	case 'y': // Yank (Copy) selected text
 		if copyErr := editor.Copy(yankType); copyErr != nil {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrCopyFailedId,
 				err: copyErr,
 			}
@@ -104,7 +107,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 
 	case 'p':
 		var finalPos Position
-		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 
 		if err == nil {
 			cursor.Position = finalPos
@@ -113,14 +116,16 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			editor.SetNormalMode()
 		}
 
-		var pasteErr error
-		count, pasteErr = editor.Paste()
+		content, pasteErr := editor.Paste()
+		count = len(content)
 
 		if pasteErr != nil {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
 			}
+		} else {
+			editor.DispatchSignal(PasteSignal{content: content})
 		}
 
 		actionTaken = true
@@ -129,7 +134,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	case 'c': // Change selected text (delete + enter insert)
 		_ = editor.Copy(cutType)
 		var finalPos Position
-		finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 		if err == nil {
 			cursor.Position = finalPos // Update cursor position based on function result
 			buffer.SetCursor(cursor)   // Set cursor position in buffer
@@ -235,95 +240,101 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 
 // deleteVisualSelection handles the logic for deleting the text within a visual selection.
 // It takes the buffer, the start position, and the end position of the selection.
-// It returns the calculated cursor position after deletion (usually the start of the
+// It returns the deleted content, the calculated cursor position after deletion (usually the start of the
 // deleted area) and any error encountered during the deletion process.
-func deleteVisualSelection(buffer Buffer, startPos, endPos Position) (Position, *Error) {
-	var err *Error
+func deleteVisualSelection(buffer Buffer, startPos, endPos Position) (string, Position, *EditorError) {
+	var err *EditorError
 
+	var deletedContent string
 	startSel, endSel := NormalizeSelection(startPos, endPos)
 	finalCursorPos := startSel // Default final position is the start of selection
 
 	// Simple case: Single line selection
 	if startSel.Row == endSel.Row {
+		lineRunes := buffer.GetLineRunes(startSel.Row)
 		count := endSel.Col - startSel.Col + 1 // Inclusive delete
 		if count > 0 {
+			endCol := min(startSel.Col+count, len(lineRunes))
+			deletedContent = string(lineRunes[startSel.Col:endCol])
 			err = buffer.DeleteRunesAt(startSel.Row, startSel.Col, count)
 		}
 	} else {
+		// Multi-line selection.
+		// First, gather all the content that will be deleted.
+		var contentBuilder strings.Builder
+		// Part of the first line
+		startLineRunes := buffer.GetLineRunes(startSel.Row)
+		if startSel.Col < len(startLineRunes) {
+			contentBuilder.WriteString(string(startLineRunes[startSel.Col:]))
+		}
+		contentBuilder.WriteString("\n")
+
+		// Intermediate lines
+		for i := startSel.Row + 1; i < endSel.Row; i++ {
+			lineRunes := buffer.GetLineRunes(i)
+			contentBuilder.WriteString(string(lineRunes))
+			contentBuilder.WriteString("\n")
+		}
+
+		// Part of the last line
+		endLineRunes := buffer.GetLineRunes(endSel.Row)
+		if endSel.Col+1 <= len(endLineRunes) {
+			contentBuilder.WriteString(string(endLineRunes[:endSel.Col+1]))
+		} else {
+			contentBuilder.WriteString(string(endLineRunes))
+		}
+		deletedContent = contentBuilder.String()
+
 		// 1. Delete from startCol to end of startLine
 		startLine := buffer.GetLineRunes(startSel.Row)
-		startLineLen := len(startLine) // Use rune count if buffer stores runes directly
-		// Note: If buffer.GetLineRunes includes newline, adjust calculation
+		startLineLen := len(startLine)
 		delCount1 := startLineLen - startSel.Col
 		if delCount1 > 0 {
 			err := buffer.DeleteRunesAt(startSel.Row, startSel.Col, delCount1)
-
 			if err != nil {
-				return finalCursorPos, err
+				return "", finalCursorPos, err
 			}
 		}
 
-		// 2. Delete intermediate full lines (from bottom up to handle shifting indices)
-		// The number of lines *between* start and end (exclusive start, exclusive end)
+		// 2. Delete intermediate full lines
 		linesToDelete := endSel.Row - startSel.Row - 1
 		for range linesToDelete {
-			// The row index to delete is always startSel.Row + 1 because
-			// deleting a line shifts subsequent lines up.
 			targetRow := startSel.Row + 1
 			lineLen := buffer.LineRuneCount(targetRow)
-			// Delete the line content plus the newline character
 			err = buffer.DeleteRunesAt(targetRow, 0, lineLen+1)
 			if err != nil {
-				return finalCursorPos, err // Return immediately on error
+				return "", finalCursorPos, err
 			}
 		}
 
-		// 3. Delete from beginning of the original endLine up to endCol (inclusive)
-		//    AND merge the remaining part of startLine with remaining part of endLine
-		currentEndRow := startSel.Row + 1 // Line index where original endSel content now resides
-		// after intermediate line deletions.
-
-		if currentEndRow < buffer.LineCount() { // Check if the line wasn't deleted entirely
-			delCount2 := endSel.Col + 1 // Delete from column 0 up to endCol (inclusive)
+		// 3. Delete from beginning of the original endLine up to endCol
+		currentEndRow := startSel.Row + 1
+		if currentEndRow < buffer.LineCount() {
+			delCount2 := endSel.Col + 1
 			if delCount2 > 0 {
 				err = buffer.DeleteRunesAt(currentEndRow, 0, delCount2)
 				if err != nil {
-					return finalCursorPos, err // Return immediately on error
+					return "", finalCursorPos, err
 				}
 			}
 
-			// 4. Merge lines: Delete the newline character between the modified startRow
-			//    and the modified endRow. This newline is now at the end of startRow.
+			// 4. Merge lines
 			startLineLenAfterDel := buffer.LineRuneCount(startSel.Row)
-			if startLineLenAfterDel >= 0 && startSel.Row+1 < buffer.LineCount() { // Ensure there's a newline to delete
-				err = buffer.DeleteRunesAt(startSel.Row, startLineLenAfterDel, 1) // Delete newline
+			if startLineLenAfterDel >= 0 && startSel.Row+1 < buffer.LineCount() {
+				err = buffer.DeleteRunesAt(startSel.Row, startLineLenAfterDel, 1)
 				if err != nil {
-					// This error might occur if the start line became empty etc.
-					// Depending on desired behavior, might log or handle differently.
-					return finalCursorPos, err
+					return "", finalCursorPos, err
 				}
 			}
 		} else {
-			// The original end line was one of the intermediate lines deleted entirely.
-			// Or it was the line immediately after startLine and got fully consumed
-			// by step 1 & potentially merging.
-			// The merge step (4) might still be needed if startLine had content remaining
-			// and the line below it (originally endLine) was deleted. Check if startLine
-			// ends with a newline that shouldn't be there.
-
-			// Safest approach might be to just rely on the cursor position update below.
-			// However, ensure step 1 didn't leave a dangling newline if it deleted the whole line content.
-			// If startLineLen == delCount1, step 1 deleted the whole content. Check if a newline remains.
 			if startLineLen == delCount1 && buffer.LineRuneCount(startSel.Row) == 0 && startSel.Row+1 < buffer.LineCount() {
-				// Delete the newline that originally belonged to startSel.Row
 				err = buffer.DeleteRunesAt(startSel.Row, 0, 1)
 				if err != nil {
-					return finalCursorPos, err
+					return "", finalCursorPos, err
 				}
 			}
-
 		}
 	}
 
-	return finalCursorPos, err
+	return deletedContent, finalCursorPos, err
 }

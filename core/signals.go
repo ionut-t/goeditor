@@ -3,38 +3,54 @@ package core
 type Signal any
 
 type YankSignal struct {
-	totalLines   int
-	isVisualLine bool
-}
-
-func (y YankSignal) Value() (totalLines int, isVisualLine bool) {
-	totalLines = y.totalLines
-	isVisualLine = y.isVisualLine
-
-	return totalLines, isVisualLine
+	content string
 }
 
 type PasteSignal struct {
-	totalLines int
+	content string
 }
 
-func (p PasteSignal) Value() int {
-	return p.totalLines
+func (p PasteSignal) Value() string {
+	return p.content
+}
+
+type CommandSignal struct{}
+
+func (y YankSignal) Value() string {
+	return y.content
 }
 
 type DeleteSignal struct {
-	totalLines int
+	content string
 }
 
-func (d DeleteSignal) Value() int {
-	return d.totalLines
+func (d DeleteSignal) Value() string {
+	return d.content
 }
 
-type UndoSignal struct{}
+type RelativeNumbersSignal struct {
+	enabled bool
+}
 
-func (u UndoSignal) Value() {}
+func (r RelativeNumbersSignal) Value() bool {
+	return r.enabled
+}
 
-type RedoSignal struct{}
+type UndoSignal struct {
+	contentBefore string
+}
+
+func (u UndoSignal) Value() string {
+	return u.contentBefore
+}
+
+type RedoSignal struct {
+	contentBefore string
+}
+
+func (r RedoSignal) Value() string {
+	return r.contentBefore
+}
 
 type RenameSignal struct {
 	fileName string
@@ -48,29 +64,21 @@ type DeleteFileSignal struct{}
 
 func (d DeleteFileSignal) Value() {}
 
-type MessageSignal struct {
-	id    string
-	value string
-}
-
-func (m MessageSignal) Value() (id, message string) {
-	id = m.id
-	message = m.value
-
-	return id, message
-}
-
 type SaveSignal struct {
+	path    *string
 	content string
 }
 
-func (s SaveSignal) Value() string {
-	return s.content
+func (s SaveSignal) Value() (path *string, content string) {
+	path = s.path
+	content = s.content
+
+	return path, content
 }
 
 type QuitSignal struct{}
 
-type ErrorSignal Error
+type ErrorSignal EditorError
 
 func (e ErrorSignal) Value() (id ErrorId, err error) {
 	id = e.id

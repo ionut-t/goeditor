@@ -1,13 +1,19 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 )
+
+const messageDuration = 3 * time.Second
 
 type Model struct {
 	editor editor.Model
@@ -29,22 +35,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case editor.ErrorMsg:
+		return m, m.editor.DispatchError(msg.Error, messageDuration)
+
+	case editor.YankMsg:
+		return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes yanked", len(msg.Content)), messageDuration)
+
+	case editor.DeleteMsg:
+		return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes deleted", len(msg.Content)), messageDuration)
+
 	case editor.SaveMsg:
-		if err := os.WriteFile(m.file, []byte(msg), 0644); err != nil {
-			log.Println("Error saving file:", err)
-			os.Exit(1)
+		if msg.Path != nil {
+			m.file = *msg.Path
 		}
+
+		filePath := m.file
+		if strings.HasPrefix(filePath, "~/") {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return m, m.editor.DispatchError(err, messageDuration)
+			} else {
+				filePath = filepath.Join(homeDir, filePath[2:])
+			}
+		}
+
+		if err := os.WriteFile(filePath, []byte(msg.Content), 0644); err != nil {
+			return m, m.editor.DispatchError(err, messageDuration)
+		}
+
+		return m, m.editor.DispatchMessage(fmt.Sprintf("file saved to %s", m.file), messageDuration)
 
 	case editor.RenameMsg:
 		if err := os.Rename(m.file, msg.FileName); err != nil {
-			log.Println("Error renaming file:", err)
-			os.Exit(1)
+			return m, m.editor.DispatchError(err, messageDuration)
 		}
 
 	case editor.DeleteFileMsg:
 		if err := os.Remove(m.file); err != nil {
-			log.Println("Error deleting file:", err)
-			os.Exit(1)
+			return m, m.editor.DispatchError(err, messageDuration)
 		}
 
 		return m, tea.Quit
@@ -84,9 +112,8 @@ func main() {
 	}
 
 	textEditor := editor.New(80, 20)
-	textEditor.ShowMessages(true)
 	textEditor.Focus()
-	textEditor.SetCursorBlinkMode(true)
+	textEditor.SetCursorMode(editor.CursorBlink)
 	textEditor.SetLanguage(lang, "catppuccin-mocha")
 
 	if content, err := os.ReadFile(file); err == nil {

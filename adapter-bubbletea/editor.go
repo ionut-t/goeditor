@@ -54,8 +54,8 @@ type resumeBlinkCycleMsg struct{}
 type CursorMode int
 
 const (
-	CursorBlink CursorMode = iota
-	CursorSteady
+	CursorSteady CursorMode = iota
+	CursorBlink
 )
 
 const cursorBlinkInterval = 500 * time.Millisecond
@@ -80,7 +80,6 @@ type Model struct {
 	message                      string
 	yanked                       bool
 	disableVimMode               bool
-	showMessages                 bool
 	fullVisualLayoutHeight       int              // Total number of visual lines in the entire buffer
 	cursorAbsoluteVisualRow      int              // Cursor's current row index in the full visual layout
 	currentVisualTopLine         int              // Top line of the current visual slice
@@ -92,27 +91,44 @@ type Model struct {
 	cursorMode                   CursorMode
 	cursorVisible                bool
 	cursorBlinkContext           *cursorBlinkContext
+	clearMsgCancel               context.CancelFunc
 	highlighter                  *highlighter.Highlighter
 	language                     string
 	highlighterTheme             string
 	extraHighlightedContextLines uint16
 }
 
-type messageMsg string
+type ErrorMsg struct {
+	ID    editor.ErrorId
+	Error error
+}
 
-type errMsg error
-
-type SaveMsg string
+type SaveMsg struct {
+	Path    *string
+	Content string
+}
 
 type QuitMsg struct{}
 
 type clearMsg struct{}
 
-type yankMsg struct {
-	message string
+type commandMsg struct{}
+
+// yankedMsg is an internal message indicating that content has been yanked.
+// It handles the visual feedback for yanked content and dispatches the YankMsg to the consumer.
+type yankedMsg struct {
+	Content string
+}
+
+type YankMsg struct {
+	Content string
 }
 
 type clearYankMsg struct{}
+
+type PasteMsg struct {
+	Content string
+}
 
 type RenameMsg struct {
 	FileName string
@@ -120,10 +136,38 @@ type RenameMsg struct {
 
 type DeleteFileMsg struct{}
 
-func (m *Model) dispatchClearMsg() tea.Cmd {
-	return tea.Tick(time.Second*3, func(t time.Time) tea.Msg {
-		return clearMsg{}
-	})
+type RelativeNumbersChangeMsg struct {
+	Enabled bool
+}
+
+type DeleteMsg struct {
+	Content string
+}
+
+type UndoMsg struct {
+	ContentBefore string
+}
+
+type RedoMsg struct {
+	ContentBefore string
+}
+
+func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
+	if m.clearMsgCancel != nil {
+		m.clearMsgCancel()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	m.clearMsgCancel = cancel
+
+	return func() tea.Msg {
+		defer cancel()
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			return clearMsg{}
+		}
+		return nil
+	}
 }
 
 func (m *Model) dispatchClearYankMsg() tea.Cmd {
@@ -272,6 +316,22 @@ func (m *Model) WithSyntaxHighlighter(highlighter *highlighter.Highlighter) {
 	m.highlighter = highlighter
 }
 
+// DispatchMessage allows setting a message to be displayed in the command line for a specified duration.
+func (m *Model) DispatchMessage(message string, duration time.Duration) tea.Cmd {
+	m.message = message
+	m.err = nil
+
+	return m.dispatchClearMsg(duration)
+}
+
+// DispatchError allows setting an error to be displayed in the command line for a specified duration.
+func (m *Model) DispatchError(err error, duration time.Duration) tea.Cmd {
+	m.err = err
+	m.message = ""
+
+	return m.dispatchClearMsg(duration)
+}
+
 // HideLineNumbers controls whether to show line numbers in the viewport.
 func (m *Model) HideLineNumbers(hide bool) {
 	m.showLineNumbers = !hide
@@ -298,15 +358,6 @@ func (m *Model) ShowTildeIndicator(show bool) {
 // If Vim mode is disabled, this will not have any effect.
 func (m *Model) HideStatusLine(hide bool) {
 	m.showStatusLine = !hide
-}
-
-// ShowMessages controls whether to show messages in the command line.
-// This is useful for displaying messages like "1 line yanked" or "File saved successfully".
-// If Vim mode is disabled, this will not have any effect.
-// If set to false, messages will not be displayed in the command line.
-// Instead, they will be handled internally and not shown to the user.
-func (m *Model) ShowMessages(show bool) {
-	m.showMessages = show
 }
 
 // GetSavedContent returns the saved content of the editor buffer
@@ -447,22 +498,12 @@ func (m *Model) IsEmpty() bool {
 }
 
 // SetCursorMode sets the cursor mode for the editor.
+// It can be either CursorSteady or CursorBlink.
+//
+// Warning: Enabling CursorBlink may have performance implications.
 func (m *Model) SetCursorMode(mode CursorMode) {
 	m.cursorMode = mode
-	if mode == CursorBlink {
-		m.cursorVisible = true
-	} else {
-		m.cursorVisible = m.isFocused
-	}
-}
-
-// SetCursorBlinkMode sets the cursor mode to blinking or steady.
-func (m *Model) SetCursorBlinkMode(blink bool) {
-	if blink {
-		m.SetCursorMode(CursorBlink)
-	} else {
-		m.SetCursorMode(CursorSteady)
-	}
+	m.cursorVisible = m.isFocused
 }
 
 // SetCursorPosition sets the cursor position in the editor.
@@ -529,7 +570,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		err := m.editor.HandleKey(keyEvent)
 		if err != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return errMsg(err)
+				return ErrorMsg{ID: err.ID(), Error: err.Error()}
 			})
 		}
 
@@ -551,27 +592,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.updateVisualTopLine()
 
-	case messageMsg:
-		m.message = string(msg)
-		m.err = nil
-		cmds = append(cmds, m.dispatchClearMsg())
-
-	case errMsg:
+	case commandMsg:
 		m.message = ""
-		m.err = msg
-		cmds = append(cmds, m.dispatchClearMsg())
-
-	case yankMsg:
-		if m.showMessages {
-			m.message = msg.message
-		}
 		m.err = nil
-		m.yanked = true
-		cmds = append(cmds, m.dispatchClearMsg(), m.dispatchClearYankMsg())
+		if m.clearMsgCancel != nil {
+			m.clearMsgCancel()
+		}
 
 	case clearMsg:
 		m.message = ""
 		m.err = nil
+		m.clearMsgCancel = nil
+
+	case yankedMsg:
+		m.yanked = true
+		return m, tea.Batch(
+			func() tea.Msg {
+				return YankMsg(msg)
+			},
+			m.dispatchClearYankMsg(),
+		)
 
 	case clearYankMsg:
 		m.yanked = false
@@ -707,38 +747,29 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 		signal := <-editorChan
 
 		switch signal := signal.(type) {
-		case editor.MessageSignal:
-			_, message := signal.Value()
-			if m.showMessages {
-				return messageMsg(message)
-			}
-
-			return nil
+		case editor.CommandSignal:
+			return commandMsg{}
 
 		case editor.ErrorSignal:
-			_, err := signal.Value()
-			return errMsg(err)
+			id, err := signal.Value()
+			return ErrorMsg{ID: id, Error: err}
 
 		case editor.YankSignal:
-			totalLines, isVisualLine := signal.Value()
-			message := ""
-			if isVisualLine {
-				if totalLines == 1 {
-					message = "1 line yanked"
-				} else {
-					message = fmt.Sprintf("%d lines yanked", totalLines)
-				}
-			} else {
-				message = "selection yanked"
+			content := signal.Value()
+			return yankedMsg{
+				Content: content,
 			}
 
-			return yankMsg{message}
+		case editor.PasteSignal:
+			content := signal.Value()
+			return PasteMsg{Content: content}
 
 		case editor.SaveSignal:
-			return SaveMsg(signal.Value())
+			path, content := signal.Value()
+			return SaveMsg{Path: path, Content: content}
 
 		case editor.EnterCommandModeSignal:
-			return messageMsg("")
+			return clearMsg{}
 
 		case editor.QuitSignal:
 			return QuitMsg{}
@@ -748,6 +779,18 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case editor.DeleteFileSignal:
 			return DeleteFileMsg{}
+
+		case editor.RelativeNumbersSignal:
+			return RelativeNumbersChangeMsg{Enabled: signal.Value()}
+
+		case editor.DeleteSignal:
+			return DeleteMsg{Content: signal.Value()}
+
+		case editor.UndoSignal:
+			return UndoMsg{ContentBefore: signal.Value()}
+
+		case editor.RedoSignal:
+			return RedoMsg{ContentBefore: signal.Value()}
 		}
 
 		return nil

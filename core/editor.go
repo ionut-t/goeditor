@@ -44,7 +44,7 @@ type Editor interface {
 	DisableVisualLineMode(bool)
 
 	// Event handling
-	HandleKey(key KeyEvent) error // Process a key press
+	HandleKey(key KeyEvent) *EditorError // Process a key press
 
 	// State Management
 	GetState() State      // Get the current editor state
@@ -53,23 +53,22 @@ type Editor interface {
 	UpdateCommand(string) // Helper to set command line
 
 	// Command execution (Called from Command Mode)
-	ExecuteCommand(cmd string) error
+	ExecuteCommand(cmd string) *EditorError
 
 	// History management
 	SaveHistory() // Indicate a state should be saved for undo
-	Undo() error
-	Redo() error
-	Paste() (int, error)    // Paste from clipboard
+	Undo() (string, error)
+	Redo() (string, error)
+	Paste() (string, error) // Paste from clipboard
 	Copy(op copyType) error // Copy to clipboard
 
 	// Viewport scrolling (Could be part of UpdateState or separate)
 	ScrollViewport()
 	GetUpdateSignalChan() <-chan Signal            // For UI updates
 	GetSelectionStatus(pos Position) SelectionType // Get selection status of a position
-	Save()                                         // Save the current buffer content
+	Save(*string)                                  // Save the current buffer content
 	Quit()                                         // Signal to quit the editor
 	DispatchError(id ErrorId, err error)           // Dispatch errors to consumers
-	DispatchMessage(args ...string)                // Dispatch (success) messages to consumers
 	DispatchSignal(signal Signal)                  // Dispatch signals to consumers
 	ResetPendingCount()
 

@@ -15,10 +15,10 @@ func (m *insertMode) Enter(editor Editor, buffer Buffer) {
 
 func (m *insertMode) Exit(editor Editor, buffer Buffer) {}
 
-func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
+func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	cursor := buffer.GetCursor()
 	row, col := cursor.Position.Row, cursor.Position.Col
-	var err *Error
+	var err *EditorError
 
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
@@ -55,7 +55,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			}
 		} else {
 			// Cannot backspace at start of buffer
-			err = &Error{
+			err = &EditorError{
 				err: ErrStartOfBuffer,
 				id:  ErrStartOfBufferId,
 			}
@@ -73,7 +73,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			buffer.SetCursor(cursor)
 			editor.SaveHistory()
 		} else {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrInvalidPositionId,
 				err: insertErr,
 			}
@@ -89,7 +89,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			buffer.SetCursor(cursor)
 			editor.SaveHistory()
 		} else {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrInvalidPositionId,
 				err: insertErr,
 			}
@@ -137,7 +137,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 				buffer.SetCursor(cursor)
 				editor.SaveHistory() // Save after modification
 			} else {
-				err = &Error{
+				err = &EditorError{
 					id:  ErrInvalidPositionId,
 					err: insertErr,
 				}

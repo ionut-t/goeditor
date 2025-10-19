@@ -48,14 +48,14 @@ func (m *visualLineMode) SetCurrentCount(count *int) {
 	m.currentCount = count
 }
 
-func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
+func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
 		editor.SetNormalMode()
 		return nil
 	}
 
 	cursor := buffer.GetCursor() // Get current cursor state
-	var err *Error
+	var err *EditorError
 	actionTaken := false // Flag if an action was performed
 	availableWidth := editor.GetState().AvailableWidth
 
@@ -82,18 +82,19 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
 
-		err = deleteLineRange(editor, buffer, startRow, endRow)
+		contentDeleted, err := deleteLineRange(editor, buffer, startRow, endRow)
 
 		if err == nil {
 			editor.SaveHistory()
 			editor.SetNormalMode()
+			editor.DispatchSignal(DeleteSignal{content: contentDeleted})
 		}
 
 		actionTaken = true
 
 	case 'y': // Yank selected lines
 		if copyErr := editor.Copy(yankType); copyErr != nil {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrCopyFailedId,
 				err: copyErr,
 			}
@@ -110,7 +111,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
 
-		err = deleteLineRange(editor, buffer, startRow, endRow)
+		_, err = deleteLineRange(editor, buffer, startRow, endRow)
 
 		if err == nil {
 			editor.SaveHistory()
@@ -119,14 +120,16 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 		actionTaken = true
 
-		var pasteErr error
-		count, pasteErr = editor.Paste()
+		content, pasteErr := editor.Paste()
+		count = len(content)
 
 		if pasteErr != nil {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
 			}
+		} else {
+			editor.DispatchSignal(PasteSignal{content: content})
 		}
 
 		actionTaken = true
@@ -143,7 +146,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
 
-		if err = deleteLineRange(editor, buffer, startRow, endRow); err == nil {
+		if _, err = deleteLineRange(editor, buffer, startRow, endRow); err == nil {
 			editor.SaveHistory()
 			editor.SetInsertMode()
 		}
@@ -259,9 +262,9 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 // Helper function to delete a range of lines (inclusive)
 // Similar to deleteLines from normalMode but takes range directly
-func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Error {
+func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string, *EditorError) {
 	if startRow < 0 || endRow >= buffer.LineCount() || startRow > endRow {
-		return &Error{
+		return "", &EditorError{
 			id:  ErrInvalidPositionId,
 			err: errors.New("invalid line range for deletion"),
 		}
@@ -269,8 +272,8 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Error 
 
 	availableWidth := editor.GetState().AvailableWidth
 
-	linesDeleted := 0
-	var firstErr *Error
+	contentDeleted := ""
+	var firstErr *EditorError
 
 	// Delete lines from bottom up to keep indices valid
 	for i := endRow; i >= startRow; i-- {
@@ -281,7 +284,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Error 
 				firstErr = err
 			}
 			if err == nil {
-				linesDeleted++
+				contentDeleted += string(lineRunes) + "\n"
 			}
 		} else {
 			// Clear the last line
@@ -290,7 +293,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Error 
 				firstErr = err
 			}
 			if err == nil {
-				linesDeleted++ // Count clearing as deletion
+				contentDeleted += string(buffer.GetLineRunes(i)) + "\n"
 			}
 		}
 	}
@@ -312,5 +315,5 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Error 
 
 	}
 
-	return firstErr
+	return contentDeleted, firstErr
 }

@@ -34,8 +34,8 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 }
 
-func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
-	var err *Error
+func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	var err *EditorError
 	actionTaken := false // Track if the key (or sequence) resulted in an action
 	state := editor.GetState()
 	pendingCount := state.PendingCount
@@ -62,7 +62,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		case 'c': // Add change later
 			op = "change"
 		default:
-			return &Error{
+			return &EditorError{
 				id:  ErrNoPendingOperationId,
 				err: ErrNoPendingOperation,
 			}
@@ -72,7 +72,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		switch key.Rune {
 		case 'd': // dd = delete line
 			if op == "delete" {
-				err = deleteLines(editor, buffer, count)
+				var deletedContent string
+				deletedContent, err = deleteLines(editor, buffer, count)
+				editor.DispatchSignal(DeleteSignal{content: deletedContent})
 				actionTaken = true
 			}
 		case 'w': // dw = delete word
@@ -83,7 +85,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 			// Add more motions: b, e, $, 0, ^, G, etc.
 		case '$': // d$ delete to end of line
 			if op == "delete" {
-				err = deleteToEndOfLine(editor, buffer)
+				var deletedContent string
+				deletedContent, err = deleteToEndOfLine(editor, buffer)
+				editor.DispatchSignal(DeleteSignal{content: deletedContent})
 				actionTaken = true
 			}
 
@@ -105,7 +109,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 
 		// If we fall through here, it means the second key wasn't a recognized motion
 		// for the pending operator. We just discard the pending op.
-		editor.DispatchMessage(EmptyMessage)
 
 		return nil
 	}
@@ -280,7 +283,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		pendingCount = nil
 		m.pendingKey = KeyEvent{Key: KeyUnknown}
 		editor.UpdateCommand("") // Clear count display
-		editor.DispatchMessage(EmptyMessage)
 		editor.SetNormalMode()
 
 	case key.Rune == ':': // Enter command mode
@@ -321,21 +323,16 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 				editor.SaveHistory()
 			}
 		} else {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrStartOfLineId,
 				err: ErrStartOfLine,
 			}
 		}
 
 	case key.Rune == 'D': // Delete to end of line (equivalent to d$)
-		lineLen := buffer.LineRuneCount(cursor.Position.Row)
-		if cursor.Position.Col < lineLen {
-			delCount := lineLen - cursor.Position.Col
-			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, delCount)
-			if err == nil {
-				editor.SaveHistory()
-			}
-		}
+		var deletedContent string
+		deletedContent, err = deleteToEndOfLine(editor, buffer)
+		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
@@ -368,32 +365,39 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'p':
-		var pasteErr error
-		count, pasteErr = editor.Paste()
+		content, pasteErr := editor.Paste()
+		count = len(content)
+
 		cursor.MoveRight(buffer, count, availableWidth)
 
 		if pasteErr != nil {
-			err = &Error{
+			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
 			}
+		} else {
+			editor.DispatchSignal(PasteSignal{content: content})
 		}
 
 	case key.Rune == 'u': // Undo
-		if undoErr := editor.Undo(); undoErr != nil {
-			err = &Error{
+		if content, undoErr := editor.Undo(); undoErr != nil {
+			err = &EditorError{
 				id:  ErrUndoFailedId,
 				err: undoErr,
 			}
+		} else {
+			editor.DispatchSignal(UndoSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 
-	case key.Rune == 'U': // Redo (Note: this is uppercase U)
-		if redoErr := editor.Redo(); redoErr != nil {
-			err = &Error{
+	case key.Rune == 'U': // Redo
+		if content, redoErr := editor.Redo(); redoErr != nil {
+			err = &EditorError{
 				id:  ErrRedoFailedId,
 				err: redoErr,
 			}
+		} else {
+			editor.DispatchSignal(RedoSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 
@@ -432,7 +436,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Erro
 	return err // Return other errors
 }
 
-func deleteLines(editor Editor, buffer Buffer, count int) (err *Error) {
+func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError) {
 	cursor := buffer.GetCursor()
 	startLine := cursor.Position.Row
 	endLine := startLine + count - 1
@@ -442,22 +446,24 @@ func deleteLines(editor Editor, buffer Buffer, count int) (err *Error) {
 		endLine = buffer.LineCount() - 1
 	}
 
-	linesDeleted := 0
+	var deletedContent string
+	var err *EditorError
+
 	// Delete lines from bottom up to keep indices valid
 	for i := endLine; i >= startLine; i-- {
+		lineRunes := buffer.GetLineRunes(i)
 
 		if buffer.LineCount() > 1 { // Don't delete the very last line, clear it instead
-			lineRunes := buffer.GetLineRunes(i)
+			deletedContent = string(lineRunes) + "\n" + deletedContent
 			// Delete line content + newline (represented by moving to next line)
 			err = buffer.DeleteRunesAt(i, 0, len(lineRunes)+1) // +1 deletes newline
-			linesDeleted++
 		} else {
 			// Clear the last line
-			err = buffer.DeleteRunesAt(i, 0, len(buffer.GetLineRunes(i)))
-			linesDeleted++ // Count clearing as deletion
+			deletedContent = string(lineRunes) + deletedContent
+			err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
 		}
 		if err != nil {
-			break
+			return "", err
 		}
 	}
 	// Adjust cursor after deletion
@@ -477,10 +483,10 @@ func deleteLines(editor Editor, buffer Buffer, count int) (err *Error) {
 		editor.SaveHistory()
 	}
 
-	return err
+	return deletedContent, err
 }
 
-func deleteWords(editor Editor, buffer Buffer, count int) (err *Error) {
+func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	// Simulate word motion to find end position
@@ -507,10 +513,16 @@ func deleteWords(editor Editor, buffer Buffer, count int) (err *Error) {
 	return err
 }
 
-func deleteToEndOfLine(editor Editor, buffer Buffer) (err *Error) {
+func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
+	var deletedContent string
+	var err *EditorError
+
 	if cursor.Position.Col < lineLen { // Only delete if not already at/past end
+		lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+		deletedContent = string(lineRunes[cursor.Position.Col:])
+
 		deleteCount := lineLen - cursor.Position.Col
 		err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, deleteCount)
 		if err == nil {
@@ -518,5 +530,5 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (err *Error) {
 		}
 	}
 
-	return err
+	return deletedContent, err
 }

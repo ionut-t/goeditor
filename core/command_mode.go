@@ -18,7 +18,7 @@ func (m *commandMode) Exit(editor Editor, buffer Buffer) {
 	editor.UpdateCommand("") // Clear command line on exit
 }
 
-func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Error {
+func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	switch key.Key {
 	case KeyEscape:
 		editor.SetNormalMode()
@@ -44,7 +44,7 @@ func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Err
 		// Execute the command
 		err := editor.ExecuteCommand(cmd)
 		if err != nil {
-			editor.DispatchError(ErrInvalidCommandId, err)
+			editor.DispatchError(err.id, err.err)
 		}
 		return nil // Error handled by ExecuteCommand/SetMessage
 
