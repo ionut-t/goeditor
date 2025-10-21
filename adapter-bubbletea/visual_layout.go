@@ -17,6 +17,122 @@ type VisualLineInfo struct {
 	IsFirstSegment  bool
 }
 
+// calculateLineNumberWidth computes the width needed for line numbers
+func (m *Model) calculateLineNumberWidth(totalLines int) int {
+	if !m.showLineNumbers {
+		return 0
+	}
+
+	state := m.editor.GetState()
+	maxWidth := len(strconv.Itoa(max(1, totalLines)))
+
+	if state.RelativeNumbers && !m.disableVimMode {
+		relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
+		maxWidth = max(maxWidth, relWidth)
+	}
+
+	lineNumWidth := max(4, maxWidth) + 1
+	return min(lineNumWidth, 10)
+}
+
+// isPositionInSearchResult checks if a position is part of a search result
+func (m *Model) isPositionInSearchResult(pos editor.Position, col int) bool {
+	searchTerm := m.editor.GetState().SearchQuery.Term
+	if searchTerm == "" {
+		return false
+	}
+
+	for _, searchResult := range m.editor.SearchResults() {
+		if pos.Row == searchResult.Row &&
+			col >= searchResult.Col &&
+			col < searchResult.Col+len(searchTerm) {
+			return true
+		}
+	}
+	return false
+}
+
+// highlightedWordMatch represents a match for a highlighted word
+type highlightedWordMatch struct {
+	length int
+	style  lipgloss.Style
+}
+
+// findHighlightedWordMatch finds the longest highlighted word match at the current position
+// Returns a highlightedWordMatch with length 0 if no match is found
+func (m *Model) findHighlightedWordMatch(segmentRunes []rune, charIdx int) highlightedWordMatch {
+	if len(m.highlightedWords) == 0 {
+		return highlightedWordMatch{}
+	}
+
+	segmentLen := len(segmentRunes)
+	bestMatch := highlightedWordMatch{}
+
+	for wordToHighlight, style := range m.highlightedWords {
+		wordRunes := []rune(wordToHighlight)
+		wordLen := len(wordRunes)
+
+		if wordLen == 0 || charIdx+wordLen > segmentLen {
+			continue
+		}
+
+		// Check if runes match
+		match := true
+		for k := range wordLen {
+			if segmentRunes[charIdx+k] != wordRunes[k] {
+				match = false
+				break
+			}
+		}
+
+		if !match {
+			continue
+		}
+
+		// Whole word boundary check
+		isWholeWord := true
+
+		// Check character before the match
+		if charIdx > 0 {
+			prevChar := segmentRunes[charIdx-1]
+			if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
+				isWholeWord = false
+			}
+		}
+
+		// Check character after the match
+		if charIdx+wordLen < segmentLen {
+			nextChar := segmentRunes[charIdx+wordLen]
+			if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
+				isWholeWord = false
+			}
+		}
+
+		if isWholeWord && wordLen > bestMatch.length {
+			bestMatch = highlightedWordMatch{
+				length: wordLen,
+				style:  style,
+			}
+		}
+	}
+
+	return bestMatch
+}
+
+// clampCursorRow clamps the cursor row to valid buffer bounds
+func (m *Model) clampCursorRow(cursorRow int, totalLines int) int {
+	if cursorRow < 0 {
+		return 0
+	}
+	if totalLines == 0 {
+		return 0
+	}
+	if cursorRow >= totalLines {
+		return totalLines - 1
+	}
+	return cursorRow
+}
+
 // calculateVisualMetrics computes the full visual layout and cursor's position within it.
 func (m *Model) calculateVisualMetrics() {
 	buffer := m.editor.GetBuffer()
@@ -25,18 +141,7 @@ func (m *Model) calculateVisualMetrics() {
 	allLogicalLines := buffer.GetLines()
 
 	// --- Calculate Layout Widths ---
-	lineNumWidth := 0
-	if m.showLineNumbers {
-		maxLineNum := len(allLogicalLines)
-		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
-		if state.RelativeNumbers && !m.disableVimMode {
-			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
-			maxWidth = max(maxWidth, relWidth)
-		}
-		lineNumWidth = max(4, maxWidth) + 1
-		lineNumWidth = min(lineNumWidth, 10)
-	}
-
+	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
 	availableWidth := m.viewport.Width - lineNumWidth
 	if availableWidth <= 0 {
 		availableWidth = 1
@@ -98,14 +203,7 @@ func (m *Model) calculateVisualMetrics() {
 	absoluteTargetVisualRow := -1
 	m.clampedCursorLogicalCol = cursor.Position.Col
 
-	clampedCursorRow := cursor.Position.Row
-	if clampedCursorRow < 0 {
-		clampedCursorRow = 0
-	} else if clampedCursorRow >= len(allLogicalLines) && len(allLogicalLines) > 0 {
-		clampedCursorRow = len(allLogicalLines) - 1
-	} else if len(allLogicalLines) == 0 {
-		clampedCursorRow = 0
-	}
+	clampedCursorRow := m.clampCursorRow(cursor.Position.Row, len(allLogicalLines))
 
 	if clampedCursorRow >= 0 && clampedCursorRow < len(allLogicalLines) {
 		lineContentRunes := []rune(allLogicalLines[clampedCursorRow])
@@ -177,17 +275,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 
-	lineNumWidth := 0
-	if m.showLineNumbers {
-		maxLineNum := len(allLogicalLines)
-		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
-		if state.RelativeNumbers && !m.disableVimMode {
-			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
-			maxWidth = max(maxWidth, relWidth)
-		}
-		lineNumWidth = max(4, maxWidth) + 1
-		lineNumWidth = min(lineNumWidth, 10)
-	}
+	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
 
 	var contentBuilder strings.Builder
 	renderedDisplayLineCount := 0
@@ -225,12 +313,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		targetScreenColForCursor = lineNumWidth
 	}
 
-	clampedCursorRowForLineNumbers := m.editor.GetBuffer().GetCursor().Position.Row
-	if len(allLogicalLines) == 0 {
-		clampedCursorRowForLineNumbers = 0
-	} else {
-		clampedCursorRowForLineNumbers = max(0, min(clampedCursorRowForLineNumbers, len(allLogicalLines)-1))
-	}
+	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
 		if absVisRowIdxToRender < 0 || absVisRowIdxToRender >= len(m.visualLayoutCache) {
@@ -269,65 +352,14 @@ func (m *Model) renderVisibleSliceDefault() {
 			currentLogicalCharCol := vli.LogicalStartCol + charIdx
 			currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
-			searchTerm := m.editor.GetState().SearchQuery.Term
-			isSearchResult := false
-			for _, searchResult := range m.editor.SearchResults() {
-				if currentBufferPos.Row == searchResult.Row &&
-					currentLogicalCharCol >= searchResult.Col &&
-					currentLogicalCharCol < searchResult.Col+len(searchTerm) {
-					isSearchResult = true
-					break
-				}
-			}
+			isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
 			baseCharStyle := lipgloss.NewStyle()
 			charsToAdvance := 1
 
-			var bestMatchStyle lipgloss.Style
-			bestMatchLen := 0
-
-			if len(m.highlightedWords) > 0 {
-				for wordToHighlight, style := range m.highlightedWords {
-					wordRunes := []rune(wordToHighlight)
-					currentWordLen := len(wordRunes)
-					if currentWordLen == 0 {
-						continue
-					}
-
-					if charIdx+currentWordLen <= segmentLen {
-						match := true
-						for k := range currentWordLen {
-							if segmentRunes[charIdx+k] != wordRunes[k] {
-								match = false
-								break
-							}
-						}
-						if match {
-							// Whole word check
-							isWholeWord := true
-							// Check character before the match (within segmentRunes)
-							if charIdx > 0 {
-								prevChar := segmentRunes[charIdx-1]
-								if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
-									isWholeWord = false
-								}
-							}
-							// Check character after the match (within segmentRunes)
-							if charIdx+currentWordLen < segmentLen {
-								nextChar := segmentRunes[charIdx+currentWordLen]
-								if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
-									isWholeWord = false
-								}
-							}
-
-							if isWholeWord && currentWordLen > bestMatchLen {
-								bestMatchLen = currentWordLen
-								bestMatchStyle = style
-							}
-						}
-					}
-				}
-			}
+			bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
+			bestMatchLen := bestMatch.length
+			bestMatchStyle := bestMatch.style
 
 			if bestMatchLen > 0 {
 				for k := range bestMatchLen {
@@ -425,17 +457,8 @@ func (m *Model) renderVisibleSliceDefault() {
 		placeholderRunes := []rune(m.placeholder)
 		styledPlaceholder := strings.Builder{}
 
-		lineNumWidth := 0
+		lineNumWidth := m.calculateLineNumberWidth(1)
 		if m.showLineNumbers {
-			maxLineNum := 1
-			maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
-			state := m.editor.GetState()
-			if state.RelativeNumbers && !m.disableVimMode {
-				relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
-				maxWidth = max(maxWidth, relWidth)
-			}
-			lineNumWidth = max(4, maxWidth) + 1
-			lineNumWidth = min(lineNumWidth, 10)
 			lineNumStr := "1"
 			lineNumStyle := m.theme.LineNumberStyle
 			if m.theme.CurrentLineNumberStyle.String() != "" {
@@ -571,17 +594,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 
-	lineNumWidth := 0
-	if m.showLineNumbers {
-		maxLineNum := len(allLogicalLines)
-		maxWidth := len(strconv.Itoa(max(1, maxLineNum)))
-		if state.RelativeNumbers && !m.disableVimMode {
-			relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
-			maxWidth = max(maxWidth, relWidth)
-		}
-		lineNumWidth = max(4, maxWidth) + 1
-		lineNumWidth = min(lineNumWidth, 10)
-	}
+	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
 
 	var contentBuilder strings.Builder
 	renderedDisplayLineCount := 0
@@ -619,12 +632,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		targetScreenColForCursor = lineNumWidth
 	}
 
-	clampedCursorRowForLineNumbers := m.editor.GetBuffer().GetCursor().Position.Row
-	if len(allLogicalLines) == 0 {
-		clampedCursorRowForLineNumbers = 0
-	} else {
-		clampedCursorRowForLineNumbers = max(0, min(clampedCursorRowForLineNumbers, len(allLogicalLines)-1))
-	}
+	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
 	// Cache token positions for each logical line we're rendering
 	lineTokenCache := make(map[int][]highlighter.TokenPosition)
@@ -823,17 +831,7 @@ func (m *Model) renderSegmentWithSyntax(
 		// Find the token for this position
 		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, currentLogicalCharCol)
 
-		// Check if the character is part of a search result
-		searchTerm := m.editor.GetState().SearchQuery.Term
-		isSearchResult := false
-		for _, searchResult := range m.editor.SearchResults() {
-			if currentBufferPos.Row == searchResult.Row &&
-				currentLogicalCharCol >= searchResult.Col &&
-				currentLogicalCharCol < searchResult.Col+len(searchTerm) {
-				isSearchResult = true
-				break
-			}
-		}
+		isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
 		// Get base style from syntax highlighting
 		baseCharStyle := lipgloss.NewStyle()
@@ -847,51 +845,9 @@ func (m *Model) renderSegmentWithSyntax(
 
 		// Check for highlighted words (this takes precedence over syntax highlighting)
 		charsToAdvance := 1
-		var bestMatchStyle lipgloss.Style
-		bestMatchLen := 0
-
-		if len(m.highlightedWords) > 0 {
-			for wordToHighlight, style := range m.highlightedWords {
-				wordRunes := []rune(wordToHighlight)
-				currentWordLen := len(wordRunes)
-				if currentWordLen == 0 {
-					continue
-				}
-
-				if charIdx+currentWordLen <= segmentLen {
-					match := true
-					for k := range currentWordLen {
-						if segmentRunes[charIdx+k] != wordRunes[k] {
-							match = false
-							break
-						}
-					}
-					if match {
-						// Whole word check
-						isWholeWord := true
-						// Check character before the match
-						if charIdx > 0 {
-							prevChar := segmentRunes[charIdx-1]
-							if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
-								isWholeWord = false
-							}
-						}
-						// Check character after the match
-						if charIdx+currentWordLen < segmentLen {
-							nextChar := segmentRunes[charIdx+currentWordLen]
-							if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
-								isWholeWord = false
-							}
-						}
-
-						if isWholeWord && currentWordLen > bestMatchLen {
-							bestMatchLen = currentWordLen
-							bestMatchStyle = style
-						}
-					}
-				}
-			}
-		}
+		bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
+		bestMatchLen := bestMatch.length
+		bestMatchStyle := bestMatch.style
 
 		if bestMatchLen > 0 {
 			// Render highlighted word
@@ -970,65 +926,14 @@ func (m *Model) renderSegmentPlain(
 		currentLogicalCharCol := vli.LogicalStartCol + charIdx
 		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
-		// Check if the character is part of a search result
-		searchTerm := m.editor.GetState().SearchQuery.Term
-		isSearchResult := false
-		for _, searchResult := range m.editor.SearchResults() {
-			if currentBufferPos.Row == searchResult.Row &&
-				currentLogicalCharCol >= searchResult.Col &&
-				currentLogicalCharCol < searchResult.Col+len(searchTerm) {
-				isSearchResult = true
-				break
-			}
-		}
+		isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
 		baseCharStyle := lipgloss.NewStyle()
 		charsToAdvance := 1
 
-		var bestMatchStyle lipgloss.Style
-		bestMatchLen := 0
-
-		// Check for highlighted words
-		if len(m.highlightedWords) > 0 {
-			for wordToHighlight, style := range m.highlightedWords {
-				wordRunes := []rune(wordToHighlight)
-				currentWordLen := len(wordRunes)
-				if currentWordLen == 0 {
-					continue
-				}
-
-				if charIdx+currentWordLen <= segmentLen {
-					match := true
-					for k := range currentWordLen {
-						if segmentRunes[charIdx+k] != wordRunes[k] {
-							match = false
-							break
-						}
-					}
-					if match {
-						// Whole word check
-						isWholeWord := true
-						if charIdx > 0 {
-							prevChar := segmentRunes[charIdx-1]
-							if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
-								isWholeWord = false
-							}
-						}
-						if charIdx+currentWordLen < segmentLen {
-							nextChar := segmentRunes[charIdx+currentWordLen]
-							if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
-								isWholeWord = false
-							}
-						}
-
-						if isWholeWord && currentWordLen > bestMatchLen {
-							bestMatchLen = currentWordLen
-							bestMatchStyle = style
-						}
-					}
-				}
-			}
-		}
+		bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
+		bestMatchLen := bestMatch.length
+		bestMatchStyle := bestMatch.style
 
 		if bestMatchLen > 0 {
 			for k := range bestMatchLen {
