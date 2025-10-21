@@ -175,6 +175,15 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case 'V':
 		editor.SetNormalMode() // Switch to normal mode
 		actionTaken = true
+
+	case '/':
+		editor.SetSearchMode()
+
+	case 'n':
+		cursor = editor.NextSearchResult()
+
+	case 'N':
+		cursor = editor.PreviousSearchResult()
 	}
 
 	if actionTaken {

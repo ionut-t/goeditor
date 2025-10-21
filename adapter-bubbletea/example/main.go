@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -43,6 +44,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editor.DeleteMsg:
 		return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes deleted", len(msg.Content)), messageDuration)
+
+	case editor.SearchResultsMsg:
+		if len(msg.Positions) == 0 {
+			return m, m.editor.DispatchError(errors.New("no search results"), messageDuration)
+		}
 
 	case editor.SaveMsg:
 		if msg.Path != nil {

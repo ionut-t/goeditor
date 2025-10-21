@@ -12,6 +12,7 @@ const (
 	VisualMode     Mode = "visual"
 	VisualLineMode Mode = "visual-line"
 	CommandMode    Mode = "command"
+	SearchMode     Mode = "search"
 )
 
 // EditorMode represents a Vim editing mode

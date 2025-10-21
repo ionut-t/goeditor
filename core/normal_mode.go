@@ -20,6 +20,7 @@ func (m *normalMode) Name() Mode { return NormalMode }
 func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- NORMAL --")
 	editor.UpdateCommand("")
+
 	// Reset pending state on entering normal mode
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	editor.ResetPendingCount()
@@ -291,11 +292,14 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case key.Rune == ':': // Enter command mode
 		editor.SetCommandMode()
 
-	case key.Rune == '/':
-	// Enter search forward (TODO)
+	case key.Rune == '/': // Enter search mode
+		editor.SetSearchMode()
 
-	case key.Rune == '?':
-	// Enter search backward (TODO)
+	case key.Rune == 'n': // Go to next search result
+		cursor = editor.NextSearchResult()
+
+	case key.Rune == 'N': // Go to previous search result
+		cursor = editor.PreviousSearchResult()
 
 	// Editing commands (single key or start of sequence)
 	case key.Rune == 'x': // Delete character under cursor

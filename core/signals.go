@@ -89,6 +89,16 @@ func (e ErrorSignal) Value() (id ErrorId, err error) {
 
 type EnterCommandModeSignal struct{}
 
+type EnterSearchModeSignal struct{}
+
+type SearchResultsSignal struct {
+	positions []Position
+}
+
+func (s SearchResultsSignal) Value() []Position {
+	return s.positions
+}
+
 func (e *editor) DispatchSignal(signal Signal) {
 	select {
 	case e.updateSignal <- signal:

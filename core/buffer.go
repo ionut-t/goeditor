@@ -26,7 +26,8 @@ type Buffer interface {
 	SetCursor(Cursor)
 
 	Find(pattern string, start Position, options SearchOptions) (Position, bool) // Find next/prev
-	// Replace(pattern string, replacement string, options SearchOptions) int // Implement later if needed
+	// FindAll(pattern string, options SearchOptions) []Position TODO: Implement later if needed
+	// Replace(pattern string, replacement string, options SearchOptions) int // Implement later if needed)
 
 	IsModified() bool          // Check if buffer has been modified
 	SaveContent()              // Save content
@@ -37,6 +38,7 @@ type Buffer interface {
 // SearchOptions represents options for search operations
 type SearchOptions struct {
 	CaseSensitive bool
+	SmartCase     bool
 	Backwards     bool
 	Wrap          bool // Whether to wrap around the buffer
 }
@@ -346,7 +348,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 			currentCol-- // Start searching *before* the cursor
 		} else if currentLine > 0 {
 			currentLine--
-			currentCol = b.LineRuneCount(currentLine) // Start at end of previous line
+			currentCol = b.LineRuneCount(currentLine)
 		} else {
 			return Position{}, false // Already at start of buffer
 		}
@@ -358,54 +360,25 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 				lineContent = []rune(strings.ToLower(string(lineRunes)))
 			}
 
-			startSearchCol := currentCol
-			if r != start.Row { // If we moved to a previous line, search whole line
-				startSearchCol = len(lineContent) - searchLen
-			} else {
-				// Search from currentCol backwards
-				startSearchCol = currentCol - searchLen + 1
-			}
-			if startSearchCol < 0 {
-				startSearchCol = 0
+			startSearchCol := len(lineContent) - 1
+			if r == start.Row {
+				startSearchCol = currentCol
 			}
 
-			// Iterate backwards within the line checking for matches
-			foundIdx := -1
-			tempLineStr := string(lineContent) // Temp string for Index
-			tempSearchStr := string(searchRunes)
-			searchStartOffset := 0
-
-			for col := startSearchCol; col >= 0; col-- {
-				idx := strings.LastIndex(tempLineStr[searchStartOffset:col+searchLen], tempSearchStr) // More complex search needed here
-				// FIXME: LastIndex logic needs refinement for backwards scan starting mid-line.
-				// Let's use simple forward scan logic adapted for backwards iteration for now.
-				// This requires iterating runes manually backwards.
-
-				println("Checking backwards from col", col, "to", col+searchLen, "in line", r, idx)
-
-				// Manual backwards check (simpler to reason about)
+			for c := startSearchCol; c >= 0; c-- {
+				if c+searchLen > len(lineContent) {
+					continue
+				}
 				match := true
-				if col+searchLen <= len(lineContent) { // Check bounds
-					for k := range searchLen {
-						if lineContent[col+k] != searchRunes[k] {
-							match = false
-							break
-						}
-					}
-					if match {
-						foundIdx = col
-						break // Found the last match starting at or before startSearchCol
+				for i := 0; i < searchLen; i++ {
+					if lineContent[c+i] != searchRunes[i] {
+						match = false
+						break
 					}
 				}
-			}
-
-			if foundIdx != -1 {
-				return Position{Row: r, Col: foundIdx}, true
-			}
-
-			// Reset column for next line up
-			if r > 0 {
-				currentCol = b.LineRuneCount(r - 1)
+				if match {
+					return Position{Row: r, Col: c}, true
+				}
 			}
 		}
 

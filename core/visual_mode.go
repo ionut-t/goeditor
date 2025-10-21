@@ -101,6 +101,15 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.ResetPendingCount()
 		editor.DispatchSignal(DeleteSignal{content: contentDeleted})
 
+	case '/':
+		editor.SetSearchMode()
+
+	case 'n':
+		cursor = editor.NextSearchResult()
+
+	case 'N':
+		cursor = editor.PreviousSearchResult()
+
 	case 'y': // Yank (Copy) selected text
 		if copyErr := editor.Copy(yankType); copyErr != nil {
 			err = &EditorError{

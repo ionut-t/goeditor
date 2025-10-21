@@ -171,6 +171,8 @@ func (m *Model) renderVisibleSliceDefault() {
 	allLogicalLines := m.editor.GetBuffer().GetLines()
 
 	selectionStyle := m.theme.SelectionStyle
+	searchHighlightStyle := m.theme.SearchHighlightStyle
+
 	if m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
@@ -267,6 +269,17 @@ func (m *Model) renderVisibleSliceDefault() {
 			currentLogicalCharCol := vli.LogicalStartCol + charIdx
 			currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
+			searchTerm := m.editor.GetState().SearchQuery.Term
+			isSearchResult := false
+			for _, searchResult := range m.editor.SearchResults() {
+				if currentBufferPos.Row == searchResult.Row &&
+					currentLogicalCharCol >= searchResult.Col &&
+					currentLogicalCharCol < searchResult.Col+len(searchTerm) {
+					isSearchResult = true
+					break
+				}
+			}
+
 			baseCharStyle := lipgloss.NewStyle()
 			charsToAdvance := 1
 
@@ -346,6 +359,10 @@ func (m *Model) renderVisibleSliceDefault() {
 				selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
 				if selectionStatus != editor.SelectionNone {
 					baseCharStyle = selectionStyle
+				}
+
+				if isSearchResult {
+					baseCharStyle = searchHighlightStyle
 				}
 
 				currentScreenColForChar := lineNumWidth + charIdx
@@ -549,6 +566,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	allLogicalLines := m.editor.GetBuffer().GetLines()
 
 	selectionStyle := m.theme.SelectionStyle
+	searchHighlightStyle := m.theme.SearchHighlightStyle
 	if m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
@@ -693,6 +711,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				targetScreenColForCursor,
 				lineNumWidth,
 				selectionStyle,
+				searchHighlightStyle,
 			)
 		} else {
 			// Fall back to original rendering logic (without syntax highlighting)
@@ -704,6 +723,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				targetScreenColForCursor,
 				lineNumWidth,
 				selectionStyle,
+				searchHighlightStyle,
 			)
 		}
 
@@ -788,7 +808,8 @@ func (m *Model) renderSegmentWithSyntax(
 	targetVisualRowInSlice int,
 	targetScreenColForCursor int,
 	lineNumWidth int,
-	selectionStyle lipgloss.Style) {
+	selectionStyle lipgloss.Style,
+	searchHighlightStyle lipgloss.Style) {
 	segmentRunes := []rune(vli.Content)
 	styledSegment := strings.Builder{}
 
@@ -802,10 +823,26 @@ func (m *Model) renderSegmentWithSyntax(
 		// Find the token for this position
 		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, currentLogicalCharCol)
 
+		// Check if the character is part of a search result
+		searchTerm := m.editor.GetState().SearchQuery.Term
+		isSearchResult := false
+		for _, searchResult := range m.editor.SearchResults() {
+			if currentBufferPos.Row == searchResult.Row &&
+				currentLogicalCharCol >= searchResult.Col &&
+				currentLogicalCharCol < searchResult.Col+len(searchTerm) {
+				isSearchResult = true
+				break
+			}
+		}
+
 		// Get base style from syntax highlighting
 		baseCharStyle := lipgloss.NewStyle()
 		if hasToken && m.highlighter != nil {
 			baseCharStyle = m.highlighter.GetStyleForToken(token.Type)
+		}
+
+		if isSearchResult {
+			baseCharStyle = searchHighlightStyle
 		}
 
 		// Check for highlighted words (this takes precedence over syntax highlighting)
@@ -889,7 +926,11 @@ func (m *Model) renderSegmentWithSyntax(
 			// Apply selection style on top of syntax highlighting
 			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
 			if selectionStatus != editor.SelectionNone {
-				baseCharStyle = baseCharStyle.Background(selectionStyle.GetBackground())
+				if isSearchResult {
+					baseCharStyle = baseCharStyle.Background(searchHighlightStyle.GetBackground())
+				} else {
+					baseCharStyle = baseCharStyle.Background(selectionStyle.GetBackground())
+				}
 			}
 
 			currentScreenColForChar := lineNumWidth + charIdx
@@ -917,6 +958,7 @@ func (m *Model) renderSegmentPlain(
 	targetScreenColForCursor int,
 	lineNumWidth int,
 	selectionStyle lipgloss.Style,
+	searchHighlightStyle lipgloss.Style,
 ) {
 	segmentRunes := []rune(vli.Content)
 	styledSegment := strings.Builder{}
@@ -927,6 +969,18 @@ func (m *Model) renderSegmentPlain(
 	for charIdx < segmentLen {
 		currentLogicalCharCol := vli.LogicalStartCol + charIdx
 		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
+
+		// Check if the character is part of a search result
+		searchTerm := m.editor.GetState().SearchQuery.Term
+		isSearchResult := false
+		for _, searchResult := range m.editor.SearchResults() {
+			if currentBufferPos.Row == searchResult.Row &&
+				currentLogicalCharCol >= searchResult.Col &&
+				currentLogicalCharCol < searchResult.Col+len(searchTerm) {
+				isSearchResult = true
+				break
+			}
+		}
 
 		baseCharStyle := lipgloss.NewStyle()
 		charsToAdvance := 1
@@ -1006,6 +1060,10 @@ func (m *Model) renderSegmentPlain(
 			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
 			if selectionStatus != editor.SelectionNone {
 				baseCharStyle = selectionStyle
+			}
+
+			if isSearchResult {
+				baseCharStyle = searchHighlightStyle
 			}
 
 			currentScreenColForChar := lineNumWidth + charIdx

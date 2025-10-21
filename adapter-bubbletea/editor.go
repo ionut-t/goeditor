@@ -20,6 +20,7 @@ type Theme struct {
 	InsertModeStyle        lipgloss.Style
 	VisualModeStyle        lipgloss.Style
 	CommandModeStyle       lipgloss.Style
+	SearchModeStyle        lipgloss.Style
 	StatusLineStyle        lipgloss.Style
 	CommandLineStyle       lipgloss.Style
 	MessageStyle           lipgloss.Style
@@ -29,6 +30,7 @@ type Theme struct {
 	ErrorStyle             lipgloss.Style
 	HighlightYankStyle     lipgloss.Style
 	PlaceholderStyle       lipgloss.Style
+	SearchHighlightStyle   lipgloss.Style
 }
 
 var DefaultTheme = Theme{
@@ -36,6 +38,7 @@ var DefaultTheme = Theme{
 	InsertModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("26")).Foreground(lipgloss.Color("255")),
 	VisualModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("127")).Foreground(lipgloss.Color("255")),
 	CommandModeStyle:       lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("255")),
+	SearchModeStyle:        lipgloss.NewStyle().Background(lipgloss.Color("224")).Foreground(lipgloss.Color("0")),
 	CommandLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color("235")).Foreground(lipgloss.Color("255")),
 	StatusLineStyle:        lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("255")),
 	MessageStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("34")),
@@ -45,6 +48,7 @@ var DefaultTheme = Theme{
 	SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
 	HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
 	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
+	SearchHighlightStyle:   lipgloss.NewStyle().Background(lipgloss.Color("224")).Foreground(lipgloss.Color("0")).Bold(true),
 }
 
 type cursorBlinkMsg struct{}
@@ -150,6 +154,10 @@ type UndoMsg struct {
 
 type RedoMsg struct {
 	ContentBefore string
+}
+
+type SearchResultsMsg struct {
+	Positions []editor.Position
 }
 
 func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
@@ -716,6 +724,8 @@ func (m *Model) getStatusLine() string {
 		statusLine = m.theme.VisualModeStyle.Render(" VISUAL LINE ")
 	case editor.CommandMode:
 		statusLine = m.theme.CommandModeStyle.Render(" COMMAND ")
+	case editor.SearchMode:
+		statusLine = m.theme.SearchModeStyle.Render(" SEARCH ")
 	}
 
 	cursor := m.editor.GetBuffer().GetCursor()
@@ -792,6 +802,9 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case editor.RedoSignal:
 			return RedoMsg{ContentBefore: signal.Value()}
+
+		case editor.SearchResultsSignal:
+			return SearchResultsMsg{Positions: signal.Value()}
 		}
 
 		return nil

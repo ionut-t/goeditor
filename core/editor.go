@@ -36,6 +36,7 @@ type Editor interface {
 	SetVisualMode()
 	SetVisualLineMode()
 	SetCommandMode()
+	SetSearchMode()
 	DisableVimMode(bool)
 	IsVimMode() bool
 	DisableCommandMode(bool)
@@ -54,6 +55,7 @@ type Editor interface {
 
 	// Command execution (Called from Command Mode)
 	ExecuteCommand(cmd string) *EditorError
+	ExecuteSearch(query string)
 
 	// History management
 	SaveHistory() // Indicate a state should be saved for undo
@@ -78,6 +80,11 @@ type Editor interface {
 	IsVisualMode() bool
 	IsVisualLineMode() bool
 	IsCommandMode() bool
+	IsSearchMode() bool
+
+	SearchResults() []Position
+	NextSearchResult() Cursor
+	PreviousSearchResult() Cursor
 
 	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
 }

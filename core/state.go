@@ -6,12 +6,18 @@ import (
 	"strings"
 )
 
+type SearchQuery struct {
+	Pattern string
+	Term    string
+}
+
 // State represents the complete current state of the editor (Refined)
 type State struct {
-	Mode        Mode   // Current editing mode (Normal, Insert, Visual, Command)
-	StatusLine  string // Content of the status line (bottom line)
-	CommandLine string // Current command being typed or message to display
-	Quit        bool   // Flag indicating if the editor should exit
+	Mode         Mode   // Current editing mode (Normal, Insert, Visual, Command)
+	PreviousMode Mode   // Previous editing mode
+	StatusLine   string // Content of the status line (bottom line)
+	CommandLine  string // Current command being typed or message to display
+	Quit         bool   // Flag indicating if the editor should exit
 
 	// Viewport information
 	TopLine        int // First line visible in the viewport (0-indexed)
@@ -22,8 +28,11 @@ type State struct {
 	VisualStart Position // Starting position for visual selection (Use Position{-1,-1} if not active)
 
 	// Command handling
-	SearchTerm   string // Current search term (for / and ? commands)
-	PendingCount *int   // For handling numeric prefixes to commands (e.g., "5j") - Managed in normalMode
+	SearchQuery       SearchQuery // Current search query (for Search command)
+	SearchOptions     SearchOptions
+	SearchResults     []Position // List of positions for search results
+	SearchResultIndex int        // Current index in the search results
+	PendingCount      *int       // For handling numeric prefixes to commands (e.g., "5j") - Managed in normalMode
 
 	// Error/Message Display
 	Message string // Temporary message to display
@@ -47,19 +56,22 @@ type State struct {
 // InitialState creates a default state
 func InitialState() State {
 	return State{
-		Mode:            "normal",
-		StatusLine:      "-- NORMAL --",
-		CommandLine:     "",
-		TopLine:         0,
-		ViewportHeight:  24,
-		ViewportWidth:   80,
-		VisualStart:     Position{-1, -1},
-		SearchTerm:      "",
-		PendingCount:    nil,
-		Message:         "",
-		RelativeNumbers: false, // Default to absolute numbers
-		Quit:            false,
-		VimMode:         true,
+		Mode:              "normal",
+		PreviousMode:      "",
+		StatusLine:        "-- NORMAL --",
+		CommandLine:       "",
+		TopLine:           0,
+		ViewportHeight:    24,
+		ViewportWidth:     80,
+		VisualStart:       Position{-1, -1},
+		SearchQuery:       SearchQuery{},
+		SearchResults:     []Position{},
+		SearchResultIndex: -1,
+		PendingCount:      nil,
+		Message:           "",
+		RelativeNumbers:   false, // Default to absolute numbers
+		Quit:              false,
+		VimMode:           true,
 
 		WithCommandMode:    true,
 		WithInsertMode:     true,
@@ -105,6 +117,7 @@ func New(clipboard Clipboard) Editor {
 	e.modes[VisualMode] = NewVisualMode()
 	e.modes[VisualLineMode] = NewVisualLineMode()
 	e.modes[CommandMode] = NewCommandMode()
+	e.modes[SearchMode] = NewSearchMode()
 
 	// Set initial mode
 	initialModeName := e.state.Mode
@@ -172,6 +185,7 @@ func (e *editor) setMode(modeName Mode) {
 		e.currentMode.Exit(e, e.buffer) // Pass buffer to Exit
 	}
 
+	e.state.PreviousMode = e.state.Mode
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter
@@ -211,6 +225,10 @@ func (e *editor) SetCommandMode() {
 	}
 
 	e.setMode(CommandMode)
+}
+
+func (e *editor) SetSearchMode() {
+	e.setMode(SearchMode)
 }
 
 func (e *editor) GetBuffer() Buffer {
@@ -412,6 +430,112 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 			err: ErrInvalidCommand,
 		}
 	}
+}
+
+func (e *editor) ExecuteSearch(pattern string) {
+	e.state.SearchQuery.Pattern = pattern
+	query := pattern
+
+	// TODO: Allow the consumer to provide default configuration for search; e.g., case sensitivity, smart case, etc.
+	var caseSensitive bool
+	smartCase := true
+
+	if strings.HasSuffix(pattern, "\\c") {
+		pattern = strings.TrimSuffix(pattern, "\\c")
+		caseSensitive = false
+		smartCase = false
+		query = strings.TrimRight(pattern, "\\c")
+	} else if strings.HasSuffix(pattern, "\\C") {
+		pattern = strings.TrimSuffix(pattern, "\\C")
+		caseSensitive = true
+		smartCase = false
+		query = strings.TrimRight(pattern, "\\C")
+	}
+
+	e.state.SearchQuery.Term = query
+	e.state.SearchOptions = SearchOptions{
+		CaseSensitive: caseSensitive,
+		SmartCase:     smartCase,
+		Backwards:     false,
+		Wrap:          true,
+	}
+
+	// Find the first result
+	pos, found := e.buffer.Find(query, e.buffer.GetCursor().Position, e.state.SearchOptions)
+
+	if found {
+		e.state.SearchResults = []Position{pos}
+		e.state.SearchResultIndex = 0
+		cursor := e.buffer.GetCursor()
+		cursor.Position = pos
+		e.buffer.SetCursor(cursor)
+	} else {
+		e.state.SearchResults = []Position{}
+		e.state.SearchResultIndex = -1
+	}
+
+	e.UpdateCommand("/" + e.state.SearchQuery.Pattern)
+	e.setMode(e.state.PreviousMode)
+}
+
+func (e *editor) NextSearchResult() Cursor {
+	if len(e.state.SearchResults) == 0 {
+		return e.buffer.GetCursor()
+	}
+
+	currentPos := e.buffer.GetCursor().Position
+	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, e.state.SearchOptions)
+
+	// If not found and wrap is enabled, search from beginning
+	if !found && e.state.SearchOptions.Wrap {
+		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: 0, Col: 0}, e.state.SearchOptions)
+	}
+
+	if found {
+		e.onSearchResultFound(pos)
+		e.ScrollViewport()
+	}
+
+	return e.buffer.GetCursor()
+}
+
+func (e *editor) PreviousSearchResult() Cursor {
+	if len(e.state.SearchResults) == 0 {
+		return e.buffer.GetCursor()
+	}
+
+	// Create backward search options
+	options := e.state.SearchOptions
+	options.Backwards = true
+
+	currentPos := e.buffer.GetCursor().Position
+	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, options)
+
+	// If not found and wrap is enabled, search from end
+	if !found && e.state.SearchOptions.Wrap && e.buffer.LineCount() > 0 {
+		lastLine := e.buffer.LineCount() - 1
+		lastLineLen := e.buffer.LineRuneCount(lastLine)
+		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: lastLine, Col: lastLineLen}, options)
+	}
+
+	if found {
+		e.onSearchResultFound(pos)
+		e.ScrollViewport()
+	}
+
+	return e.buffer.GetCursor()
+}
+
+func (e *editor) SearchResults() []Position {
+	return e.state.SearchResults
+}
+
+func (e *editor) onSearchResultFound(pos Position) {
+	e.state.SearchResults = []Position{pos}
+	e.state.SearchResultIndex = 0
+	cursor := e.buffer.GetCursor()
+	cursor.Position = pos
+	e.buffer.SetCursor(cursor)
 }
 
 // ScrollViewport ensures the cursor is within the visible area
@@ -719,4 +843,8 @@ func (e *editor) IsVisualLineMode() bool {
 
 func (e *editor) IsCommandMode() bool {
 	return e.state.Mode == CommandMode
+}
+
+func (e *editor) IsSearchMode() bool {
+	return e.state.Mode == SearchMode
 }
