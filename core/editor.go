@@ -55,7 +55,8 @@ type Editor interface {
 
 	// Command execution (Called from Command Mode)
 	ExecuteCommand(cmd string) *EditorError
-	ExecuteSearch(query string)
+	ExecuteSearch(query string, searchOptions SearchOptions)
+	CancelSearch()
 
 	// History management
 	SaveHistory() // Indicate a state should be saved for undo

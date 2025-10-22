@@ -57,7 +57,7 @@ type State struct {
 func InitialState() State {
 	return State{
 		Mode:              "normal",
-		PreviousMode:      "",
+		PreviousMode:      "normal",
 		StatusLine:        "-- NORMAL --",
 		CommandLine:       "",
 		TopLine:           0,
@@ -432,36 +432,39 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 	}
 }
 
-func (e *editor) ExecuteSearch(pattern string) {
+func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	e.state.SearchQuery.Pattern = pattern
 	query := pattern
 
-	// TODO: Allow the consumer to provide default configuration for search; e.g., case sensitivity, smart case, etc.
-	var caseSensitive bool
-	smartCase := true
+	ignoreCase := searchOptions.IgnoreCase
+	smartCase := searchOptions.SmartCase
 
 	if strings.HasSuffix(pattern, "\\c") {
 		pattern = strings.TrimSuffix(pattern, "\\c")
-		caseSensitive = false
+		ignoreCase = true
 		smartCase = false
 		query = strings.TrimRight(pattern, "\\c")
 	} else if strings.HasSuffix(pattern, "\\C") {
 		pattern = strings.TrimSuffix(pattern, "\\C")
-		caseSensitive = true
-		smartCase = false
+		ignoreCase = false
+		searchOptions.SmartCase = true
 		query = strings.TrimRight(pattern, "\\C")
 	}
 
 	e.state.SearchQuery.Term = query
 	e.state.SearchOptions = SearchOptions{
-		CaseSensitive: caseSensitive,
-		SmartCase:     smartCase,
-		Backwards:     false,
-		Wrap:          true,
+		IgnoreCase: ignoreCase,
+		SmartCase:  smartCase,
+		Backwards:  searchOptions.Backwards,
+		Wrap:       searchOptions.Wrap,
 	}
 
 	// Find the first result
 	pos, found := e.buffer.Find(query, e.buffer.GetCursor().Position, e.state.SearchOptions)
+
+	if !found && e.state.SearchOptions.Wrap {
+		pos, found = e.buffer.Find(query, Position{Row: 0, Col: 0}, e.state.SearchOptions)
+	}
 
 	if found {
 		e.state.SearchResults = []Position{pos}
@@ -476,6 +479,13 @@ func (e *editor) ExecuteSearch(pattern string) {
 
 	e.UpdateCommand("/" + e.state.SearchQuery.Pattern)
 	e.setMode(e.state.PreviousMode)
+	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
+}
+
+func (e *editor) CancelSearch() {
+	e.state.SearchQuery = SearchQuery{}
+	e.state.SearchResults = []Position{}
+	e.setMode(e.state.PreviousMode)
 }
 
 func (e *editor) NextSearchResult() Cursor {
@@ -483,18 +493,23 @@ func (e *editor) NextSearchResult() Cursor {
 		return e.buffer.GetCursor()
 	}
 
+	options := e.state.SearchOptions
+	options.Backwards = false
+
 	currentPos := e.buffer.GetCursor().Position
-	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, e.state.SearchOptions)
+	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, options)
 
 	// If not found and wrap is enabled, search from beginning
-	if !found && e.state.SearchOptions.Wrap {
-		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: 0, Col: 0}, e.state.SearchOptions)
+	if !found && options.Wrap {
+		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: 0, Col: 0}, options)
 	}
 
 	if found {
 		e.onSearchResultFound(pos)
 		e.ScrollViewport()
 	}
+
+	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
 
 	return e.buffer.GetCursor()
 }
@@ -522,6 +537,8 @@ func (e *editor) PreviousSearchResult() Cursor {
 		e.onSearchResultFound(pos)
 		e.ScrollViewport()
 	}
+
+	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
 
 	return e.buffer.GetCursor()
 }

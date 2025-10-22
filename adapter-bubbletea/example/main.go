@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	"github.com/ionut-t/goeditor/core"
 )
 
 const messageDuration = 3 * time.Second
@@ -121,6 +122,12 @@ func main() {
 	textEditor.Focus()
 	textEditor.SetCursorMode(editor.CursorBlink)
 	textEditor.SetLanguage(lang, "catppuccin-mocha")
+	textEditor.WithSearchOptions(core.SearchOptions{
+		IgnoreCase: true,
+		SmartCase:  true,
+		Wrap:       true,
+		Backwards:  true,
+	})
 
 	if content, err := os.ReadFile(file); err == nil {
 		textEditor.SetBytes(content)

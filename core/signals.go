@@ -91,6 +91,8 @@ type EnterCommandModeSignal struct{}
 
 type EnterSearchModeSignal struct{}
 
+type ExitSearchModeSignal struct{}
+
 type SearchResultsSignal struct {
 	positions []Position
 }

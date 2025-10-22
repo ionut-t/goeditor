@@ -37,10 +37,10 @@ type Buffer interface {
 
 // SearchOptions represents options for search operations
 type SearchOptions struct {
-	CaseSensitive bool
-	SmartCase     bool
-	Backwards     bool
-	Wrap          bool // Whether to wrap around the buffer
+	IgnoreCase bool // Case insensitive search
+	SmartCase  bool // ...unless search contains uppercase
+	Backwards  bool // Whether to search backwards
+	Wrap       bool // Whether to wrap around the buffer
 }
 
 // textBuffer implementation using runes for better unicode handling
@@ -326,14 +326,13 @@ func (b *textBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 
 // Find searches forward or backward for the next occurrence of pattern.
 // Returns the position and true if found, or false otherwise.
-// TODO: Implement Wrap option.
 func (b *textBuffer) Find(pattern string, start Position, options SearchOptions) (Position, bool) {
 	if pattern == "" {
 		return Position{}, false
 	}
 
 	searchRunes := []rune(pattern)
-	if !options.CaseSensitive {
+	if options.IgnoreCase {
 		searchRunes = []rune(strings.ToLower(pattern))
 	}
 	searchLen := len(searchRunes)
@@ -350,13 +349,19 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 			currentLine--
 			currentCol = b.LineRuneCount(currentLine)
 		} else {
-			return Position{}, false // Already at start of buffer
+			if !options.Wrap {
+				return Position{}, false // Already at start of buffer
+			}
+
+			// Wrap to end of buffer
+			currentLine = numLines - 1
+			currentCol = b.LineRuneCount(currentLine)
 		}
 
 		for r := currentLine; r >= 0; r-- {
 			lineRunes := b.GetLineRunes(r)
 			lineContent := lineRunes
-			if !options.CaseSensitive {
+			if options.IgnoreCase {
 				lineContent = []rune(strings.ToLower(string(lineRunes)))
 			}
 
@@ -389,7 +394,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		for r := currentLine; r < numLines; r++ {
 			lineRunes := b.GetLineRunes(r)
 			lineContent := lineRunes
-			if !options.CaseSensitive {
+			if options.IgnoreCase {
 				lineContent = []rune(strings.ToLower(string(lineRunes)))
 			}
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +32,9 @@ type Theme struct {
 	HighlightYankStyle     lipgloss.Style
 	PlaceholderStyle       lipgloss.Style
 	SearchHighlightStyle   lipgloss.Style
+	SearchInputPromptStyle lipgloss.Style
+	SearchInputTextStyle   lipgloss.Style
+	SearchInputCursorStyle lipgloss.Style
 }
 
 var DefaultTheme = Theme{
@@ -49,6 +53,8 @@ var DefaultTheme = Theme{
 	HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
 	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 	SearchHighlightStyle:   lipgloss.NewStyle().Background(lipgloss.Color("224")).Foreground(lipgloss.Color("0")).Bold(true),
+	SearchInputPromptStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("224")).Bold(true),
+	SearchInputCursorStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("224")),
 }
 
 type cursorBlinkMsg struct{}
@@ -114,6 +120,10 @@ type Model struct {
 	highlighter        *highlighter.Highlighter
 	language           string
 	highlighterTheme   string
+
+	searchInput      textinput.Model
+	searchOptions    editor.SearchOptions
+	searchInputBlink bool
 }
 
 type ErrorMsg struct {
@@ -131,6 +141,10 @@ type QuitMsg struct{}
 type clearMsg struct{}
 
 type commandMsg struct{}
+
+type enterSearchMode struct{}
+
+type exitSearchMode struct{}
 
 // yankedMsg is an internal message indicating that content has been yanked.
 // It handles the visual feedback for yanked content and dispatches the YankMsg to the consumer.
@@ -209,11 +223,24 @@ func (c *clipboardImpl) Read() (string, error) {
 }
 
 func New(width, height int) Model {
-	editor := editor.New(&clipboardImpl{})
+	texteditor := editor.New(&clipboardImpl{})
 	vp := viewport.New(width, height-2)
+	searchInput := textinput.New()
+	searchInput.Prompt = "/"
+	searchInput.PromptStyle = DefaultTheme.SearchInputPromptStyle
+	searchInput.Cursor.Style = DefaultTheme.SearchInputCursorStyle
+	searchInput.TextStyle = DefaultTheme.SearchInputTextStyle
+	searchInput.Cursor.Blink = false
+
+	searchOptions := editor.SearchOptions{
+		IgnoreCase: true,
+		SmartCase:  true,
+		Backwards:  false,
+		Wrap:       true,
+	}
 
 	m := Model{
-		editor:           editor,
+		editor:           texteditor,
 		viewport:         vp,
 		showLineNumbers:  true,
 		showStatusLine:   true,
@@ -221,6 +248,8 @@ func New(width, height int) Model {
 		highlightedWords: make(map[string]lipgloss.Style),
 		cursorMode:       CursorSteady,
 		cursorVisible:    true,
+		searchInput:      searchInput,
+		searchOptions:    searchOptions,
 		cursorBlinkContext: &cursorBlinkContext{
 			ctx: context.Background(),
 		},
@@ -296,6 +325,17 @@ func (m *Model) SetContent(content string) {
 // WithTheme allows setting a custom theme for the editor.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
+}
+
+// WithSearchOptions allows setting custom search options for the editor.
+func (m *Model) WithSearchOptions(options editor.SearchOptions) {
+	m.searchOptions = options
+}
+
+// WithSearchInputBlink allows enabling or disabling cursor blinking in the search input.
+// By default, the search input cursor does not blink.
+func (m *Model) WithSearchInputBlink(blink bool) {
+	m.searchInputBlink = blink
 }
 
 // SetLanguage sets the programming language for syntax highlighting.
@@ -608,6 +648,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
+		if m.editor.IsSearchMode() {
+			switch keyEvent.Key {
+			case editor.KeyEscape:
+				m.editor.CancelSearch()
+				m.searchInput.SetValue("")
+			case editor.KeyEnter:
+				m.editor.ExecuteSearch(m.searchInput.Value(), m.searchOptions)
+			}
+		}
+
 		/* TODO: Optimize to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
@@ -651,6 +701,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.yanked = false
 		m.editor.SetNormalMode()
 
+	case enterSearchMode:
+		m.searchInput.Focus()
+
+		if m.clearMsgCancel != nil {
+			return m, m.dispatchClearMsg(0)
+		}
+
+	case exitSearchMode:
+		m.searchInput.Blur()
+
 	case cursorBlinkMsg:
 		if m.isFocused && m.cursorMode == CursorBlink {
 			m.cursorVisible = !m.cursorVisible
@@ -673,6 +733,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	cmds = append(cmds, viewportCmd)
 
+	if m.editor.IsSearchMode() {
+		searchInput, searchCmd := m.searchInput.Update(msg)
+		m.searchInput = searchInput
+		cmds = append(cmds, searchCmd)
+	}
+
 	m.calculateVisualMetrics()
 	m.renderVisibleSlice()
 
@@ -683,6 +749,10 @@ func (m Model) View() string {
 	state := m.editor.GetState()
 
 	content := m.viewport.View()
+
+	if m.disableVimMode {
+		return content
+	}
 
 	var commandLine string
 
@@ -714,8 +784,8 @@ func (m Model) View() string {
 		commandLine += m.theme.CommandLineStyle.Render(strings.Repeat(" ", paddingWidth))
 	}
 
-	if m.disableVimMode {
-		return content
+	if m.editor.IsSearchMode() {
+		commandLine = m.theme.CommandLineStyle.Render(m.searchInput.View())
 	}
 
 	return lipgloss.JoinVertical(
@@ -827,6 +897,12 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case editor.RedoSignal:
 			return RedoMsg{ContentBefore: signal.Value()}
+
+		case editor.EnterSearchModeSignal:
+			return enterSearchMode{}
+
+		case editor.ExitSearchModeSignal:
+			return exitSearchMode{}
 
 		case editor.SearchResultsSignal:
 			return SearchResultsMsg{Positions: signal.Value()}
