@@ -36,19 +36,38 @@ func (m *Model) calculateLineNumberWidth(totalLines int) int {
 }
 
 // isPositionInSearchResult checks if a position is part of a search result
+// Uses binary search for O(log n) performance instead of O(n)
 func (m *Model) isPositionInSearchResult(pos editor.Position, col int) bool {
 	searchTerm := m.editor.GetState().SearchQuery.Term
 	if searchTerm == "" {
 		return false
 	}
 
-	for _, searchResult := range m.editor.SearchResults() {
-		if pos.Row == searchResult.Row &&
-			col >= searchResult.Col &&
-			col < searchResult.Col+len(searchTerm) {
+	results := m.editor.SearchResults()
+	if len(results) == 0 {
+		return false
+	}
+
+	termLen := len(searchTerm)
+
+	// Binary search to find the first result with row >= pos.Row
+	left, right := 0, len(results)
+	for left < right {
+		mid := (left + right) / 2
+		if results[mid].Row < pos.Row {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+
+	// Check all results on the same row (usually very few)
+	for i := left; i < len(results) && results[i].Row == pos.Row; i++ {
+		if col >= results[i].Col && col < results[i].Col+termLen {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -56,6 +75,58 @@ func (m *Model) isPositionInSearchResult(pos editor.Position, col int) bool {
 type highlightedWordMatch struct {
 	length int
 	style  lipgloss.Style
+}
+
+// highlightedWordPattern caches the rune conversion for each highlighted word
+type highlightedWordPattern struct {
+	runes []rune
+	style lipgloss.Style
+}
+
+// hashHighlightedWords computes a hash of the highlighted words map
+func (m *Model) hashHighlightedWords() uint64 {
+	if len(m.highlightedWords) == 0 {
+		return 0
+	}
+
+	// Hash all words in the map
+	hash := uint64(len(m.highlightedWords))
+	for word := range m.highlightedWords {
+		for _, r := range word {
+			hash = hash*31 + uint64(r)
+		}
+		// Also incorporate word count to ensure different maps hash differently
+		hash = hash * 37
+	}
+	return hash
+}
+
+// getCompiledHighlightedWords returns cached compiled patterns, updating cache if needed
+func (m *Model) getCompiledHighlightedWords() []highlightedWordPattern {
+	if len(m.highlightedWords) == 0 {
+		m.compiledHighlightedWords = nil
+		m.compiledHighlightedWordsHash = 0
+		return nil
+	}
+
+	// Check if cache is valid
+	currentHash := m.hashHighlightedWords()
+	if m.compiledHighlightedWordsHash == currentHash && m.compiledHighlightedWords != nil {
+		return m.compiledHighlightedWords
+	}
+
+	// Recompile patterns
+	patterns := make([]highlightedWordPattern, 0, len(m.highlightedWords))
+	for word, style := range m.highlightedWords {
+		patterns = append(patterns, highlightedWordPattern{
+			runes: []rune(word),
+			style: style,
+		})
+	}
+
+	m.compiledHighlightedWords = patterns
+	m.compiledHighlightedWordsHash = currentHash
+	return patterns
 }
 
 // findHighlightedWordMatch finds the longest highlighted word match at the current position
@@ -68,9 +139,11 @@ func (m *Model) findHighlightedWordMatch(segmentRunes []rune, charIdx int) highl
 	segmentLen := len(segmentRunes)
 	bestMatch := highlightedWordMatch{}
 
-	for wordToHighlight, style := range m.highlightedWords {
-		wordRunes := []rune(wordToHighlight)
-		wordLen := len(wordRunes)
+	// Get cached compiled patterns (avoids repeated rune conversions)
+	patterns := m.getCompiledHighlightedWords()
+
+	for _, pattern := range patterns {
+		wordLen := len(pattern.runes)
 
 		if wordLen == 0 || charIdx+wordLen > segmentLen {
 			continue
@@ -79,7 +152,7 @@ func (m *Model) findHighlightedWordMatch(segmentRunes []rune, charIdx int) highl
 		// Check if runes match
 		match := true
 		for k := range wordLen {
-			if segmentRunes[charIdx+k] != wordRunes[k] {
+			if segmentRunes[charIdx+k] != pattern.runes[k] {
 				match = false
 				break
 			}
@@ -111,7 +184,7 @@ func (m *Model) findHighlightedWordMatch(segmentRunes []rune, charIdx int) highl
 		if isWholeWord && wordLen > bestMatch.length {
 			bestMatch = highlightedWordMatch{
 				length: wordLen,
-				style:  style,
+				style:  pattern.style,
 			}
 		}
 	}
@@ -133,15 +206,114 @@ func (m *Model) clampCursorRow(cursorRow int, totalLines int) int {
 	return cursorRow
 }
 
-// calculateVisualMetrics computes the full visual layout and cursor's position within it.
+// calculateFullVisualLayout computes layout for entire buffer (small files)
+func (m *Model) calculateFullVisualLayout(allLogicalLines []string, availableWidth int) {
+	visualLayout := make([]VisualLineInfo, 0, len(allLogicalLines)*2)
+
+	for bufferRowIdx, logicalLineContent := range allLogicalLines {
+		m.appendVisualLayoutForLine(bufferRowIdx, logicalLineContent, availableWidth, &visualLayout)
+	}
+
+	m.visualLayoutCache = visualLayout
+	m.visualLayoutCacheStartRow = 0       // Full layout starts at row 0
+	m.visualLayoutCacheStartVisualRow = 0 // Full layout starts at visual row 0
+	m.fullVisualLayoutHeight = len(visualLayout)
+}
+
+// calculateLazyVisualLayout computes layout only for visible region (large files)
+func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor editor.Cursor, availableWidth int, viewportBuffer int) {
+	totalLines := len(allLogicalLines)
+	state := m.editor.GetState()
+
+	// Determine visible range based on BOTH cursor position AND current scroll position
+	// Use the editor's TopLine to understand what's actually visible
+	topLine := state.TopLine
+	viewportHeight := m.viewport.Height
+
+	// Calculate the range we need to cache
+	// Must include: what's visible + buffer above/below + cursor position
+	visibleStart := max(0, topLine-viewportBuffer/2)
+	visibleEnd := min(totalLines, topLine+viewportHeight+viewportBuffer/2)
+
+	// Also ensure cursor is in range
+	cursorStart := max(0, cursor.Position.Row-viewportBuffer/4)
+	cursorEnd := min(totalLines, cursor.Position.Row+viewportBuffer/4)
+
+	// Take the union of both ranges
+	startLine := min(visibleStart, cursorStart)
+	endLine := max(visibleEnd, cursorEnd)
+
+	// Clamp to reasonable bounds
+	startLine = max(0, startLine)
+	endLine = min(totalLines, endLine)
+
+	// Compute visual layout only for the cached range
+	visualLayout := make([]VisualLineInfo, 0, (endLine-startLine)*2)
+
+	for bufferRowIdx := startLine; bufferRowIdx < endLine; bufferRowIdx++ {
+		m.appendVisualLayoutForLine(bufferRowIdx, allLogicalLines[bufferRowIdx], availableWidth, &visualLayout)
+	}
+
+	m.visualLayoutCache = visualLayout
+	m.visualLayoutCacheStartRow = startLine // Track where this cache starts (logical row)
+
+	// Estimate the visual row offset (approximate but fast)
+	avgVisualLinesPerLogical := float64(len(visualLayout)) / float64(max(1, endLine-startLine))
+	m.visualLayoutCacheStartVisualRow = int(avgVisualLinesPerLogical * float64(startLine))
+
+	// Estimate full visual height
+	m.fullVisualLayoutHeight = int(avgVisualLinesPerLogical * float64(totalLines))
+}
+
+// appendVisualLayoutForLine wraps a single logical line and appends to visual layout
+func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent string, availableWidth int, visualLayout *[]VisualLineInfo) {
+	originalLineRunes := []rune(logicalLineContent)
+	originalLineLen := len(originalLineRunes)
+	currentLogicalColToReport := 0
+
+	if originalLineLen == 0 && logicalLineContent == "" {
+		*visualLayout = append(*visualLayout, VisualLineInfo{
+			Content:         "",
+			LogicalRow:      bufferRowIdx,
+			LogicalStartCol: 0,
+			IsFirstSegment:  true,
+		})
+		return
+	}
+
+	wrappedSegmentStrings := wrapLine(logicalLineContent, availableWidth)
+
+	for segIdx, segmentStr := range wrappedSegmentStrings {
+		segmentRunes := []rune(segmentStr)
+		segmentRunesLen := len(segmentRunes)
+
+		info := VisualLineInfo{
+			Content:         segmentStr,
+			LogicalRow:      bufferRowIdx,
+			LogicalStartCol: currentLogicalColToReport,
+			IsFirstSegment:  segIdx == 0,
+		}
+		*visualLayout = append(*visualLayout, info)
+
+		currentLogicalColToReport += segmentRunesLen
+		if segIdx < len(wrappedSegmentStrings)-1 {
+			for currentLogicalColToReport < originalLineLen && unicode.IsSpace(originalLineRunes[currentLogicalColToReport]) {
+				currentLogicalColToReport++
+			}
+		}
+	}
+}
+
+// calculateVisualMetrics computes visual layout for visible lines only (lazy evaluation).
 func (m *Model) calculateVisualMetrics() {
 	buffer := m.editor.GetBuffer()
 	state := m.editor.GetState()
 	cursor := buffer.GetCursor()
 	allLogicalLines := buffer.GetLines()
+	totalLogicalLines := len(allLogicalLines)
 
 	// --- Calculate Layout Widths ---
-	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
+	lineNumWidth := m.calculateLineNumberWidth(totalLogicalLines)
 	availableWidth := m.viewport.Width - lineNumWidth
 	if availableWidth <= 0 {
 		availableWidth = 1
@@ -154,48 +326,22 @@ func (m *Model) calculateVisualMetrics() {
 	}
 
 	// ========================================================================
-	// >>> 1. PRECOMPUTE FULL VISUAL LAYOUT <<<
+	// >>> 1. LAZY VISUAL LAYOUT - Only compute viewport + buffer <<<
 	// ========================================================================
-	visualLayout := make([]VisualLineInfo, 0)
-	for bufferRowIdx, logicalLineContent := range allLogicalLines {
-		originalLineRunes := []rune(logicalLineContent)
-		originalLineLen := len(originalLineRunes)
-		currentLogicalColToReport := 0
 
-		if originalLineLen == 0 && logicalLineContent == "" {
-			visualLayout = append(visualLayout, VisualLineInfo{
-				Content:         "",
-				LogicalRow:      bufferRowIdx,
-				LogicalStartCol: 0,
-				IsFirstSegment:  true,
-			})
-			continue
-		}
+	// For large files, only compute visible region instead of entire buffer
+	// Threshold chosen based on viewport buffer size: when buffer has >1000 lines,
+	// lazy mode (computing ~400 lines) is significantly faster than full layout
+	const largeFileThreshold = 1000
+	const viewportBuffer = 200 // Lines to cache above/below visible area
 
-		wrappedSegmentStrings := wrapLine(logicalLineContent, availableWidth)
-
-		for segIdx, segmentStr := range wrappedSegmentStrings {
-			segmentRunes := []rune(segmentStr)
-			segmentRunesLen := len(segmentRunes)
-
-			info := VisualLineInfo{
-				Content:         segmentStr,
-				LogicalRow:      bufferRowIdx,
-				LogicalStartCol: currentLogicalColToReport,
-				IsFirstSegment:  segIdx == 0,
-			}
-			visualLayout = append(visualLayout, info)
-
-			currentLogicalColToReport += segmentRunesLen
-			if segIdx < len(wrappedSegmentStrings)-1 {
-				for currentLogicalColToReport < originalLineLen && unicode.IsSpace(originalLineRunes[currentLogicalColToReport]) {
-					currentLogicalColToReport++
-				}
-			}
-		}
+	if totalLogicalLines > largeFileThreshold {
+		// Lazy mode: only compute what we need
+		m.calculateLazyVisualLayout(allLogicalLines, cursor, availableWidth, viewportBuffer)
+	} else {
+		// Small files: compute full layout (original behavior)
+		m.calculateFullVisualLayout(allLogicalLines, availableWidth)
 	}
-	m.visualLayoutCache = visualLayout
-	m.fullVisualLayoutHeight = len(visualLayout)
 
 	// ========================================================================
 	// >>> 2. Find Cursor's Absolute Visual Row and Clamped Logical Column <<<
@@ -215,13 +361,16 @@ func (m *Model) calculateVisualMetrics() {
 	if m.fullVisualLayoutHeight == 0 {
 		absoluteTargetVisualRow = 0
 	} else {
-		for absVisRowIdx, vli := range m.visualLayoutCache {
+		// Use the pre-computed visual row offset from lazy layout
+		visualRowOffset := m.visualLayoutCacheStartVisualRow
+
+		for cacheIdx, vli := range m.visualLayoutCache {
 			if vli.LogicalRow == clampedCursorRow {
 				segmentRuneLen := len([]rune(vli.Content))
 				if m.clampedCursorLogicalCol >= vli.LogicalStartCol {
 					if (segmentRuneLen > 0 && m.clampedCursorLogicalCol <= vli.LogicalStartCol+segmentRuneLen) ||
 						(segmentRuneLen == 0 && m.clampedCursorLogicalCol == vli.LogicalStartCol) {
-						absoluteTargetVisualRow = absVisRowIdx
+						absoluteTargetVisualRow = visualRowOffset + cacheIdx
 						break
 					}
 				}
@@ -230,15 +379,15 @@ func (m *Model) calculateVisualMetrics() {
 
 		if absoluteTargetVisualRow == -1 {
 			foundFirstSegment := false
-			for absVisRowIdx, vli := range m.visualLayoutCache { // Use cached layout
+			for cacheIdx, vli := range m.visualLayoutCache { // Use cached layout
 				if vli.LogicalRow == clampedCursorRow && vli.IsFirstSegment {
 					if m.clampedCursorLogicalCol == vli.LogicalStartCol {
-						absoluteTargetVisualRow = absVisRowIdx
+						absoluteTargetVisualRow = visualRowOffset + cacheIdx
 						foundFirstSegment = true
 						break
 					}
 					if !foundFirstSegment {
-						absoluteTargetVisualRow = absVisRowIdx
+						absoluteTargetVisualRow = visualRowOffset + cacheIdx
 						foundFirstSegment = true
 					}
 				}
@@ -302,8 +451,10 @@ func (m *Model) renderVisibleSliceDefault() {
 
 	targetScreenColForCursor := -1
 	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
-		if len(m.visualLayoutCache) > m.cursorAbsoluteVisualRow {
-			vliAtCursor := m.visualLayoutCache[m.cursorAbsoluteVisualRow]
+		// Convert absolute visual row to cache-relative index for cursor lookup
+		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
+		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
+			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
 			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
 			targetScreenColForCursor = lineNumWidth + visualColInSegment
 		} else if m.fullVisualLayoutHeight > 0 {
@@ -316,10 +467,12 @@ func (m *Model) renderVisibleSliceDefault() {
 	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
-		if absVisRowIdxToRender < 0 || absVisRowIdxToRender >= len(m.visualLayoutCache) {
+		// Convert absolute visual row to cache-relative index
+		cacheIdx := absVisRowIdxToRender - m.visualLayoutCacheStartVisualRow
+		if cacheIdx < 0 || cacheIdx >= len(m.visualLayoutCache) {
 			break
 		}
-		vli := m.visualLayoutCache[absVisRowIdxToRender]
+		vli := m.visualLayoutCache[cacheIdx]
 		currentSliceRow := renderedDisplayLineCount
 
 		if m.showLineNumbers {
@@ -621,8 +774,10 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 	targetScreenColForCursor := -1
 	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
-		if len(m.visualLayoutCache) > m.cursorAbsoluteVisualRow {
-			vliAtCursor := m.visualLayoutCache[m.cursorAbsoluteVisualRow]
+		// Convert absolute visual row to cache-relative index for cursor lookup
+		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
+		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
+			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
 			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
 			targetScreenColForCursor = lineNumWidth + visualColInSegment
 		} else if m.fullVisualLayoutHeight > 0 {
@@ -639,30 +794,37 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	if m.highlighter != nil {
 		extraHighlightedContextLines := int(m.extraHighlightedContextLines)
 
-		// Pre-tokenize all visible logical lines, with context
+		// Pre-tokenise all visible logical lines, with context
 		startLogicalLine := -1
 		endLogicalLine := -1
 		if len(m.visualLayoutCache) > 0 && m.fullVisualLayoutHeight > 0 {
-			startRenderVisualRowClamped := max(0, min(startRenderVisualRow, len(m.visualLayoutCache)-1))
-			endRenderVisualRowClamped := max(0, min(endRenderVisualRow, len(m.visualLayoutCache)-1))
+			// Convert absolute visual rows to cache indices
+			startCacheIdx := max(0, startRenderVisualRow-m.visualLayoutCacheStartVisualRow)
+			endCacheIdx := min(len(m.visualLayoutCache)-1, endRenderVisualRow-m.visualLayoutCacheStartVisualRow)
 
-			startLogicalLine = m.visualLayoutCache[startRenderVisualRowClamped].LogicalRow
-			endLogicalLine = m.visualLayoutCache[endRenderVisualRowClamped].LogicalRow + 1
+			if startCacheIdx >= 0 && startCacheIdx < len(m.visualLayoutCache) && endCacheIdx >= 0 && endCacheIdx < len(m.visualLayoutCache) {
+				startLogicalLine = m.visualLayoutCache[startCacheIdx].LogicalRow
+				endLogicalLine = m.visualLayoutCache[endCacheIdx].LogicalRow + 1
 
-			// Expand the range for better syntax highlighting context
-			expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
-			expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
+				// Expand the range for better syntax highlighting context
+				// For markdown, we need extra context to properly tokenise code blocks
+				// The incremental tokeniser will skip already-cached lines, so this is efficient
+				expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
+				expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
 
-			if expandedStartLine < expandedEndLine {
-				m.highlighter.Tokenize(allLogicalLines, expandedStartLine, expandedEndLine)
+				if expandedStartLine < expandedEndLine {
+					m.highlighter.Tokenise(allLogicalLines, expandedStartLine, expandedEndLine)
+				}
 			}
 		}
 
 		for absVisRowIdx := startRenderVisualRow; absVisRowIdx < endRenderVisualRow; absVisRowIdx++ {
-			if absVisRowIdx < 0 || absVisRowIdx >= len(m.visualLayoutCache) {
+			// Convert absolute visual row to cache index
+			cacheIdx := absVisRowIdx - m.visualLayoutCacheStartVisualRow
+			if cacheIdx < 0 || cacheIdx >= len(m.visualLayoutCache) {
 				continue
 			}
-			vli := m.visualLayoutCache[absVisRowIdx]
+			vli := m.visualLayoutCache[cacheIdx]
 			if vli.IsFirstSegment && vli.LogicalRow < len(allLogicalLines) {
 				if _, cached := lineTokenCache[vli.LogicalRow]; !cached {
 					tokens := m.highlighter.GetTokensForLine(vli.LogicalRow, allLogicalLines)
@@ -673,10 +835,12 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	}
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
-		if absVisRowIdxToRender < 0 || absVisRowIdxToRender >= len(m.visualLayoutCache) {
+		// Convert absolute visual row to cache-relative index
+		cacheIdx := absVisRowIdxToRender - m.visualLayoutCacheStartVisualRow
+		if cacheIdx < 0 || cacheIdx >= len(m.visualLayoutCache) {
 			break
 		}
-		vli := m.visualLayoutCache[absVisRowIdxToRender]
+		vli := m.visualLayoutCache[cacheIdx]
 		currentSliceRow := renderedDisplayLineCount
 
 		// Render line number

@@ -71,35 +71,49 @@ type cursorBlinkContext struct {
 }
 
 type Model struct {
-	editor                       editor.Editor
-	viewport                     viewport.Model
-	width                        int
-	height                       int
-	showLineNumbers              bool
-	showTildeIndicator           bool
-	showStatusLine               bool
-	theme                        Theme
-	StatusLineFunc               func() string
-	err                          error
-	message                      string
-	yanked                       bool
-	disableVimMode               bool
-	fullVisualLayoutHeight       int              // Total number of visual lines in the entire buffer
-	cursorAbsoluteVisualRow      int              // Cursor's current row index in the full visual layout
-	currentVisualTopLine         int              // Top line of the current visual slice
-	visualLayoutCache            []VisualLineInfo // Cache of visual line information for the current slice
-	clampedCursorLogicalCol      int              // Clamped cursor column in the current visual slice
+	editor   editor.Editor
+	viewport viewport.Model
+
+	width  int
+	height int
+
+	showLineNumbers    bool
+	showTildeIndicator bool
+	showStatusLine     bool
+
+	theme          Theme
+	StatusLineFunc func() string
+
+	err     error
+	message string
+
+	yanked bool
+
+	disableVimMode bool
+
+	fullVisualLayoutHeight  int // Total number of visual lines in the entire buffer
+	cursorAbsoluteVisualRow int // Cursor's current row index in the full visual layout
+	currentVisualTopLine    int // Top line of the current visual slice
+
+	visualLayoutCache               []VisualLineInfo // Cache of visual line information
+	visualLayoutCacheStartRow       int              // First logical line in cache (for lazy mode)
+	visualLayoutCacheStartVisualRow int              // First visual row in cache (offset for lazy mode)
+
+	clampedCursorLogicalCol      int // Clamped cursor column
 	highlightedWords             map[string]lipgloss.Style
-	isFocused                    bool
-	placeholder                  string
-	cursorMode                   CursorMode
-	cursorVisible                bool
-	cursorBlinkContext           *cursorBlinkContext
-	clearMsgCancel               context.CancelFunc
-	highlighter                  *highlighter.Highlighter
-	language                     string
-	highlighterTheme             string
+	compiledHighlightedWords     []highlightedWordPattern // Cached compiled patterns
+	compiledHighlightedWordsHash uint64                   // Hash of highlightedWords to detect changes
 	extraHighlightedContextLines uint16
+
+	isFocused          bool
+	placeholder        string
+	cursorMode         CursorMode
+	cursorVisible      bool
+	cursorBlinkContext *cursorBlinkContext
+	clearMsgCancel     context.CancelFunc
+	highlighter        *highlighter.Highlighter
+	language           string
+	highlighterTheme   string
 }
 
 type ErrorMsg struct {
@@ -309,12 +323,20 @@ func (m *Model) SetLanguage(language string, theme string) {
 	}
 }
 
-// SetExtraHighlightedContextLines sets the number of extra lines to highlight around the cursor.
-// This is useful for languages like Markdown where context around the cursor is important and code blocks may span multiple lines.
-// For example, if set to 100, the highlighter will highlight 100 lines above and below the cursor position.
-// This allows for better context when editing Markdown documents, especially when code blocks or large sections are present.
-// If the buffer is very large, this should not be set too high to avoid performance issues.
-// The default value is 100 for Markdown and 0 for other languages.
+// SetExtraHighlightedContextLines sets the number of extra lines to tokenise around the visible viewport.
+// This is crucial for Markdown where code blocks need context (the opening ```) to highlight correctly.
+//
+// PERFORMANCE TRADE-OFF:
+// - Higher values: Better syntax highlighting for large code blocks, but slower scrolling
+// - Lower values: Faster scrolling, but code blocks may lose highlighting when scrolling
+//
+// Recommended values:
+// - Small files (<5000 lines): 100-200 (default is 100)
+// - Large files (5000-20000 lines): 50-100
+// - Very large files (>20000 lines): 20-50
+//
+// When scrolling, if the new range overlaps with cached range, no re-tokenisation occurs (fast).
+// When scrolling beyond cached range, the entire new range gets re-tokenised (slow if value is high).
 func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 	m.extraHighlightedContextLines = lines
 }
@@ -429,6 +451,9 @@ func (m *Model) DisableVisualLineMode(disable bool) {
 // This is useful for highlighting specific keywords or phrases in the text.
 func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
 	m.highlightedWords = words
+	// Invalidate the compiled patterns cache to force recompilation
+	m.compiledHighlightedWords = nil
+	m.compiledHighlightedWordsHash = 0
 }
 
 // Focus sets the editor to focused state.
@@ -583,7 +608,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
-		/* TODO: Optimize to only tokenize changed lines if possible. */
+		/* TODO: Optimize to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
 		m.cursorVisible = true

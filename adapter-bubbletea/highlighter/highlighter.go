@@ -12,11 +12,12 @@ import (
 
 // Highlighter handles syntax highlighting for the editor
 type Highlighter struct {
-	lexer      chroma.Lexer
-	style      *chroma.Style
-	cache      map[int][]chroma.Token // Cache tokens by line number
-	styleCache map[chroma.TokenType]lipgloss.Style
-	cacheMutex sync.RWMutex
+	lexer           chroma.Lexer
+	style           *chroma.Style
+	cache           map[int][]chroma.Token // Cache tokens by line number
+	styleCache      map[chroma.TokenType]lipgloss.Style
+	cacheMutex      sync.RWMutex
+	styleCacheMutex sync.RWMutex
 }
 
 // TokenPosition represents a token's position in the original line
@@ -60,17 +61,41 @@ func (sh *Highlighter) InvalidateLine(lineNum int) {
 	delete(sh.cache, lineNum)
 }
 
-// Tokenize tokenizes only the visible range of lines.
-func (sh *Highlighter) Tokenize(lines []string, startLine, endLine int) {
+// Tokenise tokenises only the visible range of lines.
+// Optimised to skip re-tokenisation if all lines are already cached.
+func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
 
-	// Clear cache only for the viewport lines
+	if startLine < 0 || endLine > len(lines) || startLine >= endLine {
+		return
+	}
+
+	// Check if all lines are already cached
+	allCached := true
+	for i := startLine; i < endLine; i++ {
+		if _, exists := sh.cache[i]; !exists {
+			allCached = false
+			break
+		}
+	}
+
+	// If everything is cached, skip tokenisation
+	if allCached {
+		return
+	}
+
+	// Clear cache for the range we're about to tokenise
 	for i := startLine; i < endLine; i++ {
 		delete(sh.cache, i)
 	}
 
-	// Join only the lines in the viewport
+	sh.tokeniseRange(lines, startLine, endLine)
+}
+
+// tokeniseRange tokenises a specific range of lines and updates the cache
+func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
+	// Join only the lines in this range
 	content := strings.Join(lines[startLine:endLine], "\n")
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
@@ -120,11 +145,17 @@ func (sh *Highlighter) GetTokensForLine(lineNum int, lines []string) []chroma.To
 }
 
 // GetStyleForToken converts a Chroma token type to a lipgloss style.
+// Thread-safe with read-write lock for cache access.
 func (sh *Highlighter) GetStyleForToken(tokenType chroma.TokenType) lipgloss.Style {
+	// Try read lock first (fast path for cached styles)
+	sh.styleCacheMutex.RLock()
 	if style, ok := sh.styleCache[tokenType]; ok {
+		sh.styleCacheMutex.RUnlock()
 		return style
 	}
+	sh.styleCacheMutex.RUnlock()
 
+	// Compute style (slow path)
 	entry := sh.style.Get(tokenType)
 
 	style := lipgloss.NewStyle()
@@ -142,7 +173,10 @@ func (sh *Highlighter) GetStyleForToken(tokenType chroma.TokenType) lipgloss.Sty
 		style = style.Underline(true)
 	}
 
+	// Write lock to update cache
+	sh.styleCacheMutex.Lock()
 	sh.styleCache[tokenType] = style
+	sh.styleCacheMutex.Unlock()
 
 	return style
 }
