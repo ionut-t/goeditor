@@ -486,6 +486,10 @@ func (m *Model) DisableVisualLineMode(disable bool) {
 	m.editor.DisableVisualLineMode(disable)
 }
 
+func (m *Model) DisableSearchMode(disable bool) {
+	m.editor.DisableSearchMode(disable)
+}
+
 // SetHighlightedWords allows setting highlighted words in the editor.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.
@@ -534,6 +538,11 @@ func (m *Model) IsVisualLineMode() bool {
 // IsCommandMode returns whether the editor is in command mode.
 func (m *Model) IsCommandMode() bool {
 	return m.editor.IsCommandMode()
+}
+
+// IsSearchMode returns whether the editor is in search mode.
+func (m *Model) IsSearchMode() bool {
+	return m.editor.IsSearchMode()
 }
 
 // SetNormalMode sets the editor to normal mode.

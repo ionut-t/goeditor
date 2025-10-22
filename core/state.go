@@ -51,6 +51,8 @@ type State struct {
 	WithVisualMode bool // Whether visual mode is enabled
 
 	WithVisualLineMode bool // Whether visual line mode is enabled
+
+	WithSearchMode bool // Whether search mode is enabled
 }
 
 // InitialState creates a default state
@@ -174,6 +176,10 @@ func (e *editor) DisableVisualLineMode(disable bool) {
 	e.state.WithVisualLineMode = !disable
 }
 
+func (e *editor) DisableSearchMode(disable bool) {
+	e.state.WithSearchMode = !disable
+}
+
 func (e *editor) ShowRelativeLineNumbers(show bool) {
 	e.state.RelativeNumbers = show
 }
@@ -228,6 +234,10 @@ func (e *editor) SetCommandMode() {
 }
 
 func (e *editor) SetSearchMode() {
+	if !e.state.WithSearchMode {
+		return
+	}
+
 	e.setMode(SearchMode)
 }
 

@@ -43,6 +43,7 @@ type Editor interface {
 	DisableInsertMode(bool)
 	DisableVisualMode(bool)
 	DisableVisualLineMode(bool)
+	DisableSearchMode(bool)
 
 	// Event handling
 	HandleKey(key KeyEvent) *EditorError // Process a key press
