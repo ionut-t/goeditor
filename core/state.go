@@ -79,6 +79,7 @@ func InitialState() State {
 		WithInsertMode:     true,
 		WithVisualMode:     true,
 		WithVisualLineMode: true,
+		WithSearchMode:     true,
 	}
 }
 
