@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -121,9 +122,8 @@ type Model struct {
 	language           string
 	highlighterTheme   string
 
-	searchInput      textinput.Model
-	searchOptions    editor.SearchOptions
-	searchInputBlink bool
+	searchInput   textinput.Model
+	searchOptions editor.SearchOptions
 }
 
 type ErrorMsg struct {
@@ -230,7 +230,7 @@ func New(width, height int) Model {
 	searchInput.PromptStyle = DefaultTheme.SearchInputPromptStyle
 	searchInput.Cursor.Style = DefaultTheme.SearchInputCursorStyle
 	searchInput.TextStyle = DefaultTheme.SearchInputTextStyle
-	searchInput.Cursor.Blink = false
+	searchInput.Cursor.SetMode(cursor.CursorStatic)
 
 	searchOptions := editor.SearchOptions{
 		IgnoreCase: true,
@@ -325,6 +325,9 @@ func (m *Model) SetContent(content string) {
 // WithTheme allows setting a custom theme for the editor.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
+	m.searchInput.Cursor.Style = theme.SearchInputCursorStyle
+	m.searchInput.PromptStyle = theme.SearchInputPromptStyle
+	m.searchInput.TextStyle = theme.SearchInputTextStyle
 }
 
 // WithSearchOptions allows setting custom search options for the editor.
@@ -332,10 +335,10 @@ func (m *Model) WithSearchOptions(options editor.SearchOptions) {
 	m.searchOptions = options
 }
 
-// WithSearchInputBlink allows enabling or disabling cursor blinking in the search input.
-// By default, the search input cursor does not blink.
-func (m *Model) WithSearchInputBlink(blink bool) {
-	m.searchInputBlink = blink
+// WithSearchInputCursorMode allows setting the cursor mode for the search input.
+// Default is CursorStatic.
+func (m *Model) WithSearchInputCursorMode(mode cursor.Mode) {
+	m.searchInput.Cursor.SetMode(mode)
 }
 
 // SetLanguage sets the programming language for syntax highlighting.
