@@ -8,7 +8,7 @@ require (
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/ionut-t/goeditor/core v0.2.2
+	github.com/ionut-t/goeditor/core v0.2.3
 )
 
 require (
