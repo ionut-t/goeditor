@@ -626,6 +626,11 @@ func (m *Model) SetCursorPositionEnd() error {
 	return nil
 }
 
+// GetCursorPosition returns the current cursor position in the editor.
+func (m Model) GetCursorPosition() editor.Position {
+	return m.editor.GetBuffer().GetCursor().Position
+}
+
 func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
