@@ -72,11 +72,6 @@ const (
 const cursorBlinkInterval = 500 * time.Millisecond
 const cursorActivityResetDelay = 250 * time.Millisecond
 
-type cursorBlinkContext struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
 type Model struct {
 	editor   editor.Editor
 	viewport viewport.Model
@@ -112,18 +107,19 @@ type Model struct {
 	compiledHighlightedWordsHash uint64                   // Hash of highlightedWords to detect changes
 	extraHighlightedContextLines uint16
 
-	isFocused          bool
-	placeholder        string
-	cursorMode         CursorMode
-	cursorVisible      bool
-	cursorBlinkContext *cursorBlinkContext
-	clearMsgCancel     context.CancelFunc
-	highlighter        *highlighter.Highlighter
-	language           string
-	highlighterTheme   string
+	isFocused        bool
+	placeholder      string
+	cursorMode       CursorMode
+	cursorVisible    bool
+	highlighter      *highlighter.Highlighter
+	language         string
+	highlighterTheme string
 
 	searchInput   textinput.Model
 	searchOptions editor.SearchOptions
+
+	cursorBlinkCancel context.CancelFunc
+	clearMsgCancel    context.CancelFunc
 }
 
 type ErrorMsg struct {
@@ -250,9 +246,6 @@ func New(width, height int) Model {
 		cursorVisible:    true,
 		searchInput:      searchInput,
 		searchOptions:    searchOptions,
-		cursorBlinkContext: &cursorBlinkContext{
-			ctx: context.Background(),
-		},
 	}
 
 	m.SetSize(width, height)
@@ -674,8 +667,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleContentChange()
 
 		m.cursorVisible = true
-		if m.cursorBlinkContext != nil && m.cursorBlinkContext.cancel != nil {
-			m.cursorBlinkContext.cancel()
+		if m.cursorBlinkCancel != nil {
+			m.cursorBlinkCancel()
 		}
 
 		if m.cursorMode == CursorBlink {
@@ -979,12 +972,12 @@ func (m *Model) CursorBlink() tea.Cmd {
 		return nil
 	}
 
-	if m.cursorBlinkContext != nil && m.cursorBlinkContext.cancel != nil {
-		m.cursorBlinkContext.cancel()
+	if m.cursorBlinkCancel != nil {
+		m.cursorBlinkCancel()
 	}
 
-	ctx, cancel := context.WithTimeout(m.cursorBlinkContext.ctx, cursorBlinkInterval)
-	m.cursorBlinkContext.cancel = cancel
+	ctx, cancel := context.WithTimeout(context.Background(), cursorBlinkInterval)
+	m.cursorBlinkCancel = cancel
 
 	return func() tea.Msg {
 		defer cancel()
