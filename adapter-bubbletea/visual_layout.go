@@ -576,20 +576,38 @@ func (m *Model) renderVisibleSliceDefault() {
 			}
 		}
 
+		cursorWidth := 0
 		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
 			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
 			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
 			baseStyleForCursorBlock := lipgloss.NewStyle()
+
+			// Apply current line style if this is the cursor line
+			if vli.LogicalRow == clampedCursorRowForLineNumbers {
+				baseStyleForCursorBlock = m.theme.CurrentLineStyle
+			}
+
 			if cursorBlockSelectionStatus != editor.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
 
 			if m.cursorVisible {
 				contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
+				cursorWidth = 1
 			}
 
 		}
+
+		// Fill remaining width with current line style if this is the cursor line
+		if vli.LogicalRow == clampedCursorRowForLineNumbers {
+			usedWidth := lineNumWidth + len(segmentRunes) + cursorWidth
+			remainingWidth := m.viewport.Width - usedWidth
+			if remainingWidth > 0 {
+				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
+			}
+		}
+
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
 	}
@@ -913,17 +931,34 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 			}
 		}
 
+		cursorWidth := 0
 		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
 			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
 			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
 			baseStyleForCursorBlock := lipgloss.NewStyle()
+
+			// Apply current line style if this is the cursor line
+			if vli.LogicalRow == clampedCursorRowForLineNumbers {
+				baseStyleForCursorBlock = m.theme.CurrentLineStyle
+			}
+
 			if cursorBlockSelectionStatus != editor.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
 
 			if m.cursorVisible {
 				contentBuilder.WriteString(baseStyleForCursorBlock.Render(m.getCursorStyles().Render(" ")))
+				cursorWidth = 1
+			}
+		}
+
+		// Fill remaining width with current line style if this is the cursor line
+		if vli.LogicalRow == clampedCursorRowForLineNumbers {
+			usedWidth := lineNumWidth + len([]rune(vli.Content)) + cursorWidth
+			remainingWidth := m.viewport.Width - usedWidth
+			if remainingWidth > 0 {
+				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
 			}
 		}
 
@@ -971,36 +1006,45 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	m.viewport.SetContent(finalContentSlice)
 }
 
-// renderSegmentWithSyntax renders a segment with syntax highlighting
-func (m *Model) renderSegmentWithSyntax(
+// renderSegment renders a segment with an optional base style provider
+func (m *Model) renderSegment(
 	vli VisualLineInfo,
-	tokenPositions []highlighter.TokenPosition,
 	contentBuilder *strings.Builder,
 	currentSliceRow int,
 	targetVisualRowInSlice int,
 	targetScreenColForCursor int,
 	lineNumWidth int,
 	selectionStyle lipgloss.Style,
-	searchHighlightStyle lipgloss.Style) {
+	searchHighlightStyle lipgloss.Style,
+	getBaseStyle func(col int) lipgloss.Style,
+) {
 	segmentRunes := []rune(vli.Content)
 	styledSegment := strings.Builder{}
 
 	charIdx := 0
 	segmentLen := len(segmentRunes)
 
+	clampedCursorRow := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, m.editor.GetBuffer().LineCount())
+	isCurrentLine := vli.LogicalRow == clampedCursorRow
+
+	// Pre-calculate current line background once per segment for performance
+	var currentLineBackground lipgloss.TerminalColor
+	if isCurrentLine {
+		currentLineBackground = m.theme.CurrentLineStyle.GetBackground()
+	}
+
 	for charIdx < segmentLen {
 		currentLogicalCharCol := vli.LogicalStartCol + charIdx
 		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
-		// Find the token for this position
-		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, currentLogicalCharCol)
-
 		isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
-		// Get base style from syntax highlighting
-		baseCharStyle := lipgloss.NewStyle()
-		if hasToken && m.highlighter != nil {
-			baseCharStyle = m.highlighter.GetStyleForToken(token.Type)
+		// Get base style from provider function
+		baseCharStyle := getBaseStyle(currentLogicalCharCol)
+
+		// Apply current line background if this is the cursor line
+		if isCurrentLine {
+			baseCharStyle = baseCharStyle.Background(currentLineBackground)
 		}
 
 		if isSearchResult {
@@ -1022,6 +1066,11 @@ func (m *Model) renderSegmentWithSyntax(
 				posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
 
 				charSpecificRenderStyle := bestMatchStyle
+
+				// Apply current line background to highlighted words
+				if isCurrentLine {
+					charSpecificRenderStyle = charSpecificRenderStyle.Background(currentLineBackground)
+				}
 
 				// Apply selection style if needed
 				selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
@@ -1069,6 +1118,30 @@ func (m *Model) renderSegmentWithSyntax(
 	contentBuilder.WriteString(styledSegment.String())
 }
 
+// renderSegmentWithSyntax renders a segment with syntax highlighting
+func (m *Model) renderSegmentWithSyntax(
+	vli VisualLineInfo,
+	tokenPositions []highlighter.TokenPosition,
+	contentBuilder *strings.Builder,
+	currentSliceRow int,
+	targetVisualRowInSlice int,
+	targetScreenColForCursor int,
+	lineNumWidth int,
+	selectionStyle lipgloss.Style,
+	searchHighlightStyle lipgloss.Style) {
+
+	getBaseStyle := func(col int) lipgloss.Style {
+		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, col)
+		if hasToken && m.highlighter != nil {
+			return m.highlighter.GetStyleForToken(token.Type)
+		}
+		return lipgloss.NewStyle()
+	}
+
+	m.renderSegment(vli, contentBuilder, currentSliceRow, targetVisualRowInSlice,
+		targetScreenColForCursor, lineNumWidth, selectionStyle, searchHighlightStyle, getBaseStyle)
+}
+
 // renderSegmentPlain renders a segment without syntax highlighting (fallback)
 func (m *Model) renderSegmentPlain(
 	vli VisualLineInfo,
@@ -1080,74 +1153,12 @@ func (m *Model) renderSegmentPlain(
 	selectionStyle lipgloss.Style,
 	searchHighlightStyle lipgloss.Style,
 ) {
-	segmentRunes := []rune(vli.Content)
-	styledSegment := strings.Builder{}
-
-	charIdx := 0
-	segmentLen := len(segmentRunes)
-
-	for charIdx < segmentLen {
-		currentLogicalCharCol := vli.LogicalStartCol + charIdx
-		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
-
-		isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
-
-		baseCharStyle := lipgloss.NewStyle()
-		charsToAdvance := 1
-
-		bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
-		bestMatchLen := bestMatch.length
-		bestMatchStyle := bestMatch.style
-
-		if bestMatchLen > 0 {
-			for k := range bestMatchLen {
-				idxInSegment := charIdx + k
-				chRuneToStyle := segmentRunes[idxInSegment]
-				logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
-				posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
-
-				charSpecificRenderStyle := bestMatchStyle
-
-				selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
-				if selectionStatus != editor.SelectionNone {
-					charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
-				}
-
-				currentScreenColForChar := lineNumWidth + idxInSegment
-				isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
-
-				if isCursorOnThisChar && m.isFocused && m.cursorVisible {
-					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
-				} else {
-					styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
-				}
-			}
-			charsToAdvance = bestMatchLen
-		} else {
-			chRuneToStyle := segmentRunes[charIdx]
-
-			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
-			if selectionStatus != editor.SelectionNone {
-				baseCharStyle = selectionStyle
-			}
-
-			if isSearchResult {
-				baseCharStyle = searchHighlightStyle
-			}
-
-			currentScreenColForChar := lineNumWidth + charIdx
-			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
-
-			if isCursorOnChar && m.isFocused && m.cursorVisible {
-				styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
-			} else {
-				styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
-			}
-		}
-		charIdx += charsToAdvance
+	getBaseStyle := func(col int) lipgloss.Style {
+		return lipgloss.NewStyle()
 	}
 
-	contentBuilder.WriteString(styledSegment.String())
+	m.renderSegment(vli, contentBuilder, currentSliceRow, targetVisualRowInSlice,
+		targetScreenColForCursor, lineNumWidth, selectionStyle, searchHighlightStyle, getBaseStyle)
 }
 
 // handleContentChange is called when the content of the editor changes.

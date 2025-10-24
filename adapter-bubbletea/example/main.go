@@ -126,7 +126,7 @@ func main() {
 		IgnoreCase: true,
 		SmartCase:  true,
 		Wrap:       true,
-		Backwards:  true,
+		Backwards:  false,
 	})
 
 	if content, err := os.ReadFile(file); err == nil {

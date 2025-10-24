@@ -28,6 +28,7 @@ type Theme struct {
 	MessageStyle           lipgloss.Style
 	LineNumberStyle        lipgloss.Style
 	CurrentLineNumberStyle lipgloss.Style
+	CurrentLineStyle       lipgloss.Style
 	SelectionStyle         lipgloss.Style
 	ErrorStyle             lipgloss.Style
 	HighlightYankStyle     lipgloss.Style
@@ -50,6 +51,7 @@ var DefaultTheme = Theme{
 	ErrorStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color("208")),
 	LineNumberStyle:        lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Width(4).Align(lipgloss.Right),
 	CurrentLineNumberStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Width(4).Align(lipgloss.Right),
+	CurrentLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color("#2A2B3C")),
 	SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
 	HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
 	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
