@@ -29,7 +29,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.editor.SetSize(msg.Width-4, msg.Height-2)
+		m.editor.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -98,11 +98,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1).
-		Render(m.editor.View())
+	return m.editor.View()
 }
 
 func main() {
@@ -121,7 +117,7 @@ func main() {
 	textEditor := editor.New(80, 20)
 	textEditor.Focus()
 	textEditor.SetCursorMode(editor.CursorBlink)
-	textEditor.SetLanguage(lang, "catppuccin-mocha")
+	textEditor.SetLanguage(lang, languageTheme())
 	textEditor.WithSearchOptions(core.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
@@ -146,4 +142,12 @@ func main() {
 		log.Fatalf("Error running Bubble Tea program: %v", err)
 		os.Exit(1)
 	}
+}
+
+func languageTheme() string {
+	if lipgloss.HasDarkBackground() {
+		return "catppuccin-mocha"
+	}
+
+	return "catppuccin-latte"
 }
