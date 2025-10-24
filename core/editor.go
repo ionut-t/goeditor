@@ -89,6 +89,8 @@ type Editor interface {
 	PreviousSearchResult() Cursor
 
 	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
+
+	ResetSelection()
 }
 
 type Clipboard interface {

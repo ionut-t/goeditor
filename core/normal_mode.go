@@ -6,12 +6,14 @@ import (
 )
 
 type normalMode struct {
-	pendingKey KeyEvent // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
+	pendingKey      KeyEvent // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
+	pendingModifier rune     // Stores text object modifier ('i' for inside, 'a' for around)
 }
 
 func NewNormalMode() EditorMode {
 	return &normalMode{
-		pendingKey: KeyEvent{Key: KeyUnknown},
+		pendingKey:      KeyEvent{Key: KeyUnknown},
+		pendingModifier: 0,
 	}
 }
 
@@ -23,6 +25,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 
 	// Reset pending state on entering normal mode
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
+	m.pendingModifier = 0
 	editor.ResetPendingCount()
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
@@ -33,6 +36,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	// Clear pending state when exiting normal mode
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
+	m.pendingModifier = 0
 }
 
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
@@ -46,7 +50,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	// --- Handle Pending Operation (e.g., after 'd') ---
 	if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
 		firstKey := m.pendingKey
-		m.pendingKey = KeyEvent{Key: KeyUnknown} // Consume the pending key
 
 		count := 1
 		if pendingCount != nil {
@@ -63,13 +66,69 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		case 'c': // Add change later
 			op = "change"
 		default:
+			m.pendingKey = KeyEvent{Key: KeyUnknown}
+			m.pendingModifier = 0
 			return &EditorError{
 				id:  ErrNoPendingOperationId,
 				err: ErrNoPendingOperation,
 			}
 		}
 
+		// Check if we're waiting for a text object after modifier (i/a)
+		if m.pendingModifier != 0 {
+			modifier := m.pendingModifier
+			m.pendingModifier = 0
+			m.pendingKey = KeyEvent{Key: KeyUnknown}
+
+			// Handle text objects after modifier
+			switch key.Rune {
+			case 'w': // iw or aw = inside/around word
+				if op == "yank" {
+					err = yankTextObject(editor, buffer, modifier, 'w')
+					actionTaken = true
+				}
+			default:
+				editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid text object '%c' after '%c'", key.Rune, modifier))
+				actionTaken = true
+			}
+
+			if err != nil {
+				return err
+			}
+
+			if actionTaken {
+				editor.UpdateCommand("")
+				return nil
+			}
+
+			return nil
+		}
+
+		// Check for text object modifiers (i/a)
+		if key.Rune == 'i' || key.Rune == 'a' {
+			m.pendingModifier = key.Rune
+			editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
+			return nil // Wait for the text object key
+		}
+
+		// Consume the pending key now if not waiting for text object
+		m.pendingKey = KeyEvent{Key: KeyUnknown}
+
 		// Handle motion keys after the operator
+		// Supported operator-motion commands:
+		//
+		// Yank commands:
+		//   yy  - yank current line (line-wise)
+		//   yw  - yank word forward (character-wise)
+		//   yb  - yank word backward (character-wise)
+		//   y$  - yank to end of line (character-wise)
+		//   yiw - yank inside word (character-wise)
+		//   yaw - yank around word, includes surrounding whitespace (character-wise)
+		//
+		// Delete commands:
+		//   dd  - delete current line (line-wise)
+		//   dw  - delete word forward (character-wise)
+		//   d$  - delete to end of line (character-wise)
 		switch key.Rune {
 		case 'd': // dd = delete line
 			if op == "delete" {
@@ -78,17 +137,34 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				editor.DispatchSignal(DeleteSignal{content: deletedContent})
 				actionTaken = true
 			}
-		case 'w': // dw = delete word
-			if op == "delete" {
-				err = deleteWords(editor, buffer, count)
+		case 'y': // yy = yank line
+			if op == "yank" {
+				err = yankLines(editor, buffer, count)
 				actionTaken = true
 			}
-			// Add more motions: b, e, $, 0, ^, G, etc.
-		case '$': // d$ delete to end of line
-			if op == "delete" {
+		case 'w': // dw = delete word, yw = yank word forward
+			switch op {
+			case "delete":
+				err = deleteWords(editor, buffer, count)
+				actionTaken = true
+			case "yank":
+				err = yankWords(editor, buffer, count, true) // forward
+				actionTaken = true
+			}
+		case 'b': // yb = yank word backward
+			if op == "yank" {
+				err = yankWords(editor, buffer, count, false) // backward
+				actionTaken = true
+			}
+		case '$': // d$ = delete to end of line, y$ = yank to end of line
+			switch op {
+			case "delete":
 				var deletedContent string
 				deletedContent, err = deleteToEndOfLine(editor, buffer)
 				editor.DispatchSignal(DeleteSignal{content: deletedContent})
+				actionTaken = true
+			case "yank":
+				err = yankToEndOfLine(editor, buffer)
 				actionTaken = true
 			}
 
@@ -390,10 +466,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the next key (motion)
 
-	// case key.Rune == 'y': // Start 'yank' operation (TODO)
-	// m.pendingKey = key
-	// editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
-	// return nil // Wait for the next key (motion)
+	case key.Rune == 'y': // Start 'yank' operation
+		m.pendingKey = key
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'p':
 		if !state.WithInsertMode {
@@ -548,6 +624,18 @@ func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	return err
 }
 
+// isWordCharForTextObject checks if a rune is a word character for text objects.
+// Matches Vim's default 'iskeyword' which includes letters, numbers, and underscore.
+func isWordCharForTextObject(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+}
+
+// isWhiteSpaceForTextObject checks if a rune is whitespace.
+// For Vim text objects, spaces and tabs are considered whitespace.
+func isWhiteSpaceForTextObject(r rune) bool {
+	return r == ' ' || r == '\t'
+}
+
 func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
@@ -566,4 +654,291 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 	}
 
 	return deletedContent, err
+}
+
+func yankLines(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	originalPos := cursor.Position // Save original cursor position
+	startLine := cursor.Position.Row
+	endLine := startLine + count - 1
+
+	if endLine >= buffer.LineCount() {
+		endLine = buffer.LineCount() - 1
+	}
+
+	// Set up line-wise selection for yank highlight (stay in normal mode)
+	// Do this atomically in one SetState to avoid flicker
+	state := editor.GetState()
+	state.VisualStart = Position{Row: endLine, Col: max(buffer.LineRuneCount(endLine)-1, 0)}
+	state.YankSelection = SelectionLine // Mark as line-wise selection
+	editor.SetState(state)
+
+	// Restore cursor to original position
+	// This way cursor stays where the user had it when they pressed yy
+	cursor.Position = originalPos
+	buffer.SetCursor(cursor)
+
+	// Copy the selection (this also dispatches the YankSignal)
+	if err := editor.Copy(yankType); err != nil {
+		// On error, clear the selection
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{
+			id:  ErrFailedToYankId,
+			err: err,
+		}
+	}
+
+	// Keep the visual selection active for the yank highlight
+
+	return nil
+}
+
+func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorError {
+	cursor := buffer.GetCursor()
+	originalPos := cursor.Position
+	availableWidth := editor.GetState().AvailableWidth
+
+	// Calculate end position by moving cursor
+	tempCursor := cursor
+	var moveErr error
+	if forward {
+		moveErr = tempCursor.MoveWordForward(buffer, count, availableWidth)
+	} else {
+		moveErr = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+	}
+
+	endPos := tempCursor.Position
+
+	// Set up character-wise selection for yank highlight (stay in normal mode)
+	// Do this atomically in one SetState to avoid flicker
+	state := editor.GetState()
+	state.VisualStart = endPos
+	state.YankSelection = SelectionCharacter // Mark as character-wise selection
+	editor.SetState(state)
+
+	// Restore cursor to original position
+	cursor.Position = originalPos
+	buffer.SetCursor(cursor)
+
+	// Copy the selection (this also dispatches the YankSignal)
+	if err := editor.Copy(yankType); err != nil {
+		// On error, clear the selection
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{
+			id:  ErrFailedToYankId,
+			err: err,
+		}
+	}
+
+	// Keep the visual selection active for the yank highlight
+	// Handle movement errors non-fatally
+	if moveErr != nil && moveErr != ErrEndOfBuffer && moveErr != ErrStartOfBuffer {
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: moveErr,
+		}
+	}
+
+	return nil
+}
+
+func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
+	cursor := buffer.GetCursor()
+	originalPos := cursor.Position
+	lineLen := buffer.LineRuneCount(cursor.Position.Row)
+
+	if cursor.Position.Col >= lineLen {
+		// Already at or past end of line, nothing to yank
+		return nil
+	}
+
+	// Set up character-wise selection for yank highlight (stay in normal mode)
+	// Do this atomically in one SetState to avoid flicker
+	state := editor.GetState()
+	state.VisualStart = Position{Row: cursor.Position.Row, Col: lineLen - 1}
+	state.YankSelection = SelectionCharacter // Mark as character-wise selection
+	editor.SetState(state)
+
+	// Restore cursor to original position
+	cursor.Position = originalPos
+	buffer.SetCursor(cursor)
+
+	// Copy the selection (this also dispatches the YankSignal)
+	if err := editor.Copy(yankType); err != nil {
+		// On error, clear the selection
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{
+			id:  ErrFailedToYankId,
+			err: err,
+		}
+	}
+
+	// Keep the visual selection active for the yank highlight
+
+	return nil
+}
+
+// yankTextObject handles text object yanks like 'yiw' (yank inside word) and 'yaw' (yank around word).
+//
+// Text objects in Vim have two forms:
+// - 'i' (inner): Selects just the object itself (e.g., 'iw' = just the word)
+// - 'a' (around): Selects the object plus surrounding whitespace (e.g., 'aw' = word + space)
+//
+// Vim's text object behavior depends on what character the cursor is on:
+// 1. On a word character:
+//   - 'iw': Selects the entire word under cursor
+//   - 'aw': Selects the word plus trailing whitespace (or leading if no trailing)
+//
+// 2. On whitespace:
+//   - 'iw': Selects the whitespace itself
+//   - 'aw': Selects the whitespace plus adjacent word (prioritizes trailing word)
+//
+// 3. On punctuation/other:
+//   - 'iw': Selects just the character
+//   - 'aw': Selects the character plus surrounding whitespace
+func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
+	cursor := buffer.GetCursor()
+	originalPos := cursor.Position
+
+	if textObject != 'w' {
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: fmt.Errorf("unsupported text object: %c", textObject),
+		}
+	}
+
+	// Get the current line
+	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+	if len(lineRunes) == 0 {
+		return nil // Nothing to yank on empty line
+	}
+
+	col := cursor.Position.Col
+	if col >= len(lineRunes) {
+		col = len(lineRunes) - 1
+	}
+
+	// Determine the character under the cursor and its type to apply Vim's text object rules
+	startCol := col
+	endCol := col
+
+	cursorChar := lineRunes[col]
+	onWord := isWordCharForTextObject(cursorChar)
+
+	if onWord {
+		// Case 1: Cursor is on a word character
+		// 'iw' (inner word): Selects the word under the cursor
+		// 'aw' (around word): Selects the word under the cursor and one surrounding whitespace
+
+		// Find the start of the current word
+		for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
+			startCol--
+		}
+
+		// Find the end of the current word
+		for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
+			endCol++
+		}
+
+		// For 'aw', include trailing whitespace (or leading if no trailing)
+		// This matches Vim's behavior where 'aw' prioritizes trailing, then leading whitespace
+		// Examples:
+		//   "word  " with cursor on 'w' -> "word  " (includes trailing spaces)
+		//   "  word" with cursor on 'w' -> "  word" (includes leading spaces when no trailing)
+		//   "word" with cursor on 'w' -> "word" (no surrounding whitespace to include)
+		if modifier == 'a' {
+			origEndCol := endCol
+			// Try to include trailing whitespace
+			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+				endCol++
+			}
+
+			// If no trailing whitespace was found, look for leading whitespace
+			if endCol == origEndCol {
+				for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+					startCol--
+				}
+			}
+		}
+	} else if isWhiteSpaceForTextObject(cursorChar) {
+		// Case 2: Cursor is on whitespace
+		// 'iw' on whitespace: Selects the whitespace block itself
+		// 'aw' on whitespace: Selects the whitespace block plus an adjacent word (prioritizes trailing)
+
+		// Find the extent of the current whitespace block
+		for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+			startCol--
+		}
+		for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+			endCol++
+		}
+
+		// For 'aw', extend to include an adjacent word
+		// Examples:
+		//   "word1   word2" with cursor on middle space -> "   word2" (trailing word)
+		//   "word  " with cursor on trailing space -> "word  " (leading word when no trailing)
+		if modifier == 'a' {
+			// Try to include trailing word first
+			if endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
+				for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
+					endCol++
+				}
+			} else if startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
+				// If no trailing word, include leading word
+				for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
+					startCol--
+				}
+			}
+		}
+	} else {
+		// Case 3: Cursor is on punctuation or other non-word, non-whitespace character
+		// 'iw': Selects just the character itself
+		// 'aw': Selects the character plus any surrounding whitespace
+		if modifier == 'a' {
+			// Expand to include leading whitespace
+			for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+				startCol--
+			}
+			// Expand to include trailing whitespace
+			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+				endCol++
+			}
+		}
+	}
+
+	// Set up character-wise selection for yank highlight (stay in normal mode)
+	// Do this atomically in one SetState to avoid flicker
+	state := editor.GetState()
+	state.VisualStart = Position{Row: cursor.Position.Row, Col: endCol}
+	state.YankSelection = SelectionCharacter // Mark as character-wise selection
+	editor.SetState(state)
+
+	// Set cursor to start of selection
+	cursor.Position = Position{Row: originalPos.Row, Col: startCol}
+	buffer.SetCursor(cursor)
+
+	// Copy the selection (this also dispatches the YankSignal)
+	if err := editor.Copy(yankType); err != nil {
+		// On error, clear the selection
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{
+			id:  ErrFailedToYankId,
+			err: err,
+		}
+	}
+
+	// Keep the visual selection active for the yank highlight
+
+	return nil
 }

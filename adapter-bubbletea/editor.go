@@ -53,7 +53,7 @@ var DefaultTheme = Theme{
 	CurrentLineNumberStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Width(4).Align(lipgloss.Right),
 	CurrentLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color("#2A2B3C")),
 	SelectionStyle:         lipgloss.NewStyle().Background(lipgloss.Color("237")),
-	HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0")).Bold(true),
+	HighlightYankStyle:     lipgloss.NewStyle().Background(lipgloss.Color("230")).Foreground(lipgloss.Color("0")).Bold(true),
 	PlaceholderStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 	SearchHighlightStyle:   lipgloss.NewStyle().Background(lipgloss.Color("224")).Foreground(lipgloss.Color("0")).Bold(true),
 	SearchInputPromptStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("224")).Bold(true),
@@ -122,6 +122,7 @@ type Model struct {
 
 	cursorBlinkCancel context.CancelFunc
 	clearMsgCancel    context.CancelFunc
+	clearYankCancel   context.CancelFunc
 }
 
 type ErrorMsg struct {
@@ -205,9 +206,22 @@ func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
 }
 
 func (m *Model) dispatchClearYankMsg() tea.Cmd {
-	return tea.Tick(time.Millisecond*50, func(t time.Time) tea.Msg {
-		return clearYankMsg{}
-	})
+	// Cancel any existing yank clear timer
+	if m.clearYankCancel != nil {
+		m.clearYankCancel()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	m.clearYankCancel = cancel
+
+	return func() tea.Msg {
+		defer cancel()
+		<-ctx.Done()
+		if ctx.Err() == context.DeadlineExceeded {
+			return clearYankMsg{}
+		}
+		return nil
+	}
 }
 
 type clipboardImpl struct{}
@@ -711,7 +725,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clearYankMsg:
 		m.yanked = false
-		m.editor.SetNormalMode()
+		m.clearYankCancel = nil
+		m.editor.ResetSelection()
+		// Return to normal mode if we were in visual mode
+		if m.editor.IsVisualMode() || m.editor.IsVisualLineMode() {
+			m.editor.SetNormalMode()
+		}
 
 	case enterSearchMode:
 		m.searchInput.Focus()

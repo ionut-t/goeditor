@@ -420,7 +420,9 @@ func (m *Model) renderVisibleSliceDefault() {
 	selectionStyle := m.theme.SelectionStyle
 	searchHighlightStyle := m.theme.SearchHighlightStyle
 
-	if m.yanked {
+	// Check if we're highlighting a yank operation
+	// Either from normal mode (YankSelection) or from visual mode (m.yanked flag)
+	if state.YankSelection != editor.SelectionNone || m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 
@@ -761,7 +763,10 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 	selectionStyle := m.theme.SelectionStyle
 	searchHighlightStyle := m.theme.SearchHighlightStyle
-	if m.yanked {
+
+	// Check if we're highlighting a yank operation
+	// Either from normal mode (YankSelection) or from visual mode (m.yanked flag)
+	if state.YankSelection != editor.SelectionNone || m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 

@@ -25,7 +25,8 @@ type State struct {
 	ViewportWidth  int // Number of columns that can be displayed
 
 	// Visual mode
-	VisualStart Position // Starting position for visual selection (Use Position{-1,-1} if not active)
+	VisualStart   Position      // Starting position for visual selection (Use Position{-1,-1} if not active)
+	YankSelection SelectionType // Type of selection for yank highlighting from normal mode (None, Character, or Line)
 
 	// Command handling
 	SearchQuery       SearchQuery // Current search query (for Search command)
@@ -699,14 +700,12 @@ func (e *editor) Copy(op copyType) error {
 	isLineWise := false // Flag to indicate if the copy includes trailing newline(s)
 
 	if isVisual {
-		// Visual mode: use the selected range, normalize it
+		// Visual mode or yank from normal mode: use the selected range, normalize it
 		start, end = NormalizeSelection(state.VisualStart, cursor.Position)
-		// Note: Vim's visual line mode ('V') would force isLineWise = true here.
-		// We don't have that mode explicitly yet, so visual is character-wise.
 
 		// Check if the selection is line-wise
-
-		if state.Mode == "visual-line" {
+		// Either from visual-line mode OR from YankSelection being set to SelectionLine
+		if state.Mode == "visual-line" || state.YankSelection == SelectionLine {
 			isLineWise = true
 			start = Position{Row: start.Row, Col: 0}                             // Start of the line
 			end = Position{Row: end.Row, Col: buffer.LineRuneCount(end.Row) - 1} // End of the line
@@ -804,20 +803,20 @@ func (e *editor) GetSelectionStatus(pos Position) SelectionType {
 	buffer := e.GetBuffer()
 	cursor := buffer.GetCursor()
 
-	if state.VisualStart.Row == -1 { // Not in visual mode
+	if state.VisualStart.Row == -1 { // No selection active
 		return SelectionNone
 	}
 
 	// Normalize selection range using the accessible function
 	selStart, selEnd := NormalizeSelection(state.VisualStart, cursor.Position)
 
-	// Check Visual Line Mode first
-	if state.Mode == "visual-line" {
+	// Check if this is line-wise selection (either visual-line mode or yank line selection)
+	isLineWise := state.Mode == "visual-line" || state.YankSelection == SelectionLine
+	if isLineWise {
 		if pos.Row >= selStart.Row && pos.Row <= selEnd.Row {
 			return SelectionLine
 		}
-		// Note: In visual-line mode, even if the column is outside the typical character range,
-		// the *entire line* is considered selected for styling purposes.
+		// Note: In line-wise mode, the *entire line* is considered selected for styling purposes.
 		return SelectionNone // Position's row is not within the selected lines
 	}
 
@@ -875,4 +874,11 @@ func (e *editor) IsCommandMode() bool {
 
 func (e *editor) IsSearchMode() bool {
 	return e.state.Mode == SearchMode
+}
+
+func (e *editor) ResetSelection() {
+	state := e.GetState()
+	state.VisualStart = Position{Row: -1, Col: -1}
+	state.YankSelection = SelectionNone
+	e.SetState(state)
 }
