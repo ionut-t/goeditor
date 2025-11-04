@@ -6,14 +6,23 @@ import (
 )
 
 type normalMode struct {
-	pendingKey      KeyEvent // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
-	pendingModifier rune     // Stores text object modifier ('i' for inside, 'a' for around)
+	pendingKey      KeyEvent        // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
+	pendingModifier rune            // Stores text object modifier ('i' for inside, 'a' for around)
+	charSearch      charSearchState // Character search state (f/F/t/T)
+}
+
+// charSearchState holds state for character search motions (f/F/t/T)
+type charSearchState struct {
+	lastChar       rune // The character being searched for
+	searchType     rune // 'f', 'F', 't', or 'T'
+	waitingForChar bool // True when waiting for character input after f/F/t/T
 }
 
 func NewNormalMode() EditorMode {
 	return &normalMode{
 		pendingKey:      KeyEvent{Key: KeyUnknown},
 		pendingModifier: 0,
+		charSearch:      charSearchState{},
 	}
 }
 
@@ -26,6 +35,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	// Reset pending state on entering normal mode
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
+	m.charSearch = charSearchState{}
 	editor.ResetPendingCount()
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
@@ -37,6 +47,7 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	// Clear pending state when exiting normal mode
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
+	m.charSearch = charSearchState{}
 }
 
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
@@ -46,6 +57,64 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	pendingCount := state.PendingCount
 	availableWidth := state.AvailableWidth
 	skipCursorUpdate := false
+
+	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
+	if m.charSearch.waitingForChar {
+		m.charSearch.waitingForChar = false
+		editor.UpdateCommand("") // Clear the command display
+
+		// Handle escape to cancel
+		if key.Key == KeyEscape {
+			m.clearPendingState(editor)
+			return nil
+		}
+
+		// Get the character to search for
+		if key.Rune == 0 {
+			// Not a valid character
+			m.clearPendingState(editor)
+			return nil
+		}
+
+		count := 1
+		if pendingCount != nil {
+			count = *pendingCount
+			editor.ResetPendingCount()
+		}
+
+		// Check if there's a pending operator (d/y/c)
+		if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
+			// Operator + character search motion (e.g., df,  yt;)
+			firstKey := m.pendingKey
+			m.pendingKey = KeyEvent{Key: KeyUnknown}
+
+			op := ""
+			switch firstKey.Rune {
+			case 'd':
+				op = "delete"
+			case 'y':
+				op = "yank"
+			case 'c':
+				op = "change"
+			}
+
+			if op != "" {
+				err = handleCharSearchOperator(editor, buffer, op, m.charSearch.searchType, key.Rune, count)
+				if err != nil {
+					m.clearPendingState(editor)
+				}
+				return err
+			}
+		}
+
+		// No pending operator - just perform the character search
+		searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, key.Rune, count)
+		if searchErr != nil {
+			m.clearPendingState(editor)
+			editor.DispatchError(ErrCharNotFoundId, searchErr)
+		}
+		return nil
+	}
 
 	// --- Handle Pending Operation (e.g., after 'd') ---
 	if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
@@ -109,6 +178,15 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			m.pendingModifier = key.Rune
 			editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
 			return nil // Wait for the text object key
+		}
+
+		// Check for character search motions (f/F/t/T)
+		if key.Rune == 'f' || key.Rune == 'F' || key.Rune == 't' || key.Rune == 'T' {
+			m.charSearch.searchType = key.Rune
+			m.charSearch.waitingForChar = true
+			editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+			// Keep pendingKey - we'll process the operator after getting the character
+			return nil
 		}
 
 		// Consume the pending key now if not waiting for text object
@@ -376,6 +454,37 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	case key.Rune == 'N': // Go to previous search result
 		cursor = editor.PreviousSearchResult()
+
+	// Character search motions
+	case key.Rune == 'f': // Find character forward
+		m.charSearch.searchType = 'f'
+		m.charSearch.waitingForChar = true
+		editor.UpdateCommand("f")
+		return nil
+
+	case key.Rune == 'F': // Find character backward
+		m.charSearch.searchType = 'F'
+		m.charSearch.waitingForChar = true
+		editor.UpdateCommand("F")
+		return nil
+
+	case key.Rune == 't': // Till character forward
+		m.charSearch.searchType = 't'
+		m.charSearch.waitingForChar = true
+		editor.UpdateCommand("t")
+		return nil
+
+	case key.Rune == 'T': // Till character backward
+		m.charSearch.searchType = 'T'
+		m.charSearch.waitingForChar = true
+		editor.UpdateCommand("T")
+		return nil
+
+	case key.Rune == ';': // Repeat last character search
+		cursor = m.handleCharSearchRepeat(editor, buffer, false)
+
+	case key.Rune == ',': // Repeat last character search in opposite direction
+		cursor = m.handleCharSearchRepeat(editor, buffer, true)
 
 	// Editing commands (single key or start of sequence)
 	case key.Rune == 'x': // Delete character under cursor
@@ -941,4 +1050,257 @@ func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune
 	// Keep the visual selection active for the yank highlight
 
 	return nil
+}
+
+// findCharOnLine searches for a character on the current line.
+// searchType: 'f' (find forward), 'F' (find backward), 't' (till forward), 'T' (till backward)
+// Returns the column position if found, -1 if not found.
+func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, count int) int {
+	if count <= 0 {
+		count = 1
+	}
+
+	occurrencesFound := 0
+
+	switch searchType {
+	case 'f': // Find forward
+		for col := startCol + 1; col < len(lineRunes); col++ {
+			if lineRunes[col] == char {
+				occurrencesFound++
+				if occurrencesFound == count {
+					return col
+				}
+			}
+		}
+
+	case 'F': // Find backward
+		for col := startCol - 1; col >= 0; col-- {
+			if lineRunes[col] == char {
+				occurrencesFound++
+				if occurrencesFound == count {
+					return col
+				}
+			}
+		}
+
+	case 't': // Till forward (one before the character)
+		for col := startCol + 1; col < len(lineRunes); col++ {
+			if lineRunes[col] == char {
+				occurrencesFound++
+				if occurrencesFound == count {
+					if col > 0 {
+						return col - 1
+					}
+					return -1
+				}
+			}
+		}
+
+	case 'T': // Till backward (one after the character)
+		for col := startCol - 1; col >= 0; col-- {
+			if lineRunes[col] == char {
+				occurrencesFound++
+				if occurrencesFound == count {
+					if col < len(lineRunes)-1 {
+						return col + 1
+					}
+					return -1
+				}
+			}
+		}
+	}
+
+	return -1 // Not found
+}
+
+// performCharSearch executes a character search and moves the cursor.
+// This is the shared implementation used by normal, visual, and visual line modes.
+// Returns error if character not found.
+func performCharSearch(buffer Buffer, cs *charSearchState, searchType rune, char rune, count int) error {
+	cursor := buffer.GetCursor()
+	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+
+	newCol := findCharOnLine(lineRunes, cursor.Position.Col, char, searchType, count)
+
+	if newCol == -1 {
+		return fmt.Errorf("character '%c' not found", char)
+	}
+
+	// Update cursor position
+	cursor.Position.Col = newCol
+	buffer.SetCursor(cursor)
+
+	// Save search state for repeat with ; and ,
+	cs.lastChar = char
+	cs.searchType = searchType
+
+	return nil
+}
+
+// handleCharSearchOperator handles operator + character search motion combinations
+// like df, (delete until comma), yt; (yank till semicolon), etc.
+func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	startPos := cursor.Position
+	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+
+	// Find the target position
+	targetCol := findCharOnLine(lineRunes, cursor.Position.Col, char, searchType, count)
+
+	if targetCol == -1 {
+		// Character not found
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: fmt.Errorf("character '%c' not found", char),
+		}
+	}
+
+	// For 'f' and 't', we need to include the character under cursor up to (and possibly including) target
+	// For 'F' and 'T', we go backwards
+	var startCol, endCol int
+
+	switch searchType {
+	case 'f', 't': // Forward search
+		startCol = startPos.Col
+		endCol = targetCol
+		if searchType == 'f' {
+			endCol++ // Include the found character for 'f'
+		} else {
+			endCol++ // For 't', we stopped one before, so include up to that position
+		}
+	case 'F', 'T': // Backward search
+		startCol = targetCol
+		endCol = startPos.Col
+		if searchType == 'F' {
+			// For 'F', targetCol is the found character, start from there
+		} else {
+			// For 'T', we stopped one after the character, so adjust
+			startCol++
+		}
+	}
+
+	// Ensure we don't go out of bounds
+	if startCol < 0 {
+		startCol = 0
+	}
+	if endCol > len(lineRunes) {
+		endCol = len(lineRunes)
+	}
+
+	deleteCount := endCol - startCol
+
+	switch op {
+	case "delete":
+		if deleteCount > 0 {
+			err := buffer.DeleteRunesAt(startPos.Row, startCol, deleteCount)
+			if err != nil {
+				return err
+			}
+			editor.SaveHistory()
+
+			// Update cursor position after delete
+			cursor.Position.Col = startCol
+			buffer.SetCursor(cursor)
+		}
+
+	case "yank":
+		if deleteCount > 0 {
+			// Set up visual selection for yank
+			state := editor.GetState()
+			state.VisualStart = Position{Row: startPos.Row, Col: endCol - 1}
+			state.YankSelection = SelectionCharacter
+			editor.SetState(state)
+
+			// Move cursor to start of selection
+			cursor.Position.Col = startCol
+			buffer.SetCursor(cursor)
+
+			// Perform yank
+			if err := editor.Copy(yankType); err != nil {
+				state.VisualStart = Position{-1, -1}
+				state.YankSelection = SelectionNone
+				editor.SetState(state)
+				return &EditorError{
+					id:  ErrFailedToYankId,
+					err: err,
+				}
+			}
+		}
+
+	case "change":
+		if deleteCount > 0 {
+			err := buffer.DeleteRunesAt(startPos.Row, startCol, deleteCount)
+			if err != nil {
+				return err
+			}
+			editor.SaveHistory()
+
+			// Update cursor position and enter insert mode
+			cursor.Position.Col = startCol
+			buffer.SetCursor(cursor)
+			editor.SetInsertMode()
+		}
+	}
+
+	return nil
+}
+
+// resetCharSearch clears the character search state
+func (m *normalMode) resetCharSearch() {
+	m.charSearch = charSearchState{}
+}
+
+// handleCharSearchRepeat handles repeating (;) or reversing (,) the last character search.
+func (m *normalMode) handleCharSearchRepeat(editor Editor, buffer Buffer, reverse bool) Cursor {
+	cursor := buffer.GetCursor()
+
+	if m.charSearch.searchType == 0 || m.charSearch.lastChar == 0 {
+		return cursor // No previous search to repeat
+	}
+
+	state := editor.GetState()
+	count := 1
+	if state.PendingCount != nil {
+		count = *state.PendingCount
+		editor.ResetPendingCount()
+	}
+
+	effectiveSearchType := m.charSearch.searchType
+	if reverse {
+		// Reverse the search direction
+		switch m.charSearch.searchType {
+		case 'f':
+			effectiveSearchType = 'F'
+		case 'F':
+			effectiveSearchType = 'f'
+		case 't':
+			effectiveSearchType = 'T'
+		case 'T':
+			effectiveSearchType = 't'
+		}
+	}
+
+	// Save original type to restore after reverse search
+	originalType := m.charSearch.searchType
+
+	searchErr := performCharSearch(buffer, &m.charSearch, effectiveSearchType, m.charSearch.lastChar, count)
+
+	// Restore original type if reversed search was temporary
+	if reverse {
+		m.charSearch.searchType = originalType
+	}
+
+	if searchErr != nil {
+		editor.DispatchError(ErrCharNotFoundId, searchErr)
+	}
+
+	return buffer.GetCursor() // Return refreshed cursor
+}
+
+// clearPendingState resets all pending state in normal mode
+func (m *normalMode) clearPendingState(editor Editor) {
+	m.pendingKey = KeyEvent{Key: KeyUnknown}
+	m.pendingModifier = 0
+	m.charSearch = charSearchState{}
+	editor.ResetPendingCount()
 }

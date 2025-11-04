@@ -6,14 +6,16 @@ import (
 )
 
 type visualLineMode struct {
-	startPos     Position // Only the Row is relevant for selection extent
-	currentCount *int
+	startPos     Position        // Only the Row is relevant for selection extent
+	currentCount *int            // Temporary count parsed within visual line mode
+	charSearch   charSearchState // Character search state (f/F/t/T)
 }
 
 func NewVisualLineMode() EditorMode {
 	return &visualLineMode{
 		startPos:     Position{-1, -1},
 		currentCount: nil,
+		charSearch:   charSearchState{},
 	}
 }
 
@@ -25,6 +27,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	// Record selection start position (row matters most)
 	m.startPos = buffer.GetCursor().Position
 	m.currentCount = nil
+	m.charSearch = charSearchState{}
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
 	state.VisualStart = m.startPos // Use VisualStart to indicate visual active
@@ -58,6 +61,42 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	var err *EditorError
 	actionTaken := false // Flag if an action was performed
 	availableWidth := editor.GetState().AvailableWidth
+
+	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
+	if m.charSearch.waitingForChar {
+		m.charSearch.waitingForChar = false
+		editor.UpdateCommand("") // Clear the command display
+
+		// Handle escape to cancel
+		if key.Key == KeyEscape {
+			m.charSearch = charSearchState{}
+			editor.SetNormalMode()
+			return nil
+		}
+
+		// Get the character to search for
+		if key.Rune == 0 {
+			// Not a valid character
+			m.charSearch = charSearchState{}
+			return nil
+		}
+
+		state := editor.GetState()
+		count := 1
+		if state.PendingCount != nil {
+			count = *state.PendingCount
+			editor.ResetPendingCount()
+		}
+
+		// Perform the character search (extends selection)
+		searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, key.Rune, count)
+		if searchErr != nil {
+			// Character not found - this is non-fatal
+			m.charSearch = charSearchState{}
+			editor.DispatchError(ErrCharNotFoundId, searchErr)
+		}
+		return nil
+	}
 
 	count, processedDigit := getMoveCount(m, editor, key)
 
@@ -261,6 +300,68 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 				editor.UpdateCommand("")
 				editor.ResetPendingCount()
 			}
+
+		// Character search motions
+		case key.Rune == 'f': // Find character forward
+			m.charSearch.searchType = 'f'
+			m.charSearch.waitingForChar = true
+			editor.UpdateCommand("f")
+			return nil
+
+		case key.Rune == 'F': // Find character backward
+			m.charSearch.searchType = 'F'
+			m.charSearch.waitingForChar = true
+			editor.UpdateCommand("F")
+			return nil
+
+		case key.Rune == 't': // Till character forward
+			m.charSearch.searchType = 't'
+			m.charSearch.waitingForChar = true
+			editor.UpdateCommand("t")
+			return nil
+
+		case key.Rune == 'T': // Till character backward
+			m.charSearch.searchType = 'T'
+			m.charSearch.waitingForChar = true
+			editor.UpdateCommand("T")
+			return nil
+
+		case key.Rune == ';': // Repeat last character search
+			if m.charSearch.searchType != 0 && m.charSearch.lastChar != 0 {
+				searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, m.charSearch.lastChar, count)
+				if searchErr != nil {
+					editor.DispatchError(ErrCharNotFoundId, searchErr)
+				}
+				cursor = buffer.GetCursor() // Refresh cursor after search
+				movementAttempted = true
+			}
+
+		case key.Rune == ',': // Repeat last character search in opposite direction
+			if m.charSearch.searchType != 0 && m.charSearch.lastChar != 0 {
+				// Reverse the search direction
+				reversedType := m.charSearch.searchType
+				switch m.charSearch.searchType {
+				case 'f':
+					reversedType = 'F'
+				case 'F':
+					reversedType = 'f'
+				case 't':
+					reversedType = 'T'
+				case 'T':
+					reversedType = 't'
+				}
+
+				// Temporarily use the reversed type
+				originalType := m.charSearch.searchType
+				searchErr := performCharSearch(buffer, &m.charSearch, reversedType, m.charSearch.lastChar, count)
+				m.charSearch.searchType = originalType // Restore original type
+				if searchErr != nil {
+					editor.DispatchError(ErrCharNotFoundId, searchErr)
+				}
+				cursor = buffer.GetCursor() // Refresh cursor after search
+				movementAttempted = true
+			}
+
 		default:
 			// Key was not a digit, action, or recognized movement
 			break
@@ -335,7 +436,6 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 
 	if firstErr == nil {
 		editor.SaveHistory() // Save history only if all deletions likely succeeded
-
 	}
 
 	return contentDeleted, firstErr

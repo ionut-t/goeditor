@@ -31,6 +31,7 @@ const (
 	ErrInvalidCommandId
 	ErrNoPendingOperationId
 	ErrInvalidMotionId
+	ErrCharNotFoundId
 	ErrDeleteRunesId
 	ErrFailedToSaveId
 	ErrNoChangesToSaveId
