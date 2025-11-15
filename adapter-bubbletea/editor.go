@@ -130,9 +130,11 @@ var DefaultTheme = Theme{
 		Italic(true),
 }
 
-type cursorBlinkMsg struct{}
-type cursorBlinkCanceledMsg struct{}
-type resumeBlinkCycleMsg struct{}
+type (
+	cursorBlinkMsg         struct{}
+	cursorBlinkCanceledMsg struct{}
+	resumeBlinkCycleMsg    struct{}
+)
 
 type CursorMode int
 
@@ -141,8 +143,10 @@ const (
 	CursorBlink
 )
 
-const cursorBlinkInterval = 500 * time.Millisecond
-const cursorActivityResetDelay = 250 * time.Millisecond
+const (
+	cursorBlinkInterval      = 500 * time.Millisecond
+	cursorActivityResetDelay = 250 * time.Millisecond
+)
 
 type Model struct {
 	editor   editor.Editor
@@ -169,9 +173,14 @@ type Model struct {
 	cursorAbsoluteVisualRow int // Cursor's current row index in the full visual layout
 	currentVisualTopLine    int // Top line of the current visual slice
 
-	visualLayoutCache               []VisualLineInfo // Cache of visual line information
-	visualLayoutCacheStartRow       int              // First logical line in cache (for lazy mode)
-	visualLayoutCacheStartVisualRow int              // First visual row in cache (offset for lazy mode)
+	visualLayoutCache               []VisualLineInfo                    // Cache of visual line information
+	visualLayoutCacheStartRow       int                                 // First logical line in cache (for lazy mode)
+	visualLayoutCacheStartVisualRow int                                 // First visual row in cache (offset for lazy mode)
+	visualRowAnchors                map[int]int                         // Sparse anchors: logical line -> visual row (cleared on edits)
+	lastKnownLineCount              int                                 // Track line count to detect content changes
+	cacheValidStartRow              int                                 // Start of cursor range for which cache is valid
+	cacheValidEndRow                int                                 // End of cursor range for which cache is valid
+	persistentTokenCache            map[int][]highlighter.TokenPosition // Persistent token cache across renders
 
 	clampedCursorLogicalCol      int // Clamped cursor column
 	highlightedWords             map[string]lipgloss.Style
@@ -363,6 +372,11 @@ func (m *Model) SetSize(width, height int) {
 	state.ViewportHeight = height - 2
 	m.editor.SetState(state)
 
+	// Recalculate layout if dimensions changed and we have content
+	if !m.editor.GetBuffer().IsEmpty() {
+		m.handleContentChange()
+	}
+
 	if m.fullVisualLayoutHeight > 0 {
 		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
 			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
@@ -435,10 +449,13 @@ func (m *Model) SetLanguage(language string, theme string) {
 	m.highlighterTheme = theme
 	if language == "" {
 		m.highlighter = nil
+		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 		return
 	}
 
 	m.highlighter = highlighter.New(language, theme)
+	// Clear token cache when language changes
+	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 
 	if language == "markdown" && m.extraHighlightedContextLines == 0 {
 		m.extraHighlightedContextLines = 100
@@ -722,18 +739,12 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var (
-		cmds []tea.Cmd
-	)
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if !m.IsFocused() {
 			break
-		}
-
-		if m.editor.GetState().Quit {
-			return m, tea.Quit
 		}
 
 		keyEvent := convertBubbleKey(msg)
@@ -754,7 +765,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		/* TODO: Optimize to only tokenise changed lines if possible. */
+		/* TODO: Optimise to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
 		m.cursorVisible = true
@@ -766,9 +777,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.restartBlinkCycleCmd())
 		}
 
-		m.editor.ScrollViewport()
-
-		m.calculateVisualMetrics()
+		// The core editor's ScrollViewport() operates on logical lines and doesn't account
+		// for line wrapping or emoji visual widths, so we bypass it here.
 
 		m.updateVisualTopLine()
 
@@ -840,7 +850,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, searchCmd)
 	}
 
-	m.calculateVisualMetrics()
+	// Note: calculateVisualMetrics() is called in handleContentChange() for KeyMsg events
+	// Other message types don't modify buffer content, so no recalculation needed.
+	// Rendering always uses the cached visual layout from the last calculation.
 	m.renderVisibleSlice()
 
 	return m, tea.Batch(cmds...)

@@ -182,27 +182,28 @@ func (sh *Highlighter) GetStyleForToken(tokenType chroma.TokenType) lipgloss.Sty
 }
 
 // GetTokenPositions converts tokens to positions in the logical line.
+// Token positions are rune-based (not visual-width based) to match cursor positions.
 func GetTokenPositions(tokens []chroma.Token) []TokenPosition {
 	positions := make([]TokenPosition, 0, len(tokens))
-	currentCol := 0
+	runeCol := 0 // Keep track of rune column for FindTokenAtPosition
 
 	for _, token := range tokens {
-		tokenRunes := []rune(token.Value)
-		tokenLen := len(tokenRunes)
+		tokenRuneLen := len([]rune(token.Value))
 
 		positions = append(positions, TokenPosition{
 			Token:    token,
-			StartCol: currentCol,
-			EndCol:   currentCol + tokenLen,
+			StartCol: runeCol,
+			EndCol:   runeCol + tokenRuneLen,
 		})
 
-		currentCol += tokenLen
+		runeCol += tokenRuneLen
 	}
 
 	return positions
 }
 
 // FindTokenAtPosition finds which token contains the given column position.
+// This function MUST use rune-based columns to match renderSegment's `currentLogicalCharCol`.
 func FindTokenAtPosition(positions []TokenPosition, col int) (chroma.Token, bool) {
 	for _, pos := range positions {
 		if col >= pos.StartCol && col < pos.EndCol {

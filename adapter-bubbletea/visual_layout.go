@@ -8,7 +8,112 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
+	"github.com/rivo/uniseg"
 )
+
+// getVisualWidth calculates the visual width of a string, properly handling
+// grapheme clusters (e.g., emojis with variation selectors, combining characters) and tabs.
+// Tabs are expanded to the next tab stop (multiples of 4).
+func getVisualWidth(s string) int {
+	return getVisualWidthAt(s, 0)
+}
+
+// getVisualWidthAt calculates the visual width of a string starting at a given column position.
+// This is necessary for proper tab width calculation, as tabs expand to the next tab stop.
+func getVisualWidthAt(s string, startCol int) int {
+	const tabWidth = 4
+	width := 0
+	currentCol := startCol
+	gr := uniseg.NewGraphemes(s)
+	for gr.Next() {
+		grapheme := gr.Str()
+		if grapheme == "\t" {
+			// Calculate spaces needed to reach next tab stop
+			spacesToNextTabStop := tabWidth - (currentCol % tabWidth)
+			width += spacesToNextTabStop
+			currentCol += spacesToNextTabStop
+		} else {
+			graphemeWidth := uniseg.StringWidth(grapheme)
+			width += graphemeWidth
+			currentCol += graphemeWidth
+		}
+	}
+	return width
+}
+
+// getRuneVisualWidth calculates the visual width of a single rune.
+// Variation selectors and other combining marks should return 0 width.
+func getRuneVisualWidth(r rune) int {
+	// Variation selectors (FE00-FE0F, E0100-E01EF) should have 0 width
+	if r >= 0xFE00 && r <= 0xFE0F {
+		return 0
+	}
+	if r >= 0xE0100 && r <= 0xE01EF {
+		return 0
+	}
+	// Zero-width joiner
+	if r == 0x200D {
+		return 0
+	}
+	// Combining marks (0300-036F)
+	if r >= 0x0300 && r <= 0x036F {
+		return 0
+	}
+	return uniseg.StringWidth(string(r))
+}
+
+// nextGrapheme returns the next grapheme cluster starting at the given rune index.
+// Returns the grapheme string, its visual width, and the number of runes consumed.
+// This centralises grapheme iteration logic to eliminate redundancy across rendering functions.
+// The currentCol parameter is used for proper tab width calculation.
+func nextGrapheme(runes []rune, startIdx int, currentCol int) (graphemeStr string, visualWidth int, runesConsumed int) {
+	const tabWidth = 4
+
+	if startIdx >= len(runes) {
+		return "", 0, 0
+	}
+
+	// Use uniseg to properly identify the grapheme cluster boundary
+	remaining := string(runes[startIdx:])
+	gr := uniseg.NewGraphemes(remaining)
+
+	if !gr.Next() {
+		// Fallback: treat single rune as grapheme if uniseg fails
+		graphemeStr = string(runes[startIdx])
+		if graphemeStr == "\t" {
+			visualWidth = tabWidth - (currentCol % tabWidth)
+		} else {
+			visualWidth = getRuneVisualWidth(runes[startIdx])
+		}
+		return graphemeStr, visualWidth, 1
+	}
+
+	graphemeStr = gr.Str()
+	if graphemeStr == "\t" {
+		// Tab width depends on current column position
+		visualWidth = tabWidth - (currentCol % tabWidth)
+	} else {
+		visualWidth = uniseg.StringWidth(graphemeStr)
+	}
+	runesConsumed = len([]rune(graphemeStr))
+
+	return graphemeStr, visualWidth, runesConsumed
+}
+
+// calculateCursorScreenCol calculates the cursor's screen column position.
+// Returns the screen column (including line number width) for the cursor within the given visual line segment.
+func (m *Model) calculateCursorScreenCol(vli VisualLineInfo, lineNumWidth int) int {
+	visualColInSegmentRuneOffset := max(0, m.clampedCursorLogicalCol-vli.LogicalStartCol)
+	segmentRunes := []rune(vli.Content)
+
+	if visualColInSegmentRuneOffset > len(segmentRunes) {
+		visualColInSegmentRuneOffset = len(segmentRunes)
+	}
+
+	substringToCursor := string(segmentRunes[0:visualColInSegmentRuneOffset])
+	visualColInSegmentWidth := getVisualWidth(substringToCursor)
+	return lineNumWidth + visualColInSegmentWidth
+}
 
 type VisualLineInfo struct {
 	Content         string
@@ -223,46 +328,145 @@ func (m *Model) calculateFullVisualLayout(allLogicalLines []string, availableWid
 // calculateLazyVisualLayout computes layout only for visible region (large files)
 func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor editor.Cursor, availableWidth int, viewportBuffer int) {
 	totalLines := len(allLogicalLines)
-	state := m.editor.GetState()
+	cursorLogicalRow := max(0, min(cursor.Position.Row, totalLines-1))
 
-	// Determine visible range based on BOTH cursor position AND current scroll position
-	// Use the editor's TopLine to understand what's actually visible
-	topLine := state.TopLine
+	// Initialise anchors map if needed
+	if m.visualRowAnchors == nil {
+		m.visualRowAnchors = make(map[int]int)
+	}
+
+	// Clear anchors if content changed (line count different)
+	if m.lastKnownLineCount != totalLines {
+		m.visualRowAnchors = make(map[int]int)
+		m.lastKnownLineCount = totalLines
+		// Invalidate cache validity range
+		m.cacheValidStartRow = 0
+		m.cacheValidEndRow = 0
+	}
+
+	// Cache validity check: only recalculate if cursor is approaching cache boundaries
+	// This prevents unnecessary recalculation on every keystroke during scrolling
+	const cacheHysteresis = 20 // Don't recalculate unless within 20 lines of edge
+	if len(m.visualLayoutCache) > 0 &&
+		cursorLogicalRow >= m.cacheValidStartRow+cacheHysteresis &&
+		cursorLogicalRow <= m.cacheValidEndRow-cacheHysteresis {
+		// Cursor is well within valid range - no need to recalculate
+		return
+	}
+
+	// Calculate wrapping factor from previous cache if available
+	avgVisualLinesPerLogical := 1.5 // Default: assume some wrapping
+	if len(m.visualLayoutCache) > 0 {
+		// Count unique logical lines in current cache
+		uniqueLogicalLines := 0
+		lastLogicalRow := -1
+		for _, vli := range m.visualLayoutCache {
+			if vli.LogicalRow != lastLogicalRow {
+				uniqueLogicalLines++
+				lastLogicalRow = vli.LogicalRow
+			}
+		}
+		if uniqueLogicalLines > 0 {
+			avgVisualLinesPerLogical = float64(len(m.visualLayoutCache)) / float64(uniqueLogicalLines)
+		}
+	}
+
+	// Use a larger buffer for better accuracy
 	viewportHeight := m.viewport.Height
+	largerBuffer := viewportBuffer * 2
 
-	// Calculate the range we need to cache
-	// Must include: what's visible + buffer above/below + cursor position
-	visibleStart := max(0, topLine-viewportBuffer/2)
-	visibleEnd := min(totalLines, topLine+viewportHeight+viewportBuffer/2)
+	// Estimate logical lines needed to fill visual viewport + buffer
+	estimatedLogicalLinesNeeded := max(int(float64(viewportHeight+largerBuffer)/avgVisualLinesPerLogical), viewportHeight*2)
 
-	// Also ensure cursor is in range
-	cursorStart := max(0, cursor.Position.Row-viewportBuffer/4)
-	cursorEnd := min(totalLines, cursor.Position.Row+viewportBuffer/4)
+	// Center cache around cursor position
+	halfRange := estimatedLogicalLinesNeeded / 2
+	startLine := max(0, cursorLogicalRow-halfRange)
+	endLine := min(totalLines, cursorLogicalRow+halfRange)
 
-	// Take the union of both ranges
-	startLine := min(visibleStart, cursorStart)
-	endLine := max(visibleEnd, cursorEnd)
+	// Ensure we have the full estimated range
+	if endLine-startLine < estimatedLogicalLinesNeeded {
+		if startLine > 0 {
+			startLine = max(0, endLine-estimatedLogicalLinesNeeded)
+		}
+		if endLine < totalLines {
+			endLine = min(totalLines, startLine+estimatedLogicalLinesNeeded)
+		}
+	}
 
-	// Clamp to reasonable bounds
-	startLine = max(0, startLine)
-	endLine = min(totalLines, endLine)
+	// Calculate visual row offset using anchors for better accuracy
+	var visualRowOffset int
+	if anchorVisualRow, exists := m.visualRowAnchors[startLine]; exists {
+		// We have an exact anchor for this start line
+		visualRowOffset = anchorVisualRow
+	} else {
+		// Find the closest anchor before startLine
+		closestLogical := -1
+		closestVisual := -1
+		for logicalRow, visualRow := range m.visualRowAnchors {
+			if logicalRow < startLine && logicalRow > closestLogical {
+				closestLogical = logicalRow
+				closestVisual = visualRow
+			}
+		}
 
-	// Compute visual layout only for the cached range
+		if closestLogical >= 0 {
+			// Interpolate from closest anchor
+			gap := startLine - closestLogical
+			visualRowOffset = closestVisual + int(avgVisualLinesPerLogical*float64(gap))
+		} else {
+			// No anchors before, use simple estimation
+			visualRowOffset = int(avgVisualLinesPerLogical * float64(startLine))
+		}
+	}
+
+	// Build visual layout for the cached range and update anchors
 	visualLayout := make([]VisualLineInfo, 0, (endLine-startLine)*2)
+	currentVisualRow := visualRowOffset
+
+	// Adaptive anchor interval: more anchors for smaller files = better accuracy
+	anchorInterval := 50
+	if totalLines < 500 {
+		anchorInterval = 20 // Dense anchors for medium files reduce estimation errors
+	}
 
 	for bufferRowIdx := startLine; bufferRowIdx < endLine; bufferRowIdx++ {
+		// Store anchors periodically for progressive accuracy
+		if bufferRowIdx%anchorInterval == 0 {
+			m.visualRowAnchors[bufferRowIdx] = currentVisualRow
+		}
+
+		layoutBefore := len(visualLayout)
 		m.appendVisualLayoutForLine(bufferRowIdx, allLogicalLines[bufferRowIdx], availableWidth, &visualLayout)
+		layoutAfter := len(visualLayout)
+
+		currentVisualRow += (layoutAfter - layoutBefore)
 	}
 
 	m.visualLayoutCache = visualLayout
-	m.visualLayoutCacheStartRow = startLine // Track where this cache starts (logical row)
+	m.visualLayoutCacheStartRow = startLine
+	m.visualLayoutCacheStartVisualRow = visualRowOffset
 
-	// Estimate the visual row offset (approximate but fast)
-	avgVisualLinesPerLogical := float64(len(visualLayout)) / float64(max(1, endLine-startLine))
-	m.visualLayoutCacheStartVisualRow = int(avgVisualLinesPerLogical * float64(startLine))
+	// Update cache validity range for hysteresis check
+	// Cache is valid for cursor positions within [startLine, endLine]
+	m.cacheValidStartRow = startLine
+	m.cacheValidEndRow = endLine
 
-	// Estimate full visual height
-	m.fullVisualLayoutHeight = int(avgVisualLinesPerLogical * float64(totalLines))
+	// Estimate full visual height using best available anchor
+	lastAnchorLogical := -1
+	lastAnchorVisual := -1
+	for logicalRow, visualRow := range m.visualRowAnchors {
+		if logicalRow > lastAnchorLogical {
+			lastAnchorLogical = logicalRow
+			lastAnchorVisual = visualRow
+		}
+	}
+
+	if lastAnchorLogical >= 0 && lastAnchorLogical < totalLines {
+		remaining := totalLines - lastAnchorLogical
+		m.fullVisualLayoutHeight = lastAnchorVisual + int(avgVisualLinesPerLogical*float64(remaining))
+	} else {
+		m.fullVisualLayoutHeight = int(avgVisualLinesPerLogical * float64(totalLines))
+	}
 }
 
 // appendVisualLayoutForLine wraps a single logical line and appends to visual layout
@@ -330,10 +534,15 @@ func (m *Model) calculateVisualMetrics() {
 	// ========================================================================
 
 	// For large files, only compute visible region instead of entire buffer
-	// Threshold chosen based on viewport buffer size: when buffer has >1000 lines,
-	// lazy mode (computing ~400 lines) is significantly faster than full layout
-	const largeFileThreshold = 1000
-	const viewportBuffer = 200 // Lines to cache above/below visible area
+	// Lowered threshold to 100 lines to enable lazy mode for medium files
+	// This allows cache hysteresis and anchoring to work for files 100-1000 lines
+	const largeFileThreshold = 100
+
+	// Adaptive buffer size: larger buffer for medium files reduces cache thrashing
+	viewportBuffer := 100 // Default for large files (>500 lines)
+	if totalLogicalLines >= largeFileThreshold && totalLogicalLines < 500 {
+		viewportBuffer = 150 // Larger buffer for medium files (100-500 lines)
+	}
 
 	if totalLogicalLines > largeFileThreshold {
 		// Lazy mode: only compute what we need
@@ -457,8 +666,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
 		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
 			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
-			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
-			targetScreenColForCursor = lineNumWidth + visualColInSegment
+			targetScreenColForCursor = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
 		} else if m.fullVisualLayoutHeight > 0 {
 			targetScreenColForCursor = lineNumWidth
 		}
@@ -499,9 +707,17 @@ func (m *Model) renderVisibleSliceDefault() {
 
 		segmentRunes := []rune(vli.Content)
 		styledSegment := strings.Builder{}
+		currentVisualCol := 0
 
 		charIdx := 0
 		segmentLen := len(segmentRunes)
+
+		// Check if this is the current line for background highlighting
+		isCurrentLine := vli.LogicalRow == clampedCursorRowForLineNumbers
+		var currentLineBackground lipgloss.TerminalColor
+		if isCurrentLine {
+			currentLineBackground = m.theme.CurrentLineStyle.GetBackground()
+		}
 
 		for charIdx < segmentLen {
 			currentLogicalCharCol := vli.LogicalStartCol + charIdx
@@ -510,6 +726,12 @@ func (m *Model) renderVisibleSliceDefault() {
 			isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
 			baseCharStyle := lipgloss.NewStyle()
+
+			// Apply current line background if this is the cursor line
+			if isCurrentLine {
+				baseCharStyle = baseCharStyle.Background(currentLineBackground)
+			}
+
 			charsToAdvance := 1
 
 			bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
@@ -525,12 +747,17 @@ func (m *Model) renderVisibleSliceDefault() {
 
 					charSpecificRenderStyle := bestMatchStyle
 
+					// Apply current line background to highlighted words
+					if isCurrentLine {
+						charSpecificRenderStyle = charSpecificRenderStyle.Background(currentLineBackground)
+					}
+
 					selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
 					if selectionStatus != editor.SelectionNone {
 						charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
 					}
 
-					currentScreenColForChar := lineNumWidth + idxInSegment
+					currentScreenColForChar := lineNumWidth + currentVisualCol
 					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 					if isCursorOnThisChar && m.isFocused && m.cursorVisible {
@@ -538,10 +765,13 @@ func (m *Model) renderVisibleSliceDefault() {
 					} else {
 						styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
 					}
+					currentVisualCol += getRuneVisualWidth(chRuneToStyle)
 				}
 				charsToAdvance = bestMatchLen
 			} else {
-				chRuneToStyle := segmentRunes[charIdx]
+				// Get the next grapheme cluster using centralised helper
+				graphemeStr, graphemeWidth, runesConsumed := nextGrapheme(segmentRunes, charIdx, currentVisualCol)
+				charsToAdvance = runesConsumed
 
 				selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
 				if selectionStatus != editor.SelectionNone {
@@ -552,20 +782,21 @@ func (m *Model) renderVisibleSliceDefault() {
 					baseCharStyle = searchHighlightStyle
 				}
 
-				currentScreenColForChar := lineNumWidth + charIdx
+				currentScreenColForChar := lineNumWidth + currentVisualCol
 				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 				if isCursorOnChar && m.isFocused && m.cursorVisible {
-					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+					styledSegment.WriteString(m.getCursorStyles().Render(graphemeStr))
 				} else {
-					styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
+					styledSegment.WriteString(baseCharStyle.Render(graphemeStr))
 				}
+				currentVisualCol += graphemeWidth
 			}
 			charIdx += charsToAdvance
 		}
 		contentBuilder.WriteString(styledSegment.String())
 
-		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+len(segmentRunes)) == targetScreenColForCursor)
+		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+currentVisualCol) == targetScreenColForCursor)
 		isCursorAtLogicalEndOfLineAndThisIsLastSegment := false
 		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRowForLineNumbers {
 			logicalLineLen := 0
@@ -603,7 +834,8 @@ func (m *Model) renderVisibleSliceDefault() {
 
 		// Fill remaining width with current line style if this is the cursor line
 		if vli.LogicalRow == clampedCursorRowForLineNumbers {
-			usedWidth := lineNumWidth + len(segmentRunes) + cursorWidth
+			segmentWidth := getVisualWidth(vli.Content)
+			usedWidth := lineNumWidth + segmentWidth + cursorWidth
 			remainingWidth := m.viewport.Width - usedWidth
 			if remainingWidth > 0 {
 				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
@@ -692,7 +924,9 @@ func (m *Model) updateVisualTopLine() {
 	m.viewport.YOffset = 0
 }
 
-// wrapLine function wraps a single line of text to fit within the specified width.
+// wrapLine wraps a line to fit within the specified width.
+// It operates on grapheme clusters (not runes) to correctly handle multi-rune characters
+// like flag emojis (🇷🇴), skin tone modifiers (👍🏽), and ZWJ sequences (👨‍👩‍👧‍👦).
 func wrapLine(line string, width int) []string {
 	if width <= 0 {
 		if line == "" {
@@ -704,39 +938,94 @@ func wrapLine(line string, width int) []string {
 		return []string{""}
 	}
 
-	var wrappedLines []string
 	runes := []rune(line)
-	lineLen := len(runes)
-	start := 0
+	var wrappedLines []string
+	currentRuneIdx := 0
 
-	for start < lineLen {
-		if start+width >= lineLen {
-			wrappedLines = append(wrappedLines, string(runes[start:]))
-			break
-		}
-		end := min(start+width, lineLen)
-		lastSpace := -1
-		for i := end - 1; i >= start; i-- {
-			if unicode.IsSpace(runes[i]) {
-				lastSpace = i
+	for currentRuneIdx < len(runes) {
+		// Early exit optimization: Quick check if remaining runes might fit
+		// Most characters are width 1, so if rune count <= width, text likely fits
+		remainingRuneCount := len(runes) - currentRuneIdx
+		if remainingRuneCount <= width {
+			// Only now do the expensive visual width calculation
+			remainingText := string(runes[currentRuneIdx:])
+			remainingWidth := getVisualWidth(remainingText)
+			if remainingWidth <= width {
+				wrappedLines = append(wrappedLines, remainingText)
 				break
 			}
 		}
-		if lastSpace >= start {
-			wrappedLines = append(wrappedLines, string(runes[start:lastSpace]))
-			start = lastSpace + 1
-			for start < lineLen && unicode.IsSpace(runes[start]) {
-				start++
+
+		lineStartRuneIdx := currentRuneIdx
+		currentVisualWidth := 0
+		lastSpaceGraphemeStartRuneIdx := -1 // Start rune index of space grapheme
+
+		// Find the longest segment that fits within width, breaking at grapheme boundaries
+		tempRuneIdx := currentRuneIdx
+		for tempRuneIdx < len(runes) {
+			graphemeStr, graphemeWidth, runesConsumed := nextGrapheme(runes, tempRuneIdx, currentVisualWidth)
+
+			// If adding this grapheme would exceed width, break here
+			if currentVisualWidth+graphemeWidth > width {
+				break
 			}
+
+			currentVisualWidth += graphemeWidth
+
+			// Check if this grapheme starts with whitespace
+			graphemeRunes := []rune(graphemeStr)
+			if len(graphemeRunes) > 0 && unicode.IsSpace(graphemeRunes[0]) {
+				lastSpaceGraphemeStartRuneIdx = tempRuneIdx
+			}
+
+			tempRuneIdx += runesConsumed
+		}
+
+		// Determine where to break the line
+		var breakEndRuneIdx int
+		if tempRuneIdx == lineStartRuneIdx {
+			// First grapheme is wider than width - must include it anyway to make progress
+			_, _, runesConsumed := nextGrapheme(runes, lineStartRuneIdx, 0)
+			breakEndRuneIdx = lineStartRuneIdx + runesConsumed
+		} else if lastSpaceGraphemeStartRuneIdx >= lineStartRuneIdx {
+			// Break before the space
+			breakEndRuneIdx = lastSpaceGraphemeStartRuneIdx
 		} else {
-			wrappedLines = append(wrappedLines, string(runes[start:end]))
-			start = end
+			// Hard break at grapheme boundary
+			breakEndRuneIdx = tempRuneIdx
+		}
+
+		// Ensure progress to prevent infinite loops
+		if breakEndRuneIdx <= lineStartRuneIdx {
+			if lineStartRuneIdx < len(runes) {
+				_, _, runesConsumed := nextGrapheme(runes, lineStartRuneIdx, 0)
+				breakEndRuneIdx = lineStartRuneIdx + runesConsumed
+			} else {
+				break
+			}
+		}
+
+		// Append the wrapped segment
+		segment := string(runes[lineStartRuneIdx:breakEndRuneIdx])
+		wrappedLines = append(wrappedLines, segment)
+
+		// Advance, skipping leading spaces on the next line
+		currentRuneIdx = breakEndRuneIdx
+		for currentRuneIdx < len(runes) {
+			graphemeStr, _, runesConsumed := nextGrapheme(runes, currentRuneIdx, 0)
+			graphemeRunes := []rune(graphemeStr)
+			if len(graphemeRunes) == 0 || !unicode.IsSpace(graphemeRunes[0]) {
+				break
+			}
+			currentRuneIdx += runesConsumed
 		}
 	}
-	if len(wrappedLines) == 0 && lineLen > 0 {
-		return []string{line}
-	}
+
 	if len(wrappedLines) == 0 {
+		// If wrapping failed but we had non-empty input, return the original line
+		if len(runes) > 0 {
+			return []string{line}
+		}
 		return []string{""}
 	}
 	return wrappedLines
@@ -801,8 +1090,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
 		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
 			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
-			visualColInSegment := max(0, m.clampedCursorLogicalCol-vliAtCursor.LogicalStartCol)
-			targetScreenColForCursor = lineNumWidth + visualColInSegment
+			targetScreenColForCursor = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
 		} else if m.fullVisualLayoutHeight > 0 {
 			targetScreenColForCursor = lineNumWidth
 		}
@@ -812,8 +1100,12 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
-	// Cache token positions for each logical line we're rendering
-	lineTokenCache := make(map[int][]highlighter.TokenPosition)
+	// Initialise persistent token cache if needed
+	if m.persistentTokenCache == nil {
+		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
+	}
+
+	// Populate persistent cache with tokenised lines
 	if m.highlighter != nil {
 		extraHighlightedContextLines := int(m.extraHighlightedContextLines)
 
@@ -837,25 +1129,27 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 				if expandedStartLine < expandedEndLine {
 					m.highlighter.Tokenise(allLogicalLines, expandedStartLine, expandedEndLine)
-				}
-			}
-		}
 
-		for absVisRowIdx := startRenderVisualRow; absVisRowIdx < endRenderVisualRow; absVisRowIdx++ {
-			// Convert absolute visual row to cache index
-			cacheIdx := absVisRowIdx - m.visualLayoutCacheStartVisualRow
-			if cacheIdx < 0 || cacheIdx >= len(m.visualLayoutCache) {
-				continue
-			}
-			vli := m.visualLayoutCache[cacheIdx]
-			if vli.IsFirstSegment && vli.LogicalRow < len(allLogicalLines) {
-				if _, cached := lineTokenCache[vli.LogicalRow]; !cached {
-					tokens := m.highlighter.GetTokensForLine(vli.LogicalRow, allLogicalLines)
-					lineTokenCache[vli.LogicalRow] = highlighter.GetTokenPositions(tokens)
+					// Populate persistent cache for the expanded range
+					// This ensures large code blocks have tokens available even when scrolled
+					// Always check highlighter first - it knows which lines are invalidated
+					for logicalLine := expandedStartLine; logicalLine < expandedEndLine; logicalLine++ {
+						tokens := m.highlighter.GetTokensForLine(logicalLine, allLogicalLines)
+						if tokens != nil {
+							// Highlighter has valid tokens, cache them (may overwrite stale cache)
+							m.persistentTokenCache[logicalLine] = highlighter.GetTokenPositions(tokens)
+						} else {
+							// Line was invalidated in highlighter, remove from persistent cache
+							delete(m.persistentTokenCache, logicalLine)
+						}
+					}
 				}
 			}
 		}
 	}
+
+	// Use persistent cache for rendering (reference, not copy)
+	lineTokenCache := m.persistentTokenCache
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
 		// Convert absolute visual row to cache-relative index
@@ -923,7 +1217,8 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		}
 
 		// Handle cursor at end of line
-		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+len([]rune(vli.Content))) == targetScreenColForCursor)
+		segmentVisualWidth := getVisualWidth(vli.Content)
+		isCursorAfterSegmentEnd := (currentSliceRow == targetVisualRowInSlice && (lineNumWidth+segmentVisualWidth) == targetScreenColForCursor)
 		isCursorAtLogicalEndOfLineAndThisIsLastSegment := false
 		if currentSliceRow == targetVisualRowInSlice && vli.LogicalRow == clampedCursorRowForLineNumbers {
 			logicalLineLen := 0
@@ -960,7 +1255,8 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 		// Fill remaining width with current line style if this is the cursor line
 		if vli.LogicalRow == clampedCursorRowForLineNumbers {
-			usedWidth := lineNumWidth + len([]rune(vli.Content)) + cursorWidth
+			segmentWidth := getVisualWidth(vli.Content)
+			usedWidth := lineNumWidth + segmentWidth + cursorWidth
 			remainingWidth := m.viewport.Width - usedWidth
 			if remainingWidth > 0 {
 				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
@@ -1025,6 +1321,7 @@ func (m *Model) renderSegment(
 ) {
 	segmentRunes := []rune(vli.Content)
 	styledSegment := strings.Builder{}
+	currentVisualCol := 0
 
 	charIdx := 0
 	segmentLen := len(segmentRunes)
@@ -1083,7 +1380,7 @@ func (m *Model) renderSegment(
 					charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
 				}
 
-				currentScreenColForChar := lineNumWidth + idxInSegment
+				currentScreenColForChar := lineNumWidth + currentVisualCol // <-- MUST USE currentVisualCol
 				isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 				if isCursorOnThisChar && m.isFocused && m.cursorVisible {
@@ -1091,11 +1388,13 @@ func (m *Model) renderSegment(
 				} else {
 					styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
 				}
+				currentVisualCol += getRuneVisualWidth(chRuneToStyle) // <-- MUST INCREMENT BY WIDTH
 			}
 			charsToAdvance = bestMatchLen
 		} else {
-			// Normal character rendering with syntax highlighting
-			chRuneToStyle := segmentRunes[charIdx]
+			// Get the next grapheme cluster using centralised helper
+			graphemeStr, graphemeWidth, runesConsumed := nextGrapheme(segmentRunes, charIdx, currentVisualCol)
+			charsToAdvance = runesConsumed
 
 			// Apply selection style on top of syntax highlighting
 			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
@@ -1107,14 +1406,15 @@ func (m *Model) renderSegment(
 				}
 			}
 
-			currentScreenColForChar := lineNumWidth + charIdx
+			currentScreenColForChar := lineNumWidth + currentVisualCol
 			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
 			if isCursorOnChar && m.isFocused && m.cursorVisible {
-				styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
+				styledSegment.WriteString(m.getCursorStyles().Render(graphemeStr))
 			} else {
-				styledSegment.WriteString(baseCharStyle.Render(string(chRuneToStyle)))
+				styledSegment.WriteString(baseCharStyle.Render(graphemeStr))
 			}
+			currentVisualCol += graphemeWidth
 		}
 
 		charIdx += charsToAdvance
@@ -1133,8 +1433,8 @@ func (m *Model) renderSegmentWithSyntax(
 	targetScreenColForCursor int,
 	lineNumWidth int,
 	selectionStyle lipgloss.Style,
-	searchHighlightStyle lipgloss.Style) {
-
+	searchHighlightStyle lipgloss.Style,
+) {
 	getBaseStyle := func(col int) lipgloss.Style {
 		token, hasToken := highlighter.FindTokenAtPosition(tokenPositions, col)
 		if hasToken && m.highlighter != nil {
@@ -1172,6 +1472,14 @@ func (m *Model) handleContentChange() {
 		currentLine := m.editor.GetBuffer().GetCursor().Position.Row
 		m.highlighter.InvalidateLine(currentLine)
 	}
+	// Clear persistent token cache on content changes
+	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
+
+	// Force cache recalculation by invalidating the cache validity range
+	// This ensures the visual layout cache is updated with the new content
+	m.cacheValidStartRow = 0
+	m.cacheValidEndRow = 0
+
 	m.calculateVisualMetrics()
 	m.updateVisualTopLine()
 }
