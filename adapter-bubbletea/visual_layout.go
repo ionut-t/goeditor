@@ -451,21 +451,27 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor edito
 	m.cacheValidStartRow = startLine
 	m.cacheValidEndRow = endLine
 
-	// Estimate full visual height using best available anchor
-	lastAnchorLogical := -1
-	lastAnchorVisual := -1
-	for logicalRow, visualRow := range m.visualRowAnchors {
-		if logicalRow > lastAnchorLogical {
-			lastAnchorLogical = logicalRow
-			lastAnchorVisual = visualRow
-		}
-	}
-
-	if lastAnchorLogical >= 0 && lastAnchorLogical < totalLines {
-		remaining := totalLines - lastAnchorLogical
-		m.fullVisualLayoutHeight = lastAnchorVisual + int(avgVisualLinesPerLogical*float64(remaining))
+	// Calculate full visual height
+	if endLine >= totalLines {
+		// We cached to the end - use actual height, not estimate
+		m.fullVisualLayoutHeight = currentVisualRow
 	} else {
-		m.fullVisualLayoutHeight = int(avgVisualLinesPerLogical * float64(totalLines))
+		// Estimate full visual height using best available anchor
+		lastAnchorLogical := -1
+		lastAnchorVisual := -1
+		for logicalRow, visualRow := range m.visualRowAnchors {
+			if logicalRow > lastAnchorLogical {
+				lastAnchorLogical = logicalRow
+				lastAnchorVisual = visualRow
+			}
+		}
+
+		if lastAnchorLogical >= 0 && lastAnchorLogical < totalLines {
+			remaining := totalLines - lastAnchorLogical
+			m.fullVisualLayoutHeight = lastAnchorVisual + int(avgVisualLinesPerLogical*float64(remaining))
+		} else {
+			m.fullVisualLayoutHeight = int(avgVisualLinesPerLogical * float64(totalLines))
+		}
 	}
 }
 
@@ -901,21 +907,32 @@ func (m *Model) renderVisibleSlice() {
 // If the cursor is below the current top line, it moves the top line down.
 func (m *Model) updateVisualTopLine() {
 	if m.fullVisualLayoutHeight > 0 {
-		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
-			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
-		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
-			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
-		}
+		buffer := m.editor.GetBuffer()
+		cursor := buffer.GetCursor()
+		isOnLastLine := cursor.Position.Row == buffer.LineCount()-1
 
 		maxPossibleTopLine := 0
 		if m.fullVisualLayoutHeight > m.viewport.Height {
 			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height
 		}
-		if m.currentVisualTopLine > maxPossibleTopLine {
+
+		if isOnLastLine {
+			// On last line: always scroll to show all content
 			m.currentVisualTopLine = maxPossibleTopLine
-		}
-		if m.currentVisualTopLine < 0 {
-			m.currentVisualTopLine = 0
+		} else {
+			// Normal scrolling logic
+			if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
+				m.currentVisualTopLine = m.cursorAbsoluteVisualRow
+			} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
+				m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
+			}
+
+			if m.currentVisualTopLine > maxPossibleTopLine {
+				m.currentVisualTopLine = maxPossibleTopLine
+			}
+			if m.currentVisualTopLine < 0 {
+				m.currentVisualTopLine = 0
+			}
 		}
 	} else {
 		m.currentVisualTopLine = 0
