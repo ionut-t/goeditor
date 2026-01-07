@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
 	"github.com/ionut-t/goeditor/core"
 )
@@ -97,8 +97,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
-	return m.editor.View()
+func (m Model) View() tea.View {
+	v := m.editor.View()
+	v.AltScreen = true
+	return v
 }
 
 func main() {
@@ -117,7 +119,8 @@ func main() {
 	textEditor := editor.New(80, 20)
 	textEditor.Focus()
 	textEditor.SetCursorMode(editor.CursorBlink)
-	textEditor.SetLanguage(lang, languageTheme())
+	isDark := lipgloss.HasDarkBackground(os.Stdout, os.Stderr)
+	textEditor.SetLanguage(lang, languageTheme(isDark))
 	textEditor.WithSearchOptions(core.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
@@ -134,18 +137,17 @@ func main() {
 		file:   file,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	_, err := p.Run()
-
 	if err != nil {
 		log.Fatalf("Error running Bubble Tea program: %v", err)
 		os.Exit(1)
 	}
 }
 
-func languageTheme() string {
-	if lipgloss.HasDarkBackground() {
+func languageTheme(isDark bool) string {
+	if isDark {
 		return "catppuccin-mocha"
 	}
 

@@ -1,11 +1,12 @@
 package adapter_bubbletea
 
 import (
+	"image/color"
 	"strconv"
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 	"github.com/rivo/uniseg"
@@ -132,7 +133,7 @@ func (m *Model) calculateLineNumberWidth(totalLines int) int {
 	maxWidth := len(strconv.Itoa(max(1, totalLines)))
 
 	if state.RelativeNumbers && !m.disableVimMode {
-		relWidth := len(strconv.Itoa(max(1, m.viewport.Height)))
+		relWidth := len(strconv.Itoa(max(1, m.viewport.Height())))
 		maxWidth = max(maxWidth, relWidth)
 	}
 
@@ -372,7 +373,7 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor edito
 	}
 
 	// Use a larger buffer for better accuracy
-	viewportHeight := m.viewport.Height
+	viewportHeight := m.viewport.Height()
 	largerBuffer := viewportBuffer * 2
 
 	// Estimate logical lines needed to fill visual viewport + buffer
@@ -524,7 +525,7 @@ func (m *Model) calculateVisualMetrics() {
 
 	// --- Calculate Layout Widths ---
 	lineNumWidth := m.calculateLineNumberWidth(totalLogicalLines)
-	availableWidth := m.viewport.Width - lineNumWidth
+	availableWidth := m.viewport.Width() - lineNumWidth
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
@@ -653,13 +654,13 @@ func (m *Model) renderVisibleSliceDefault() {
 		if startRenderVisualRow < 0 {
 			startRenderVisualRow = 0
 		}
-		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height)
+		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height())
 		if startRenderVisualRow > maxTop {
 			startRenderVisualRow = maxTop
 		}
 	}
 
-	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height, m.fullVisualLayoutHeight)
+	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height(), m.fullVisualLayoutHeight)
 
 	targetVisualRowInSlice := -1
 	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {
@@ -720,7 +721,7 @@ func (m *Model) renderVisibleSliceDefault() {
 
 		// Check if this is the current line for background highlighting
 		isCurrentLine := vli.LogicalRow == clampedCursorRowForLineNumbers
-		var currentLineBackground lipgloss.TerminalColor
+		var currentLineBackground color.Color
 		if isCurrentLine {
 			currentLineBackground = m.theme.CurrentLineStyle.GetBackground()
 		}
@@ -842,7 +843,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		if vli.LogicalRow == clampedCursorRowForLineNumbers {
 			segmentWidth := getVisualWidth(vli.Content)
 			usedWidth := lineNumWidth + segmentWidth + cursorWidth
-			remainingWidth := m.viewport.Width - usedWidth
+			remainingWidth := m.viewport.Width() - usedWidth
 			if remainingWidth > 0 {
 				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
 			}
@@ -852,7 +853,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		renderedDisplayLineCount++
 	}
 
-	for renderedDisplayLineCount < m.viewport.Height {
+	for renderedDisplayLineCount < m.viewport.Height() {
 		tildeStyle := m.theme.LineNumberStyle
 		if m.showLineNumbers && m.showTildeIndicator {
 			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
@@ -912,8 +913,8 @@ func (m *Model) updateVisualTopLine() {
 		isOnLastLine := cursor.Position.Row == buffer.LineCount()-1
 
 		maxPossibleTopLine := 0
-		if m.fullVisualLayoutHeight > m.viewport.Height {
-			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height
+		if m.fullVisualLayoutHeight > m.viewport.Height() {
+			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height()
 		}
 
 		if isOnLastLine {
@@ -923,8 +924,8 @@ func (m *Model) updateVisualTopLine() {
 			// Normal scrolling logic
 			if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
 				m.currentVisualTopLine = m.cursorAbsoluteVisualRow
-			} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
-				m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
+			} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height() {
+				m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height() + 1
 			}
 
 			if m.currentVisualTopLine > maxPossibleTopLine {
@@ -938,7 +939,7 @@ func (m *Model) updateVisualTopLine() {
 		m.currentVisualTopLine = 0
 	}
 
-	m.viewport.YOffset = 0
+	m.viewport.SetYOffset(0)
 }
 
 // wrapLine wraps a line to fit within the specified width.
@@ -1088,13 +1089,13 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		if startRenderVisualRow < 0 {
 			startRenderVisualRow = 0
 		}
-		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height)
+		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height())
 		if startRenderVisualRow > maxTop {
 			startRenderVisualRow = maxTop
 		}
 	}
 
-	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height, m.fullVisualLayoutHeight)
+	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height(), m.fullVisualLayoutHeight)
 
 	targetVisualRowInSlice := -1
 	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {
@@ -1274,7 +1275,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		if vli.LogicalRow == clampedCursorRowForLineNumbers {
 			segmentWidth := getVisualWidth(vli.Content)
 			usedWidth := lineNumWidth + segmentWidth + cursorWidth
-			remainingWidth := m.viewport.Width - usedWidth
+			remainingWidth := m.viewport.Width() - usedWidth
 			if remainingWidth > 0 {
 				contentBuilder.WriteString(m.theme.CurrentLineStyle.Render(strings.Repeat(" ", remainingWidth)))
 			}
@@ -1285,7 +1286,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	}
 
 	// Render empty lines with tildes
-	for renderedDisplayLineCount < m.viewport.Height {
+	for renderedDisplayLineCount < m.viewport.Height() {
 		tildeStyle := m.theme.LineNumberStyle
 		if m.showLineNumbers && m.showTildeIndicator {
 			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
@@ -1347,7 +1348,7 @@ func (m *Model) renderSegment(
 	isCurrentLine := vli.LogicalRow == clampedCursorRow
 
 	// Pre-calculate current line background once per segment for performance
-	var currentLineBackground lipgloss.TerminalColor
+	var currentLineBackground color.Color
 	if isCurrentLine {
 		currentLineBackground = m.theme.CurrentLineStyle.GetBackground()
 	}

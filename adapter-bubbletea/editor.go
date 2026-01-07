@@ -3,16 +3,18 @@ package adapter_bubbletea
 import (
 	"context"
 	"fmt"
+	"image/color"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/cursor"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 )
@@ -39,95 +41,106 @@ type Theme struct {
 	SearchInputCursorStyle lipgloss.Style
 }
 
-var DefaultTheme = Theme{
-	NormalModeStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#179299", Dark: "#94e2d5"}). // Teal
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+// DefaultTheme creates a theme with adaptive colors based on terminal background.
+func DefaultTheme(isDark bool) Theme {
+	// Helper closure to select the color based on the boolean
+	lightDark := func(light, dark string) color.Color {
+		if isDark {
+			return lipgloss.Color(dark)
+		}
+		return lipgloss.Color(light)
+	}
 
-	InsertModeStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#1e66f5", Dark: "#89b4fa"}). // Blue
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+	return Theme{
+		NormalModeStyle: lipgloss.NewStyle().
+			Background(lightDark("#179299", "#94e2d5")). // Teal
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	VisualModeStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#8839ef", Dark: "#cba6f7"}). // Mauve
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+		InsertModeStyle: lipgloss.NewStyle().
+			Background(lightDark("#1e66f5", "#89b4fa")). // Blue
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	CommandModeStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#fe640b", Dark: "#fab387"}). // Peach
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+		VisualModeStyle: lipgloss.NewStyle().
+			Background(lightDark("#8839ef", "#cba6f7")). // Mauve
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	SearchModeStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#df8e1d", Dark: "#f9e2af"}). // Yellow
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+		CommandModeStyle: lipgloss.NewStyle().
+			Background(lightDark("#fe640b", "#fab387")). // Peach
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	// Status and command line
-	StatusLineStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#ccd0da", Dark: "#313244"}). // Surface0
-		Foreground(lipgloss.AdaptiveColor{Light: "#4c4f69", Dark: "#cdd6f4"}), // Text
+		SearchModeStyle: lipgloss.NewStyle().
+			Background(lightDark("#df8e1d", "#f9e2af")). // Yellow
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	CommandLineStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}). // Base
-		Foreground(lipgloss.AdaptiveColor{Light: "#4c4f69", Dark: "#cdd6f4"}), // Text
+		// Status and command line
+		StatusLineStyle: lipgloss.NewStyle().
+			Background(lightDark("#ccd0da", "#313244")). // Surface0
+			Foreground(lightDark("#4c4f69", "#cdd6f4")), // Text
 
-	// Messages and errors
-	MessageStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#40a02b", Dark: "#a6e3a1"}), // Green
+		CommandLineStyle: lipgloss.NewStyle().
+			Background(lightDark("#eff1f5", "#1e1e2e")). // Base
+			Foreground(lightDark("#4c4f69", "#cdd6f4")), // Text
 
-	ErrorStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#d20f39", Dark: "#f38ba8"}). // Red
-		Bold(true),
+		// Messages and errors
+		MessageStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#40a02b", "#a6e3a1")), // Green
 
-	// Line numbers
-	LineNumberStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#9ca0b0", Dark: "#6c7086"}). // Overlay0
-		Width(4).
-		Align(lipgloss.Right),
+		ErrorStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#d20f39", "#f38ba8")). // Red
+			Bold(true),
 
-	CurrentLineNumberStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#4c4f69", Dark: "#cdd6f4"}). // Text
-		Width(4).
-		Align(lipgloss.Right).
-		Bold(true),
+		// Line numbers
+		LineNumberStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#9ca0b0", "#6c7086")). // Overlay0
+			Width(4).
+			Align(lipgloss.Right),
 
-	// Current line highlight (subtle)
-	CurrentLineStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#e6e9ef", Dark: "#2A2B3C"}), // Mantle / Surface0
+		CurrentLineNumberStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#4c4f69", "#cdd6f4")). // Text
+			Width(4).
+			Align(lipgloss.Right).
+			Bold(true),
 
-	// Selection highlighting
-	SelectionStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#bcc0cc", Dark: "#45475a"}), // Surface1
+		// Current line highlight (subtle)
+		CurrentLineStyle: lipgloss.NewStyle().
+			Background(lightDark("#e6e9ef", "#2A2B3C")), // Mantle / Surface0
 
-	// Yank highlight (brief flash effect)
-	HighlightYankStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#209fb5", Dark: "#74c7ec"}). // Sapphire
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+		// Selection highlighting
+		SelectionStyle: lipgloss.NewStyle().
+			Background(lightDark("#bcc0cc", "#45475a")), // Surface1
 
-	// Search highlighting
-	SearchHighlightStyle: lipgloss.NewStyle().
-		Background(lipgloss.AdaptiveColor{Light: "#df8e1d", Dark: "#f9e2af"}). // Yellow
-		Foreground(lipgloss.AdaptiveColor{Light: "#eff1f5", Dark: "#1e1e2e"}).
-		Bold(true),
+		// Yank highlight (brief flash effect)
+		HighlightYankStyle: lipgloss.NewStyle().
+			Background(lightDark("#209fb5", "#74c7ec")). // Sapphire
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	SearchInputPromptStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#df8e1d", Dark: "#f9e2af"}). // Yellow
-		Bold(true),
+		// Search highlighting
+		SearchHighlightStyle: lipgloss.NewStyle().
+			Background(lightDark("#df8e1d", "#f9e2af")). // Yellow
+			Foreground(lightDark("#eff1f5", "#1e1e2e")).
+			Bold(true),
 
-	SearchInputTextStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#4c4f69", Dark: "#cdd6f4"}), // Text
+		SearchInputPromptStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#df8e1d", "#f9e2af")). // Yellow
+			Bold(true),
 
-	SearchInputCursorStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#df8e1d", Dark: "#f9e2af"}), // Yellow
+		SearchInputTextStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#4c4f69", "#cdd6f4")), // Text
 
-	// Placeholder text
-	PlaceholderStyle: lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#8c8fa1", Dark: "#7f849c"}). // Overlay1
-		Italic(true),
+		SearchInputCursorStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#df8e1d", "#f9e2af")), // Yellow
+
+		// Placeholder text
+		PlaceholderStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#8c8fa1", "#7f849c")). // Overlay1
+			Italic(true),
+	}
 }
 
 type (
@@ -315,13 +328,20 @@ func (c *clipboardImpl) Read() (string, error) {
 
 func New(width, height int) Model {
 	texteditor := editor.New(&clipboardImpl{})
-	vp := viewport.New(width, height-2)
+	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height-2))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
-	searchInput.PromptStyle = DefaultTheme.SearchInputPromptStyle
-	searchInput.Cursor.Style = DefaultTheme.SearchInputCursorStyle
-	searchInput.TextStyle = DefaultTheme.SearchInputTextStyle
-	searchInput.Cursor.SetMode(cursor.CursorStatic)
+
+	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
+	defaultTheme := DefaultTheme(isDark)
+
+	styles := textinput.DefaultStyles(isDark)
+	styles.Focused.Prompt = defaultTheme.SearchInputPromptStyle
+	styles.Focused.Text = defaultTheme.SearchInputTextStyle
+	styles.Blurred.Prompt = defaultTheme.SearchInputPromptStyle
+	styles.Blurred.Text = defaultTheme.SearchInputTextStyle
+	styles.Cursor.Blink = false
+	searchInput.SetStyles(styles)
 
 	searchOptions := editor.SearchOptions{
 		IgnoreCase: true,
@@ -335,7 +355,7 @@ func New(width, height int) Model {
 		viewport:         vp,
 		showLineNumbers:  true,
 		showStatusLine:   true,
-		theme:            DefaultTheme,
+		theme:            defaultTheme,
 		highlightedWords: make(map[string]lipgloss.Style),
 		cursorMode:       CursorSteady,
 		cursorVisible:    true,
@@ -351,8 +371,8 @@ func New(width, height int) Model {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
-	m.viewport.Width = width
-	m.viewport.Height = height - 2
+	m.viewport.SetWidth(width)
+	m.viewport.SetHeight(height - 2)
 
 	lineNumWidth := 0
 	if m.showLineNumbers {
@@ -361,13 +381,13 @@ func (m *Model) SetSize(width, height int) {
 		lineNumWidth = max(4, maxWidth) + 1
 		lineNumWidth = min(lineNumWidth, 10)
 	}
-	availableWidth := m.viewport.Width - lineNumWidth
+	availableWidth := m.viewport.Width() - lineNumWidth
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
 
 	state := m.editor.GetState()
-	state.ViewportWidth = m.viewport.Width
+	state.ViewportWidth = m.viewport.Width()
 	state.AvailableWidth = availableWidth
 	state.ViewportHeight = height - 2
 	m.editor.SetState(state)
@@ -380,13 +400,13 @@ func (m *Model) SetSize(width, height int) {
 	if m.fullVisualLayoutHeight > 0 {
 		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
 			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
-		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height {
-			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height + 1
+		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height() {
+			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height() + 1
 		}
 
 		maxPossibleTopLine := 0
-		if m.fullVisualLayoutHeight > m.viewport.Height {
-			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height
+		if m.fullVisualLayoutHeight > m.viewport.Height() {
+			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height()
 		}
 		if m.currentVisualTopLine > maxPossibleTopLine {
 			m.currentVisualTopLine = maxPossibleTopLine
@@ -398,7 +418,7 @@ func (m *Model) SetSize(width, height int) {
 		m.currentVisualTopLine = 0
 	}
 
-	m.viewport.YOffset = 0
+	m.viewport.SetYOffset(0)
 }
 
 // SetBytes sets the content of the editor.
@@ -418,9 +438,13 @@ func (m *Model) SetContent(content string) {
 // WithTheme allows setting a custom theme for the editor.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
-	m.searchInput.Cursor.Style = theme.SearchInputCursorStyle
-	m.searchInput.PromptStyle = theme.SearchInputPromptStyle
-	m.searchInput.TextStyle = theme.SearchInputTextStyle
+
+	styles := m.searchInput.Styles()
+	styles.Focused.Prompt = theme.SearchInputPromptStyle
+	styles.Focused.Text = theme.SearchInputTextStyle
+	styles.Blurred.Prompt = theme.SearchInputPromptStyle
+	styles.Blurred.Text = theme.SearchInputTextStyle
+	m.searchInput.SetStyles(styles)
 }
 
 // WithSearchOptions allows setting custom search options for the editor.
@@ -431,7 +455,9 @@ func (m *Model) WithSearchOptions(options editor.SearchOptions) {
 // WithSearchInputCursorMode allows setting the cursor mode for the search input.
 // Default is CursorStatic.
 func (m *Model) WithSearchInputCursorMode(mode cursor.Mode) {
-	m.searchInput.Cursor.SetMode(mode)
+	styles := m.searchInput.Styles()
+	styles.Cursor.Blink = (mode == cursor.CursorBlink)
+	m.searchInput.SetStyles(styles)
 }
 
 // SetLanguage sets the programming language for syntax highlighting.
@@ -858,13 +884,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	state := m.editor.GetState()
 
 	content := m.viewport.View()
 
 	if m.disableVimMode {
-		return content
+		return tea.NewView(content)
 	}
 
 	var commandLine string
@@ -901,12 +927,14 @@ func (m Model) View() string {
 		commandLine = m.theme.CommandLineStyle.Render(m.searchInput.View())
 	}
 
-	return lipgloss.JoinVertical(
+	viewContent := lipgloss.JoinVertical(
 		lipgloss.Left,
 		content,
 		statusLine,
 		commandLine,
 	)
+
+	return tea.NewView(viewContent)
 }
 
 func (m *Model) getStatusLine() string {
@@ -1027,50 +1055,51 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 // Convert Bubbletea key to editor.Key
 func convertBubbleKey(msg tea.KeyMsg) editor.KeyEvent {
-	key := editor.KeyEvent{}
+	k := msg.Key()
+	result := editor.KeyEvent{}
 
-	if len(msg.Runes) > 0 {
-		key.Rune = rune(msg.Runes[0])
+	if k.Text != "" && len(k.Text) > 0 {
+		result.Rune = rune(k.Text[0])
 	}
 
-	if msg.Alt {
-		key.Modifiers |= editor.ModAlt
+	if k.Mod&tea.ModAlt != 0 {
+		result.Modifiers |= editor.ModAlt
 	}
 
-	switch msg.Type {
+	switch k.Code {
 	case tea.KeyEnter:
-		key.Key = editor.KeyEnter
+		result.Key = editor.KeyEnter
 	case tea.KeySpace:
-		key.Key = editor.KeySpace
-		key.Rune = ' '
-	case tea.KeyEsc:
-		key.Key = editor.KeyEscape
+		result.Key = editor.KeySpace
+		result.Rune = ' '
+	case tea.KeyEscape:
+		result.Key = editor.KeyEscape
 	case tea.KeyBackspace:
-		key.Key = editor.KeyBackspace
+		result.Key = editor.KeyBackspace
 	case tea.KeyTab:
-		key.Key = editor.KeyTab
-		key.Rune = '\t'
+		result.Key = editor.KeyTab
+		result.Rune = '\t'
 	case tea.KeyUp:
-		key.Key = editor.KeyUp
+		result.Key = editor.KeyUp
 	case tea.KeyDown:
-		key.Key = editor.KeyDown
+		result.Key = editor.KeyDown
 	case tea.KeyLeft:
-		key.Key = editor.KeyLeft
+		result.Key = editor.KeyLeft
 	case tea.KeyRight:
-		key.Key = editor.KeyRight
+		result.Key = editor.KeyRight
 	case tea.KeyHome:
-		key.Key = editor.KeyHome
+		result.Key = editor.KeyHome
 	case tea.KeyEnd:
-		key.Key = editor.KeyEnd
+		result.Key = editor.KeyEnd
 	case tea.KeyDelete:
-		key.Key = editor.KeyDelete
+		result.Key = editor.KeyDelete
 	case tea.KeyPgUp:
-		key.Key = editor.KeyPageUp
+		result.Key = editor.KeyPageUp
 	case tea.KeyPgDown:
-		key.Key = editor.KeyPageDown
+		result.Key = editor.KeyPageDown
 	}
 
-	return key
+	return result
 }
 
 // CursorBlink is the main command for the blinking cursor effect (toggling visibility)
