@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type SearchQuery struct {
@@ -155,7 +156,6 @@ func (e *editor) DisableVimMode(disable bool) {
 	} else {
 		e.SetNormalMode()
 	}
-
 }
 
 func (e *editor) IsVimMode() bool {
@@ -285,6 +285,105 @@ func (e *editor) HandleKey(key KeyEvent) *EditorError {
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
 
 	return err
+}
+
+// TriggerCompletion requests completions at the current cursor position
+func (e *editor) TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) {
+	ctx := e.buildCompletionContext(triggerKind, triggerChar)
+	e.DispatchSignal(CompletionRequestSignal{context: ctx})
+}
+
+// InsertCompletion inserts the selected completion into the buffer
+func (e *editor) InsertCompletion(completion Completion) error {
+	cursor := e.buffer.GetCursor()
+	pos := cursor.Position
+
+	// Get the current text before cursor
+	var textBeforeCursor string
+	if pos.Row >= 0 && pos.Row < e.buffer.LineCount() {
+		lineRunes := e.buffer.GetLineRunes(pos.Row)
+		if pos.Col >= 0 && pos.Col <= len(lineRunes) {
+			textBeforeCursor = string(lineRunes[:pos.Col])
+		}
+	}
+
+	// Find how much of the typed text matches the completion
+	prefixLength := findCompletionPrefixLength(textBeforeCursor, completion.Text)
+
+	// Delete the matching prefix
+	if prefixLength > 0 {
+		deleteStart := pos.Col - prefixLength
+		if deleteStart >= 0 {
+			if err := e.buffer.DeleteRunesAt(pos.Row, deleteStart, prefixLength); err != nil {
+				return err.Error()
+			}
+			cursor.Position.Col = deleteStart
+		}
+	}
+
+	// Insert completion text
+	if err := e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(completion.Text)); err != nil {
+		return err
+	}
+
+	// Move cursor to end of inserted text
+	if err := cursor.MoveRight(e.buffer, len([]rune(completion.Text)), e.state.AvailableWidth); err != nil {
+		return err
+	}
+
+	e.buffer.SetCursor(cursor)
+	e.SaveHistory()
+
+	return nil
+}
+
+// buildCompletionContext creates a CompletionContext from current editor state
+func (e *editor) buildCompletionContext(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext {
+	cursor := e.buffer.GetCursor()
+	pos := cursor.Position
+
+	currentLine := ""
+	textBefore := ""
+	textAfter := ""
+
+	if pos.Row >= 0 && pos.Row < e.buffer.LineCount() {
+		lineRunes := e.buffer.GetLineRunes(pos.Row)
+		currentLine = string(lineRunes)
+
+		if pos.Col >= 0 && pos.Col <= len(lineRunes) {
+			textBefore = string(lineRunes[:pos.Col])
+			textAfter = string(lineRunes[pos.Col:])
+		}
+	}
+
+	// Gather surrounding lines for context (5 lines before/after)
+	linesBefore := []string{}
+	linesAfter := []string{}
+	const contextLines = 5
+
+	for i := max(0, pos.Row-contextLines); i < pos.Row; i++ {
+		linesBefore = append(linesBefore, string(e.buffer.GetLineRunes(i)))
+	}
+
+	for i := pos.Row + 1; i < min(e.buffer.LineCount(), pos.Row+contextLines+1); i++ {
+		linesAfter = append(linesAfter, string(e.buffer.GetLineRunes(i)))
+	}
+
+	// Generate unique request ID
+	requestID := fmt.Sprintf("%d-%d-%d", time.Now().UnixNano(), pos.Row, pos.Col)
+
+	return CompletionContext{
+		Position:         pos,
+		CurrentLine:      currentLine,
+		TextBeforeCursor: textBefore,
+		TextAfterCursor:  textAfter,
+		LinesBefore:      linesBefore,
+		LinesAfter:       linesAfter,
+		Mode:             e.state.Mode,
+		RequestID:        requestID,
+		TriggerKind:      triggerKind,
+		TriggerCharacter: triggerChar,
+	}
 }
 
 func (e *editor) GetState() State {

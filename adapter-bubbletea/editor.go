@@ -35,15 +35,22 @@ type Theme struct {
 	ErrorStyle             lipgloss.Style
 	HighlightYankStyle     lipgloss.Style
 	PlaceholderStyle       lipgloss.Style
+
 	SearchHighlightStyle   lipgloss.Style
 	SearchInputPromptStyle lipgloss.Style
 	SearchInputTextStyle   lipgloss.Style
 	SearchInputCursorStyle lipgloss.Style
+
+	CompletionMenuItemStyle         lipgloss.Style
+	CompletionMenuSelectedItemStyle lipgloss.Style
+	CompletionMenuBorderStyle       lipgloss.Style
+	CompletionMenuLabelStyle        lipgloss.Style
+	CompletionMenuTypeStyle         lipgloss.Style
 }
 
 // DefaultTheme creates a theme with adaptive colors based on terminal background.
 func DefaultTheme(isDark bool) Theme {
-	// Helper closure to select the color based on the boolean
+	// Helper closure to select the colour based on the boolean
 	lightDark := func(light, dark string) color.Color {
 		if isDark {
 			return lipgloss.Color(dark)
@@ -140,6 +147,26 @@ func DefaultTheme(isDark bool) Theme {
 		PlaceholderStyle: lipgloss.NewStyle().
 			Foreground(lightDark("#8c8fa1", "#7f849c")). // Overlay1
 			Italic(true),
+
+		CompletionMenuItemStyle: lipgloss.NewStyle().
+			Padding(0, 1),
+
+		CompletionMenuSelectedItemStyle: lipgloss.NewStyle().
+			Background(lightDark("#bcc0cc", "#45475a")). // Surface1
+			Padding(0, 1).
+			Bold(true),
+
+		CompletionMenuBorderStyle: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lightDark("#9ca0b0", "#6c7086")). // Overlay0
+			Padding(0),
+
+		CompletionMenuLabelStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#1e66f5", "#89b4fa")). // Blue
+			Bold(true),
+
+		CompletionMenuTypeStyle: lipgloss.NewStyle().
+			Foreground(lightDark("#8839ef", "#cba6f7")), // Mauve
 	}
 }
 
@@ -212,6 +239,16 @@ type Model struct {
 	searchInput   textinput.Model
 	searchOptions editor.SearchOptions
 
+	// Completion state
+	completionMenuVisible       bool
+	completions                 []editor.Completion
+	completionContext           editor.CompletionContext
+	selectedCompletionIdx       int
+	autoTriggerEnabled          bool
+	lastCompletionRequest       time.Time
+	completionDebounceTime      time.Duration
+	precomputedCompletionStyles completionStyles
+
 	cursorBlinkCancel context.CancelFunc
 	clearMsgCancel    context.CancelFunc
 	clearYankCancel   context.CancelFunc
@@ -277,6 +314,20 @@ type RedoMsg struct {
 
 type SearchResultsMsg struct {
 	Positions []editor.Position
+}
+
+type CompletionRequestMsg struct {
+	Context editor.CompletionContext
+}
+
+type CompletionResponseMsg struct {
+	Completions []editor.Completion
+	Context     editor.CompletionContext
+}
+
+type CompletionDebounceMsg struct {
+	TriggerChar string
+	Timestamp   time.Time
 }
 
 func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
@@ -361,6 +412,10 @@ func New(width, height int) Model {
 		cursorVisible:    true,
 		searchInput:      searchInput,
 		searchOptions:    searchOptions,
+
+		autoTriggerEnabled:          false,
+		completionDebounceTime:      300 * time.Millisecond,
+		precomputedCompletionStyles: setupCompletionStyles(defaultTheme),
 	}
 
 	m.SetSize(width, height)
@@ -445,6 +500,7 @@ func (m *Model) WithTheme(theme Theme) {
 	styles.Blurred.Prompt = theme.SearchInputPromptStyle
 	styles.Blurred.Text = theme.SearchInputTextStyle
 	m.searchInput.SetStyles(styles)
+	m.precomputedCompletionStyles = setupCompletionStyles(theme)
 }
 
 // WithSearchOptions allows setting custom search options for the editor.
@@ -509,6 +565,16 @@ func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 // WithSyntaxHighlighter allows setting a custom syntax highlighter.
 func (m *Model) WithSyntaxHighlighter(highlighter *highlighter.Highlighter) {
 	m.highlighter = highlighter
+}
+
+// WithAutoTrigger enables or disables auto-trigger completions
+func (m *Model) WithAutoTrigger(enabled bool) {
+	m.autoTriggerEnabled = enabled
+}
+
+// WithCompletionDebounce sets the debounce time for auto-trigger completions
+func (m *Model) WithCompletionDebounce(duration time.Duration) {
+	m.completionDebounceTime = duration
 }
 
 // DispatchMessage allows setting a message to be displayed in the command line for a specified duration.
@@ -774,11 +840,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		keyEvent := convertBubbleKey(msg)
-		err := m.editor.HandleKey(keyEvent)
+		skipNormalKeyHandling := false
+
+		// Manual completion trigger: Ctrl+Space in Insert mode
+		if keyEvent.Key == editor.KeySpace && keyEvent.Modifiers&editor.ModCtrl != 0 {
+			if m.editor.IsInsertMode() {
+				m.editor.TriggerCompletion(editor.CompletionTriggerManual, "")
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		// Completion menu navigation
+		if m.completionMenuVisible {
+			switch keyEvent.Key {
+			case editor.KeyEscape:
+				m.completionMenuVisible = false
+				skipNormalKeyHandling = true
+			case editor.KeyEnter, editor.KeyTab:
+				cmds = append(cmds, m.insertCompletion())
+				skipNormalKeyHandling = true
+			case editor.KeyUp:
+				if m.selectedCompletionIdx > 0 {
+					m.selectedCompletionIdx--
+				}
+				skipNormalKeyHandling = true
+			case editor.KeyDown:
+				if m.selectedCompletionIdx < len(m.completions)-1 {
+					m.selectedCompletionIdx++
+				}
+				skipNormalKeyHandling = true
+			}
+		}
+
+		var err *editor.EditorError
+		if !skipNormalKeyHandling {
+			err = m.editor.HandleKey(keyEvent)
+		}
 		if err != nil {
 			cmds = append(cmds, func() tea.Msg {
 				return ErrorMsg{ID: err.ID(), Error: err.Error()}
 			})
+		}
+
+		// Auto-trigger handling
+		if m.autoTriggerEnabled && m.editor.IsInsertMode() && !m.completionMenuVisible && !skipNormalKeyHandling {
+			if keyEvent.Rune >= 32 && keyEvent.Rune < 127 {
+				triggerChar := string(keyEvent.Rune)
+				timestamp := time.Now()
+				m.lastCompletionRequest = timestamp
+
+				cmds = append(cmds, tea.Tick(m.completionDebounceTime, func(t time.Time) tea.Msg {
+					return CompletionDebounceMsg{
+						TriggerChar: triggerChar,
+						Timestamp:   timestamp,
+					}
+				}))
+			}
 		}
 
 		if m.editor.IsSearchMode() {
@@ -861,6 +978,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursorVisible = true
 			cmds = append(cmds, m.CursorBlink())
 		}
+
+	case CompletionDebounceMsg:
+		// Only trigger if this is the latest request (no newer typing)
+		if msg.Timestamp.Equal(m.lastCompletionRequest) && m.editor.IsInsertMode() {
+			m.editor.TriggerCompletion(editor.CompletionTriggerAuto, msg.TriggerChar)
+		}
+
+	case CompletionRequestMsg:
+		m.completionContext = msg.Context
+		// Forward to parent application
+		cmds = append(cmds, func() tea.Msg { return msg })
+
+	case CompletionResponseMsg:
+		// Update completions
+		m.completions = msg.Completions
+		m.selectedCompletionIdx = 0
+
+		if len(m.completions) > 0 {
+			m.completionMenuVisible = true
+		} else {
+			m.completionMenuVisible = false
+		}
 	}
 
 	cmds = append(cmds, m.listenForEditorUpdate())
@@ -888,6 +1027,11 @@ func (m Model) View() tea.View {
 	state := m.editor.GetState()
 
 	content := m.viewport.View()
+
+	// Overlay completion menu if visible
+	if m.completionMenuVisible && len(m.completions) > 0 {
+		content = m.renderWithCompletionMenu(content)
+	}
 
 	if m.disableVimMode {
 		return tea.NewView(content)
@@ -1047,6 +1191,13 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case editor.SearchResultsSignal:
 			return SearchResultsMsg{Positions: signal.Value()}
+
+		case editor.CompletionRequestSignal:
+			return CompletionRequestMsg{Context: signal.Context()}
+
+		case editor.CompletionResponseSignal:
+			completions, ctx := signal.Value()
+			return CompletionResponseMsg{Completions: completions, Context: ctx}
 		}
 
 		return nil
@@ -1064,6 +1215,10 @@ func convertBubbleKey(msg tea.KeyMsg) editor.KeyEvent {
 
 	if k.Mod&tea.ModAlt != 0 {
 		result.Modifiers |= editor.ModAlt
+	}
+
+	if k.Mod&tea.ModCtrl != 0 {
+		result.Modifiers |= editor.ModCtrl
 	}
 
 	switch k.Code {
@@ -1136,4 +1291,25 @@ func (m *Model) restartBlinkCycleCmd() tea.Cmd {
 	return tea.Tick(cursorActivityResetDelay, func(t time.Time) tea.Msg {
 		return resumeBlinkCycleMsg{}
 	})
+}
+
+// insertCompletion inserts the selected completion into the buffer
+func (m *Model) insertCompletion() tea.Cmd {
+	if !m.completionMenuVisible || len(m.completions) == 0 {
+		return nil
+	}
+
+	completion := m.completions[m.selectedCompletionIdx]
+
+	if err := m.editor.InsertCompletion(completion); err != nil {
+		m.completionMenuVisible = false
+		return func() tea.Msg {
+			return ErrorMsg{ID: editor.ErrInvalidPositionId, Error: err}
+		}
+	}
+
+	// Hide completion menu
+	m.completionMenuVisible = false
+
+	return nil
 }

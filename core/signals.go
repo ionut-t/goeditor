@@ -101,6 +101,30 @@ func (s SearchResultsSignal) Value() []Position {
 	return s.positions
 }
 
+type CompletionRequestSignal struct {
+	context CompletionContext
+}
+
+func (c CompletionRequestSignal) Context() CompletionContext {
+	return c.context
+}
+
+type CompletionResponseSignal struct {
+	completions []Completion
+	context     CompletionContext
+}
+
+func NewCompletionResponseSignal(completions []Completion, context CompletionContext) CompletionResponseSignal {
+	return CompletionResponseSignal{
+		completions: completions,
+		context:     context,
+	}
+}
+
+func (c CompletionResponseSignal) Value() ([]Completion, CompletionContext) {
+	return c.completions, c.context
+}
+
 func (e *editor) DispatchSignal(signal Signal) {
 	select {
 	case e.updateSignal <- signal:

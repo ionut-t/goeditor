@@ -1501,3 +1501,135 @@ func (m *Model) handleContentChange() {
 	m.calculateVisualMetrics()
 	m.updateVisualTopLine()
 }
+
+type completionStyles struct {
+	leftPadding            int
+	rightPadding           int
+	labelSelected          lipgloss.Style
+	completionTypeSelected lipgloss.Style
+	gapSelected            lipgloss.Style
+	lineSelected           lipgloss.Style
+}
+
+func setupCompletionStyles(theme Theme) completionStyles {
+	leftPadding := theme.CompletionMenuSelectedItemStyle.GetPaddingLeft()
+	rightPadding := theme.CompletionMenuSelectedItemStyle.GetPaddingRight()
+
+	return completionStyles{
+		leftPadding: leftPadding,
+
+		rightPadding: rightPadding,
+
+		labelSelected: theme.CompletionMenuLabelStyle.
+			Background(theme.CompletionMenuSelectedItemStyle.GetBackground()).
+			Bold(theme.CompletionMenuSelectedItemStyle.GetBold()).
+			PaddingLeft(leftPadding),
+
+		completionTypeSelected: theme.CompletionMenuTypeStyle.
+			Background(theme.CompletionMenuSelectedItemStyle.GetBackground()).
+			Bold(theme.CompletionMenuSelectedItemStyle.GetBold()).
+			PaddingRight(rightPadding),
+
+		gapSelected: lipgloss.NewStyle().
+			Background(theme.CompletionMenuSelectedItemStyle.GetBackground()),
+
+		lineSelected: lipgloss.NewStyle(),
+	}
+}
+
+// renderWithCompletionMenu overlays the completion menu on the content
+func (m Model) renderWithCompletionMenu(content string) string {
+	if len(m.completions) == 0 {
+		return content
+	}
+
+	maxItems := min(10, len(m.completions))
+
+	// Calculate responsive width based on content
+	menuWidth := 20 // Minimum width
+	const spacingBetweenLabelAndType = 4
+
+	for i := range maxItems {
+		completion := m.completions[i]
+		itemWidth := len(completion.Label) + len(completion.Type) + spacingBetweenLabelAndType
+		menuWidth = max(menuWidth, itemWidth)
+	}
+	// Cap maximum width at viewport width - 10 (leave some margin)
+	maxWidth := max(m.viewport.Width()-10, 20)
+	menuWidth = min(menuWidth, maxWidth)
+
+	styles := m.precomputedCompletionStyles
+	leftPadding := m.precomputedCompletionStyles.leftPadding
+	rightPadding := m.precomputedCompletionStyles.rightPadding
+	lineWidth := menuWidth + leftPadding + rightPadding
+
+	menuLines := make([]string, 0, maxItems)
+
+	for i := range maxItems {
+		completion := m.completions[i]
+
+		labelLen := len(completion.Label)
+		typeLen := len(completion.Type)
+		spacing := max(2, menuWidth-labelLen-typeLen)
+
+		gap := strings.Repeat(" ", spacing)
+
+		var line string
+		if i == m.selectedCompletionIdx {
+			completionLabel := styles.labelSelected.Render(completion.Label)
+			completionType := styles.completionTypeSelected.Render(completion.Type)
+			gap := styles.gapSelected.Width(spacing).Render("")
+
+			line = styles.lineSelected.
+				Width(lineWidth).
+				Render(completionLabel + gap + completionType)
+		} else {
+			completionLabel := m.theme.CompletionMenuLabelStyle.Render(completion.Label)
+			completionType := m.theme.CompletionMenuTypeStyle.Render(completion.Type)
+
+			line = m.theme.CompletionMenuItemStyle.
+				Width(lineWidth).
+				Render(completionLabel + gap + completionType)
+		}
+
+		menuLines = append(menuLines, line)
+	}
+
+	menu := lipgloss.JoinVertical(lipgloss.Left, menuLines...)
+
+	menuBox := m.theme.CompletionMenuBorderStyle.Render(menu)
+
+	// Calculate menu position (below cursor, or above if no room)
+	cursorRow := m.cursorAbsoluteVisualRow - m.currentVisualTopLine
+	menuRow := cursorRow + 1
+
+	// If menu would go off screen, show above cursor
+	if menuRow+maxItems+2 > m.viewport.Height() {
+		menuRow = max(0, cursorRow-maxItems-2)
+	}
+
+	// Calculate cursor's screen column (including line numbers)
+	menuCol := 0
+	allLogicalLines := m.editor.GetBuffer().GetLines()
+	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
+
+	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
+		// Convert absolute visual row to cache-relative index for cursor lookup
+		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
+		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
+			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
+			menuCol = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
+		} else {
+			menuCol = lineNumWidth
+		}
+	} else {
+		menuCol = lineNumWidth
+	}
+
+	// Use lipgloss v2 compositing API to overlay menu
+	contentLayer := lipgloss.NewLayer(content).X(0).Y(0).Z(0)
+	menuLayer := lipgloss.NewLayer(menuBox).X(menuCol).Y(menuRow).Z(1)
+
+	canvas := lipgloss.NewCanvas(contentLayer, menuLayer)
+	return canvas.Render()
+}
