@@ -15,7 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
+	"github.com/ionut-t/goeditor/adapter-bubbletea/v2/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 )
 
