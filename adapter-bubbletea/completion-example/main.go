@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor/adapter-bubbletea/v2"
-	core "github.com/ionut-t/goeditor/core/v2"
+	core "github.com/ionut-t/goeditor/core"
 )
 
 const messageDuration = 2 * time.Second

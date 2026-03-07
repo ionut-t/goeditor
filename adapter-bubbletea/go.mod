@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.0
 	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/atotto/clipboard v0.1.4
-	github.com/ionut-t/goeditor/core/v2 v2.0.0-20260120204135-97371bf4735d
+	github.com/ionut-t/goeditor/core v0.3.0
 	github.com/rivo/uniseg v0.4.7
 )
 

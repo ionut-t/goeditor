@@ -36,8 +36,8 @@ github.com/dlclark/regexp2 v1.11.5 h1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZ
 github.com/dlclark/regexp2 v1.11.5/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
-github.com/ionut-t/goeditor/core/v2 v2.0.0-20260120204135-97371bf4735d h1:/Upxt1KaB8LhSep6P+V9TgrYkiSf0ZUC/T5KcPNlw6I=
-github.com/ionut-t/goeditor/core/v2 v2.0.0-20260120204135-97371bf4735d/go.mod h1:NdgVJFcOJuLBjgGafHpWREj457UDlygp60svgcXudxs=
+github.com/ionut-t/goeditor/core v0.3.0 h1:S42hgq4AjCkApEI0eFvNzj6Q44j8u3scW1uwzIKT2y8=
+github.com/ionut-t/goeditor/core v0.3.0/go.mod h1:/BKScsReQFJUrjMPQfR6lm2EtGrvNQYO4YQXc/6sIMw=
 github.com/lucasb-eyer/go-colorful v1.3.0 h1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=
 github.com/lucasb-eyer/go-colorful v1.3.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
 github.com/mattn/go-runewidth v0.0.21 h1:jJKAZiQH+2mIinzCJIaIG9Be1+0NR+5sz/lYEEjdM8w=
