@@ -1626,10 +1626,8 @@ func (m Model) renderWithCompletionMenu(content string) string {
 		menuCol = lineNumWidth
 	}
 
-	// Use lipgloss v2 compositing API to overlay menu
 	contentLayer := lipgloss.NewLayer(content).X(0).Y(0).Z(0)
 	menuLayer := lipgloss.NewLayer(menuBox).X(menuCol).Y(menuRow).Z(1)
 
-	canvas := lipgloss.NewCanvas(contentLayer, menuLayer)
-	return canvas.Render()
+	return lipgloss.NewCompositor(contentLayer, menuLayer).Render()
 }
