@@ -1,4 +1,4 @@
-module github.com/ionut-t/goeditor/adapter-bubbletea/v2
+module github.com/ionut-t/goeditor/adapter-bubbletea
 
 go 1.26.1
 

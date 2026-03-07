@@ -7,7 +7,7 @@ import (
 	"unicode"
 
 	"charm.land/lipgloss/v2"
-	"github.com/ionut-t/goeditor/adapter-bubbletea/v2/highlighter"
+	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
 	editor "github.com/ionut-t/goeditor/core"
 	"github.com/rivo/uniseg"
 )
