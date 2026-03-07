@@ -1,3 +1,3 @@
-module github.com/ionut-t/goeditor/core/v2
+module github.com/ionut-t/goeditor/core
 
-go 1.24.0
+go 1.26.1
