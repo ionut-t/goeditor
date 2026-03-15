@@ -830,7 +830,7 @@ func (m Model) Init() tea.Cmd {
 	return m.listenForEditorUpdate()
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -1023,7 +1023,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) View() tea.View {
+func (m Model) View() string {
 	state := m.editor.GetState()
 
 	content := m.viewport.View()
@@ -1034,7 +1034,7 @@ func (m Model) View() tea.View {
 	}
 
 	if m.disableVimMode {
-		return tea.NewView(content)
+		return content
 	}
 
 	var commandLine string
@@ -1078,7 +1078,7 @@ func (m Model) View() tea.View {
 		commandLine,
 	)
 
-	return tea.NewView(viewContent)
+	return viewContent
 }
 
 func (m *Model) getStatusLine() string {

@@ -92,13 +92,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	editorModel, cmd := m.editor.Update(msg)
 	cmds = append(cmds, cmd)
-	m.editor = editorModel.(editor.Model)
+	m.editor = editorModel
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() tea.View {
-	v := m.editor.View()
+	v := tea.NewView(m.editor.View())
 	v.AltScreen = true
 	return v
 }
