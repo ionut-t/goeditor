@@ -473,6 +473,16 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 		}
 		return e.ExecuteCommand("q!") // Force quit
 
+	case "x", "xit":
+		// Write only if modified, then quit
+		if e.buffer.IsModified() {
+			err := e.ExecuteCommand("w")
+			if err != nil {
+				return err
+			}
+		}
+		return e.ExecuteCommand("q")
+
 		// Add more commands: e, edit, r, read, s, substitute etc.
 		// case "s": return e.executeSubstitute(args)
 
