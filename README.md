@@ -1,43 +1,33 @@
 # GoEditor
 
-A feature-rich, Vim-inspired text editor library for Go.
+A feature-rich, Vim-inspired text editor library for Go, built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 ## Features
-
-### Core Editor (`core` package)
 
 - **Multiple editing modes**: Normal, Insert, Visual, Visual Line, and Command modes
 - **Vim-style keybindings**: Navigate and edit text efficiently with familiar Vim commands
 - **Unicode support**: Full support for international characters and emojis
 - **Undo/Redo**: Navigate through your editing history
-- **Search functionality**: Find text within your document (in progress)
+- **Search functionality**: Find text within your document
 - **Clipboard integration**: Copy, cut, and paste with system clipboard support
 - **Line wrapping**: Automatic word-wrap for long lines
-- **Extensible architecture**: Easy to add new modes and commands
-
-### [Bubble Tea](https://github.com/charmbracelet/bubbletea) Adapter (`editor` package)
-
 - **Custom Themes**: Customizable color schemes and styles with [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - **Line numbers**: Optional absolute or relative line numbering
 - **Syntax highlighting**: Automatic syntax highlighting for various languages (Go, Python, Markdown, etc.)
 - **Customizable word highlighting**: Highlight specific words with custom styles
 - **Status line**: Shows current mode, cursor position, and file status
-- **Command Line**: Display messages and command input.
 - **Responsive**: Adapts to terminal size changes
-- **Line Wrapping**: Automatically wraps long lines to fit the terminal width
 - **Cursor modes**: Blinking or steady cursor with mode-specific styling
-- **Focus/Blur**: Programmatic focus management.
+- **Focus/Blur**: Programmatic focus management
 - **Placeholder text**: Display helpful text when the buffer is empty
 
 ## Installation
 
 ```bash
-go get github.com/ionut-t/goeditor/adapter-bubbletea
+go get github.com/ionut-t/goeditor
 ```
 
 ## Quick Start
-
-### Basic Usage
 
 ```go
 package main
@@ -45,28 +35,24 @@ package main
 import (
     "log"
 
-    tea "github.com/charmbracelet/bubbletea"
-    editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+    tea "charm.land/bubbletea/v2"
+    goeditor "github.com/ionut-t/goeditor"
 )
 
 func main() {
-    // Create a new editor with specified dimensions
-    m := editor.New(80, 24)
-
-    // Set initial content
+    m := goeditor.New(80, 24)
     m.SetContent("Hello, World!\nWelcome to GoEditor.")
+    m.Focus()
 
-    // Create the Bubble Tea program
     p := tea.NewProgram(m)
 
-    // Run the editor
     if _, err := p.Run(); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-### Advanced Configuration
+## Configuration
 
 ```go
 // Disable Vim mode for a simpler editing experience
@@ -83,22 +69,23 @@ m.SetPlaceholder("Start typing...")
 
 // Set language for syntax highlighting
 m.SetLanguage("go", "catppuccin-mocha")
-// OR Highlight specific words
+
+// Highlight specific words
 highlights := map[string]lipgloss.Style{
-    "TODO":     lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true),
-    "FIXME":    lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
-    "NOTE":     lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true),
+    "TODO":  lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true),
+    "FIXME": lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true),
+    "NOTE":  lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true),
 }
 m.SetHighlightedWords(highlights)
 
 // Set cursor to blink
-textEditor.SetCursorMode(editor.CursorBlink)
+m.SetCursorMode(goeditor.CursorBlink)
 
 // Custom theme
-theme := editor.Theme{
-    NormalModeStyle:  lipgloss.NewStyle().Background(lipgloss.Color("22")),
-    InsertModeStyle:  lipgloss.NewStyle().Background(lipgloss.Color("28")),
-    SelectionStyle:   lipgloss.NewStyle().Background(lipgloss.Color("240")),
+theme := goeditor.Theme{
+    NormalModeStyle: lipgloss.NewStyle().Background(lipgloss.Color("22")),
+    InsertModeStyle: lipgloss.NewStyle().Background(lipgloss.Color("28")),
+    SelectionStyle:  lipgloss.NewStyle().Background(lipgloss.Color("240")),
     // ... customize other styles
 }
 m.WithTheme(theme)
@@ -165,12 +152,11 @@ HideLineNumbers(hide bool)
 ShowRelativeLineNumbers(show bool)
 ShowTildeIndicator(show bool)
 HideStatusLine(hide bool)
-ShowMessages(show bool)
 
 // Cursor Control
 SetCursorPosition(row, col int) error
 SetCursorPositionEnd() error
-SetCursorBlinkMode(blink bool)
+SetCursorMode(mode CursorMode)
 
 // Styling
 WithTheme(theme Theme)
@@ -183,93 +169,57 @@ Blur()
 IsFocused() bool
 ```
 
-### Listening for Editor Events
+### Handling Editor Events
 
-The editor sends various messages that can be handled in your Bubble Tea Update method:
+Handle events in your Bubble Tea `Update` method:
 
 ```go
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
-    case editor.SaveMsg:
-        // Handle save event
+    case goeditor.SaveMsg:
         content := msg.Content
         // Save to file...
 
-    case editor.QuitMsg:
-        // Handle quit event
+    case goeditor.QuitMsg:
         return m, tea.Quit
 
-    case editor.YankMsg:
-        // Content was yanked (copied)
-        content := msg.Content
-        // you can dispatch a message to the user
-        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes yanked", len(content)), 3 * time.Second)
+    case goeditor.YankMsg:
+        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes yanked", len(msg.Content)), 3*time.Second)
 
-    case editor.DeleteMsg:
-        // Content was deleted
-        content := msg.Content
-        // you can dispatch a message to the user
-        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes deleted", len(content)), 3 * time.Second)
+    case goeditor.DeleteMsg:
+        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes deleted", len(msg.Content)), 3*time.Second)
 
-    case editor.PasteMsg:
-        // Content was pasted
-        content := msg.Content
-        // you can dispatch a message to the user
-        return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes pasted", len(content)), 3 * time.Second)
-
-    case editor.ErrorMsg:
-        // An error occurred in the editor
-        err := msg.Error
-        // you can dispatch an error to the user
-        return m, m.editor.DispatchError(err, 3 * time.Second)
+    case goeditor.ErrorMsg:
+        return m, m.editor.DispatchError(msg.Error, 3*time.Second)
     }
 }
 ```
 
-## Core Library Usage
+## Core Package
 
-For direct usage of the core editor without the Bubble Tea UI:
+The `core` package contains the editor engine with no UI dependencies and can be used independently:
 
 ```go
-import (
-    "github.com/atotto/clipboard"
-    "github.com/ionut-t/goeditor/core"
-)
+import "github.com/ionut-t/goeditor/core"
 
 // Implement core.Clipboard interface
 type clipboardImpl struct{}
 
-func (c *clipboardImpl) Write(text string) error {
-	return clipboard.WriteAll(text)
-}
+func (c *clipboardImpl) Write(text string) error { ... }
+func (c *clipboardImpl) Read() (string, error)   { ... }
 
-func (c *clipboardImpl) Read() (string, error) {
-	return clipboard.ReadAll()
-}
+ed := core.New(&clipboardImpl{})
+ed.SetContent([]byte("Hello, World!"))
+ed.HandleKey(core.KeyEvent{Rune: 'i'})
 
-// Create a new buffer
-buffer := core.NewBuffer()
-buffer.SetContent([]byte("Hello, World!"))
-
-// Create an editor
-clipboard := &clipboardImpl{}
-editor := core.New(clipboard)
-
-// Handle key events
-key := core.KeyEvent{Rune: 'i'}
-editor.HandleKey(key)
-
-// Get buffer content
-content := editor.GetBuffer().GetCurrentContent()
+content := ed.GetBuffer().GetCurrentContent()
 ```
 
 ## Examples
 
-See [adapter-bubbletea/example/main.go](adapter-bubbletea/example/main.go).
+See [examples/basic](examples/basic/main.go) and [examples/completion](examples/completion/main.go).
 
 ## Acknowledgements
-
-This project utilizes the following excellent libraries:
 
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea): A powerful TUI framework for Go.
 - [Chroma](https://github.com/alecthomas/chroma): A general purpose syntax highlighter in pure Go.
@@ -279,4 +229,3 @@ This project utilizes the following excellent libraries:
 ## License
 
 [MIT](LICENSE)
-

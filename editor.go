@@ -1,4 +1,4 @@
-package adapter_bubbletea
+package goeditor
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
-	editor "github.com/ionut-t/goeditor/core"
+	"github.com/ionut-t/goeditor/core"
+	"github.com/ionut-t/goeditor/highlighter"
 )
 
 type Theme struct {
@@ -189,7 +189,7 @@ const (
 )
 
 type Model struct {
-	editor   editor.Editor
+	editor   core.Editor
 	viewport viewport.Model
 
 	width  int
@@ -237,12 +237,12 @@ type Model struct {
 	highlighterTheme string
 
 	searchInput   textinput.Model
-	searchOptions editor.SearchOptions
+	searchOptions core.SearchOptions
 
 	// Completion state
 	completionMenuVisible       bool
-	completions                 []editor.Completion
-	completionContext           editor.CompletionContext
+	completions                 []core.Completion
+	completionContext           core.CompletionContext
 	selectedCompletionIdx       int
 	autoTriggerEnabled          bool
 	lastCompletionRequest       time.Time
@@ -255,7 +255,7 @@ type Model struct {
 }
 
 type ErrorMsg struct {
-	ID    editor.ErrorId
+	ID    core.ErrorId
 	Error error
 }
 
@@ -313,16 +313,16 @@ type RedoMsg struct {
 }
 
 type SearchResultsMsg struct {
-	Positions []editor.Position
+	Positions []core.Position
 }
 
 type CompletionRequestMsg struct {
-	Context editor.CompletionContext
+	Context core.CompletionContext
 }
 
 type CompletionResponseMsg struct {
-	Completions []editor.Completion
-	Context     editor.CompletionContext
+	Completions []core.Completion
+	Context     core.CompletionContext
 }
 
 type CompletionDebounceMsg struct {
@@ -378,7 +378,7 @@ func (c *clipboardImpl) Read() (string, error) {
 }
 
 func New(width, height int) Model {
-	texteditor := editor.New(&clipboardImpl{})
+	texteditor := core.New(&clipboardImpl{})
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height-2))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
@@ -394,7 +394,7 @@ func New(width, height int) Model {
 	styles.Cursor.Blink = false
 	searchInput.SetStyles(styles)
 
-	searchOptions := editor.SearchOptions{
+	searchOptions := core.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
 		Backwards:  false,
@@ -476,7 +476,7 @@ func (m *Model) SetSize(width, height int) {
 	m.viewport.SetYOffset(0)
 }
 
-// SetBytes sets the content of the editor.
+// SetBytes sets the content of the core.
 func (m *Model) SetBytes(content []byte) {
 	if len(content) == 0 {
 		content = []byte("\n")
@@ -490,7 +490,7 @@ func (m *Model) SetContent(content string) {
 	m.SetBytes([]byte(content))
 }
 
-// WithTheme allows setting a custom theme for the editor.
+// WithTheme allows setting a custom theme for the core.
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 
@@ -503,8 +503,8 @@ func (m *Model) WithTheme(theme Theme) {
 	m.precomputedCompletionStyles = setupCompletionStyles(theme)
 }
 
-// WithSearchOptions allows setting custom search options for the editor.
-func (m *Model) WithSearchOptions(options editor.SearchOptions) {
+// WithSearchOptions allows setting custom search options for the core.
+func (m *Model) WithSearchOptions(options core.SearchOptions) {
 	m.searchOptions = options
 }
 
@@ -622,14 +622,14 @@ func (m *Model) HideStatusLine(hide bool) {
 }
 
 // GetSavedContent returns the saved content of the editor buffer
-// This content is what was last saved to disk, and may not reflect the current state of the editor.
+// This content is what was last saved to disk, and may not reflect the current state of the core.
 // It is useful for operations that require the last saved state, such as saving to a file.
 func (m *Model) GetSavedContent() string {
 	return m.editor.GetBuffer().GetSavedContent()
 }
 
 // GetCurrentContent returns the current content of the editor buffer.
-// This content may not be saved yet, as it reflects the current state of the editor.
+// This content may not be saved yet, as it reflects the current state of the core.
 func (m *Model) GetCurrentContent() string {
 	return m.editor.GetBuffer().GetCurrentContent()
 }
@@ -640,11 +640,11 @@ func (m *Model) HasChanges() bool {
 }
 
 // GetEditor returns the underlying editor instance
-func (m *Model) GetEditor() editor.Editor {
+func (m *Model) GetEditor() core.Editor {
 	return m.editor
 }
 
-// DisableVimMode allows disabling Vim mode in the editor.
+// DisableVimMode allows disabling Vim mode in the core.
 // This will disable all Vim-specific features and revert to a simpler text editor mode.
 // If Vim mode is disabled, the editor will not respond to Vim keybindings.
 func (m *Model) DisableVimMode(disable bool) {
@@ -652,26 +652,26 @@ func (m *Model) DisableVimMode(disable bool) {
 	m.editor.DisableVimMode(disable)
 }
 
-// DisableCommandMode allows disabling command mode in the editor.
+// DisableCommandMode allows disabling command mode in the core.
 // This will disable the command mode functionality, meaning the editor will not respond to command mode keybindings.
 func (m *Model) DisableCommandMode(disable bool) {
 	m.editor.DisableCommandMode(disable)
 }
 
-// DisableInsertMode allows disabling insert mode in the editor.
+// DisableInsertMode allows disabling insert mode in the core.
 // This will disable the insert mode functionality, meaning the editor will not respond to insert mode keybindings
 // and will prevent text modifications.
 func (m *Model) DisableInsertMode(disable bool) {
 	m.editor.DisableInsertMode(disable)
 }
 
-// DisableVisualMode allows disabling visual mode in the editor.
+// DisableVisualMode allows disabling visual mode in the core.
 // This will disable the visual mode functionality, meaning the editor will not respond to visual mode keybindings.
 func (m *Model) DisableVisualMode(disable bool) {
 	m.editor.DisableVisualMode(disable)
 }
 
-// DisableVisualLineMode allows disabling visual line mode in the editor.
+// DisableVisualLineMode allows disabling visual line mode in the core.
 // This will disable the visual line mode functionality, meaning the editor will not respond to visual line mode keybindings.
 func (m *Model) DisableVisualLineMode(disable bool) {
 	m.editor.DisableVisualLineMode(disable)
@@ -681,7 +681,7 @@ func (m *Model) DisableSearchMode(disable bool) {
 	m.editor.DisableSearchMode(disable)
 }
 
-// SetHighlightedWords allows setting highlighted words in the editor.
+// SetHighlightedWords allows setting highlighted words in the core.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.
 func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
@@ -761,7 +761,7 @@ func (m *Model) SetCommandMode() {
 	m.editor.SetCommandMode()
 }
 
-// SetPlaceholder sets the placeholder text for the editor.
+// SetPlaceholder sets the placeholder text for the core.
 func (m *Model) SetPlaceholder(placeholder string) {
 	m.placeholder = placeholder
 }
@@ -771,7 +771,7 @@ func (m *Model) IsEmpty() bool {
 	return m.editor.GetBuffer().IsEmpty()
 }
 
-// SetCursorMode sets the cursor mode for the editor.
+// SetCursorMode sets the cursor mode for the core.
 // It can be either CursorSteady or CursorBlink.
 //
 // Warning: Enabling CursorBlink may have performance implications.
@@ -780,7 +780,7 @@ func (m *Model) SetCursorMode(mode CursorMode) {
 	m.cursorVisible = m.isFocused
 }
 
-// SetCursorPosition sets the cursor position in the editor.
+// SetCursorPosition sets the cursor position in the core.
 func (m *Model) SetCursorPosition(row, col int) error {
 	if row < 0 || col < 0 {
 		return fmt.Errorf("invalid cursor position: (%d, %d)", row, col)
@@ -821,8 +821,8 @@ func (m *Model) SetCursorPositionEnd() error {
 	return nil
 }
 
-// GetCursorPosition returns the current cursor position in the editor.
-func (m Model) GetCursorPosition() editor.Position {
+// GetCursorPosition returns the current cursor position in the core.
+func (m Model) GetCursorPosition() core.Position {
 	return m.editor.GetBuffer().GetCursor().Position
 }
 
@@ -843,9 +843,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		skipNormalKeyHandling := false
 
 		// Manual completion trigger: Ctrl+Space in Insert mode
-		if keyEvent.Key == editor.KeySpace && keyEvent.Modifiers&editor.ModCtrl != 0 {
+		if keyEvent.Key == core.KeySpace && keyEvent.Modifiers&core.ModCtrl != 0 {
 			if m.editor.IsInsertMode() {
-				m.editor.TriggerCompletion(editor.CompletionTriggerManual, "")
+				m.editor.TriggerCompletion(core.CompletionTriggerManual, "")
 				return m, tea.Batch(cmds...)
 			}
 		}
@@ -853,18 +853,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Completion menu navigation
 		if m.completionMenuVisible {
 			switch keyEvent.Key {
-			case editor.KeyEscape:
+			case core.KeyEscape:
 				m.completionMenuVisible = false
 				skipNormalKeyHandling = true
-			case editor.KeyEnter, editor.KeyTab:
+			case core.KeyEnter, core.KeyTab:
 				cmds = append(cmds, m.insertCompletion())
 				skipNormalKeyHandling = true
-			case editor.KeyUp:
+			case core.KeyUp:
 				if m.selectedCompletionIdx > 0 {
 					m.selectedCompletionIdx--
 				}
 				skipNormalKeyHandling = true
-			case editor.KeyDown:
+			case core.KeyDown:
 				if m.selectedCompletionIdx < len(m.completions)-1 {
 					m.selectedCompletionIdx++
 				}
@@ -872,7 +872,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
-		var err *editor.EditorError
+		var err *core.EditorError
 		if !skipNormalKeyHandling {
 			err = m.editor.HandleKey(keyEvent)
 		}
@@ -900,10 +900,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		if m.editor.IsSearchMode() {
 			switch keyEvent.Key {
-			case editor.KeyEscape:
+			case core.KeyEscape:
 				m.editor.CancelSearch()
 				m.searchInput.SetValue("")
-			case editor.KeyEnter:
+			case core.KeyEnter:
 				m.editor.ExecuteSearch(m.searchInput.Value(), m.searchOptions)
 			}
 		}
@@ -982,7 +982,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case CompletionDebounceMsg:
 		// Only trigger if this is the latest request (no newer typing)
 		if msg.Timestamp.Equal(m.lastCompletionRequest) && m.editor.IsInsertMode() {
-			m.editor.TriggerCompletion(editor.CompletionTriggerAuto, msg.TriggerChar)
+			m.editor.TriggerCompletion(core.CompletionTriggerAuto, msg.TriggerChar)
 		}
 
 	case CompletionRequestMsg:
@@ -1094,17 +1094,17 @@ func (m *Model) getStatusLine() string {
 
 	var statusLine string
 	switch state.Mode {
-	case editor.NormalMode:
+	case core.NormalMode:
 		statusLine = m.theme.NormalModeStyle.Render(" NORMAL ")
-	case editor.InsertMode:
+	case core.InsertMode:
 		statusLine = m.theme.InsertModeStyle.Render(" INSERT ")
-	case editor.VisualMode:
+	case core.VisualMode:
 		statusLine = m.theme.VisualModeStyle.Render(" VISUAL ")
-	case editor.VisualLineMode:
+	case core.VisualLineMode:
 		statusLine = m.theme.VisualModeStyle.Render(" VISUAL LINE ")
-	case editor.CommandMode:
+	case core.CommandMode:
 		statusLine = m.theme.CommandModeStyle.Render(" COMMAND ")
-	case editor.SearchMode:
+	case core.SearchMode:
 		statusLine = m.theme.SearchModeStyle.Render(" SEARCH ")
 	}
 
@@ -1127,7 +1127,7 @@ func (m *Model) getStatusLine() string {
 // If set to 0, no history will be kept.
 // The default value is 1000.
 // If the number of history entries exceeds this limit, the oldest entries will be removed.
-// This is useful for managing memory usage in the editor.
+// This is useful for managing memory usage in the core.
 func (m *Model) SetMaxHistory(max uint32) {
 	m.editor.SetMaxHistory(max)
 }
@@ -1138,64 +1138,64 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 		signal := <-editorChan
 
 		switch signal := signal.(type) {
-		case editor.CommandSignal:
+		case core.CommandSignal:
 			return commandMsg{}
 
-		case editor.ErrorSignal:
+		case core.ErrorSignal:
 			id, err := signal.Value()
 			return ErrorMsg{ID: id, Error: err}
 
-		case editor.YankSignal:
+		case core.YankSignal:
 			content := signal.Value()
 			return yankedMsg{
 				Content: content,
 			}
 
-		case editor.PasteSignal:
+		case core.PasteSignal:
 			content := signal.Value()
 			return PasteMsg{Content: content}
 
-		case editor.SaveSignal:
+		case core.SaveSignal:
 			path, content := signal.Value()
 			return SaveMsg{Path: path, Content: content}
 
-		case editor.EnterCommandModeSignal:
+		case core.EnterCommandModeSignal:
 			return clearMsg{}
 
-		case editor.QuitSignal:
+		case core.QuitSignal:
 			return QuitMsg{}
 
-		case editor.RenameSignal:
+		case core.RenameSignal:
 			return RenameMsg{FileName: signal.Value()}
 
-		case editor.DeleteFileSignal:
+		case core.DeleteFileSignal:
 			return DeleteFileMsg{}
 
-		case editor.RelativeNumbersSignal:
+		case core.RelativeNumbersSignal:
 			return RelativeNumbersChangeMsg{Enabled: signal.Value()}
 
-		case editor.DeleteSignal:
+		case core.DeleteSignal:
 			return DeleteMsg{Content: signal.Value()}
 
-		case editor.UndoSignal:
+		case core.UndoSignal:
 			return UndoMsg{ContentBefore: signal.Value()}
 
-		case editor.RedoSignal:
+		case core.RedoSignal:
 			return RedoMsg{ContentBefore: signal.Value()}
 
-		case editor.EnterSearchModeSignal:
+		case core.EnterSearchModeSignal:
 			return enterSearchMode{}
 
-		case editor.ExitSearchModeSignal:
+		case core.ExitSearchModeSignal:
 			return exitSearchMode{}
 
-		case editor.SearchResultsSignal:
+		case core.SearchResultsSignal:
 			return SearchResultsMsg{Positions: signal.Value()}
 
-		case editor.CompletionRequestSignal:
+		case core.CompletionRequestSignal:
 			return CompletionRequestMsg{Context: signal.Context()}
 
-		case editor.CompletionResponseSignal:
+		case core.CompletionResponseSignal:
 			completions, ctx := signal.Value()
 			return CompletionResponseMsg{Completions: completions, Context: ctx}
 		}
@@ -1204,54 +1204,54 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 	}
 }
 
-// Convert Bubbletea key to editor.Key
-func convertBubbleKey(msg tea.KeyMsg) editor.KeyEvent {
+// Convert Bubbletea key to core.Key
+func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 	k := msg.Key()
-	result := editor.KeyEvent{}
+	result := core.KeyEvent{}
 
 	if k.Text != "" && len(k.Text) > 0 {
 		result.Rune = rune(k.Text[0])
 	}
 
 	if k.Mod&tea.ModAlt != 0 {
-		result.Modifiers |= editor.ModAlt
+		result.Modifiers |= core.ModAlt
 	}
 
 	if k.Mod&tea.ModCtrl != 0 {
-		result.Modifiers |= editor.ModCtrl
+		result.Modifiers |= core.ModCtrl
 	}
 
 	switch k.Code {
 	case tea.KeyEnter:
-		result.Key = editor.KeyEnter
+		result.Key = core.KeyEnter
 	case tea.KeySpace:
-		result.Key = editor.KeySpace
+		result.Key = core.KeySpace
 		result.Rune = ' '
 	case tea.KeyEscape:
-		result.Key = editor.KeyEscape
+		result.Key = core.KeyEscape
 	case tea.KeyBackspace:
-		result.Key = editor.KeyBackspace
+		result.Key = core.KeyBackspace
 	case tea.KeyTab:
-		result.Key = editor.KeyTab
+		result.Key = core.KeyTab
 		result.Rune = '\t'
 	case tea.KeyUp:
-		result.Key = editor.KeyUp
+		result.Key = core.KeyUp
 	case tea.KeyDown:
-		result.Key = editor.KeyDown
+		result.Key = core.KeyDown
 	case tea.KeyLeft:
-		result.Key = editor.KeyLeft
+		result.Key = core.KeyLeft
 	case tea.KeyRight:
-		result.Key = editor.KeyRight
+		result.Key = core.KeyRight
 	case tea.KeyHome:
-		result.Key = editor.KeyHome
+		result.Key = core.KeyHome
 	case tea.KeyEnd:
-		result.Key = editor.KeyEnd
+		result.Key = core.KeyEnd
 	case tea.KeyDelete:
-		result.Key = editor.KeyDelete
+		result.Key = core.KeyDelete
 	case tea.KeyPgUp:
-		result.Key = editor.KeyPageUp
+		result.Key = core.KeyPageUp
 	case tea.KeyPgDown:
-		result.Key = editor.KeyPageDown
+		result.Key = core.KeyPageDown
 	}
 
 	return result
@@ -1304,7 +1304,7 @@ func (m *Model) insertCompletion() tea.Cmd {
 	if err := m.editor.InsertCompletion(completion); err != nil {
 		m.completionMenuVisible = false
 		return func() tea.Msg {
-			return ErrorMsg{ID: editor.ErrInvalidPositionId, Error: err}
+			return ErrorMsg{ID: core.ErrInvalidPositionId, Error: err}
 		}
 	}
 

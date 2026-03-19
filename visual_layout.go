@@ -1,4 +1,4 @@
-package adapter_bubbletea
+package goeditor
 
 import (
 	"image/color"
@@ -7,8 +7,8 @@ import (
 	"unicode"
 
 	"charm.land/lipgloss/v2"
-	"github.com/ionut-t/goeditor/adapter-bubbletea/highlighter"
-	editor "github.com/ionut-t/goeditor/core"
+	"github.com/ionut-t/goeditor/core"
+	"github.com/ionut-t/goeditor/highlighter"
 	"github.com/rivo/uniseg"
 )
 
@@ -143,7 +143,7 @@ func (m *Model) calculateLineNumberWidth(totalLines int) int {
 
 // isPositionInSearchResult checks if a position is part of a search result
 // Uses binary search for O(log n) performance instead of O(n)
-func (m *Model) isPositionInSearchResult(pos editor.Position, col int) bool {
+func (m *Model) isPositionInSearchResult(pos core.Position, col int) bool {
 	searchTerm := m.editor.GetState().SearchQuery.Term
 	if searchTerm == "" {
 		return false
@@ -327,7 +327,7 @@ func (m *Model) calculateFullVisualLayout(allLogicalLines []string, availableWid
 }
 
 // calculateLazyVisualLayout computes layout only for visible region (large files)
-func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor editor.Cursor, availableWidth int, viewportBuffer int) {
+func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.Cursor, availableWidth int, viewportBuffer int) {
 	totalLines := len(allLogicalLines)
 	cursorLogicalRow := max(0, min(cursor.Position.Row, totalLines-1))
 
@@ -638,7 +638,7 @@ func (m *Model) renderVisibleSliceDefault() {
 
 	// Check if we're highlighting a yank operation
 	// Either from normal mode (YankSelection) or from visual mode (m.yanked flag)
-	if state.YankSelection != editor.SelectionNone || m.yanked {
+	if state.YankSelection != core.SelectionNone || m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 
@@ -728,7 +728,7 @@ func (m *Model) renderVisibleSliceDefault() {
 
 		for charIdx < segmentLen {
 			currentLogicalCharCol := vli.LogicalStartCol + charIdx
-			currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
+			currentBufferPos := core.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
 			isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
@@ -750,7 +750,7 @@ func (m *Model) renderVisibleSliceDefault() {
 					idxInSegment := charIdx + k
 					chRuneToStyle := segmentRunes[idxInSegment]
 					logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
-					posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
+					posForStyledChar := core.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
 
 					charSpecificRenderStyle := bestMatchStyle
 
@@ -760,7 +760,7 @@ func (m *Model) renderVisibleSliceDefault() {
 					}
 
 					selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
-					if selectionStatus != editor.SelectionNone {
+					if selectionStatus != core.SelectionNone {
 						charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
 					}
 
@@ -781,7 +781,7 @@ func (m *Model) renderVisibleSliceDefault() {
 				charsToAdvance = runesConsumed
 
 				selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
-				if selectionStatus != editor.SelectionNone {
+				if selectionStatus != core.SelectionNone {
 					baseCharStyle = selectionStyle
 				}
 
@@ -818,7 +818,7 @@ func (m *Model) renderVisibleSliceDefault() {
 
 		cursorWidth := 0
 		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
-			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
+			cursorBlockPos := core.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
 			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
 			baseStyleForCursorBlock := lipgloss.NewStyle()
@@ -828,7 +828,7 @@ func (m *Model) renderVisibleSliceDefault() {
 				baseStyleForCursorBlock = m.theme.CurrentLineStyle
 			}
 
-			if cursorBlockSelectionStatus != editor.SelectionNone {
+			if cursorBlockSelectionStatus != core.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
 
@@ -1052,11 +1052,11 @@ func wrapLine(line string, width int) []string {
 func (m *Model) getCursorStyles() lipgloss.Style {
 	state := m.editor.GetState()
 	switch state.Mode {
-	case editor.InsertMode:
+	case core.InsertMode:
 		return m.theme.InsertModeStyle
-	case editor.VisualMode, editor.VisualLineMode:
+	case core.VisualMode, core.VisualLineMode:
 		return m.theme.VisualModeStyle
-	case editor.CommandMode:
+	case core.CommandMode:
 		return m.theme.CommandModeStyle
 	default:
 		return m.theme.NormalModeStyle
@@ -1073,7 +1073,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 	// Check if we're highlighting a yank operation
 	// Either from normal mode (YankSelection) or from visual mode (m.yanked flag)
-	if state.YankSelection != editor.SelectionNone || m.yanked {
+	if state.YankSelection != core.SelectionNone || m.yanked {
 		selectionStyle = m.theme.HighlightYankStyle
 	}
 
@@ -1251,7 +1251,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 		cursorWidth := 0
 		if m.isFocused && (isCursorAfterSegmentEnd || isCursorAtLogicalEndOfLineAndThisIsLastSegment) {
-			cursorBlockPos := editor.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
+			cursorBlockPos := core.Position{Row: clampedCursorRowForLineNumbers, Col: m.clampedCursorLogicalCol}
 			cursorBlockSelectionStatus := m.editor.GetSelectionStatus(cursorBlockPos)
 
 			baseStyleForCursorBlock := lipgloss.NewStyle()
@@ -1261,7 +1261,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				baseStyleForCursorBlock = m.theme.CurrentLineStyle
 			}
 
-			if cursorBlockSelectionStatus != editor.SelectionNone {
+			if cursorBlockSelectionStatus != core.SelectionNone {
 				baseStyleForCursorBlock = selectionStyle
 			}
 
@@ -1355,7 +1355,7 @@ func (m *Model) renderSegment(
 
 	for charIdx < segmentLen {
 		currentLogicalCharCol := vli.LogicalStartCol + charIdx
-		currentBufferPos := editor.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
+		currentBufferPos := core.Position{Row: vli.LogicalRow, Col: currentLogicalCharCol}
 
 		isSearchResult := m.isPositionInSearchResult(currentBufferPos, currentLogicalCharCol)
 
@@ -1383,7 +1383,7 @@ func (m *Model) renderSegment(
 				idxInSegment := charIdx + k
 				chRuneToStyle := segmentRunes[idxInSegment]
 				logicalColForStyledChar := vli.LogicalStartCol + idxInSegment
-				posForStyledChar := editor.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
+				posForStyledChar := core.Position{Row: vli.LogicalRow, Col: logicalColForStyledChar}
 
 				charSpecificRenderStyle := bestMatchStyle
 
@@ -1394,7 +1394,7 @@ func (m *Model) renderSegment(
 
 				// Apply selection style if needed
 				selectionStatus := m.editor.GetSelectionStatus(posForStyledChar)
-				if selectionStatus != editor.SelectionNone {
+				if selectionStatus != core.SelectionNone {
 					charSpecificRenderStyle = charSpecificRenderStyle.Background(selectionStyle.GetBackground())
 				}
 
@@ -1416,7 +1416,7 @@ func (m *Model) renderSegment(
 
 			// Apply selection style on top of syntax highlighting
 			selectionStatus := m.editor.GetSelectionStatus(currentBufferPos)
-			if selectionStatus != editor.SelectionNone {
+			if selectionStatus != core.SelectionNone {
 				if isSearchResult {
 					baseCharStyle = baseCharStyle.Background(searchHighlightStyle.GetBackground())
 				} else {

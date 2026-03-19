@@ -11,7 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	editor "github.com/ionut-t/goeditor/adapter-bubbletea"
+	editor "github.com/ionut-t/goeditor"
 	"github.com/ionut-t/goeditor/core"
 )
 
@@ -66,7 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if err := os.WriteFile(filePath, []byte(msg.Content), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(msg.Content), 0o644); err != nil {
 			return m, m.editor.DispatchError(err, messageDuration)
 		}
 
