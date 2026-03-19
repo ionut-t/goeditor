@@ -6,9 +6,10 @@ import (
 )
 
 type normalMode struct {
-	pendingKey      KeyEvent        // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
-	pendingModifier rune            // Stores text object modifier ('i' for inside, 'a' for around)
-	charSearch      charSearchState // Character search state (f/F/t/T)
+	pendingKey        KeyEvent        // Stores the first key of a multi-key command (e.g., 'd' in 'dd')
+	pendingModifier   rune            // Stores text object modifier ('i' for inside, 'a' for around)
+	charSearch        charSearchState // Character search state (f/F/t/T)
+	waitingForReplace bool            // True when waiting for character input after 'r'
 }
 
 // charSearchState holds state for character search motions (f/F/t/T)
@@ -36,6 +37,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
+	m.waitingForReplace = false
 	editor.ResetPendingCount()
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
@@ -48,6 +50,7 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
+	m.waitingForReplace = false
 }
 
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
@@ -115,6 +118,19 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			editor.DispatchError(ErrCharNotFoundId, searchErr)
 		}
 		return nil
+	}
+
+	// --- Handle Replace Character Input (waiting for character after 'r') ---
+	if m.waitingForReplace {
+		m.waitingForReplace = false
+		editor.UpdateCommand("")
+
+		if key.Key == KeyEscape || key.Rune == 0 {
+			return nil
+		}
+
+		err = replaceCharUnderCursor(editor, buffer, key.Rune)
+		return err
 	}
 
 	// --- Handle Pending Operation (e.g., after 'd') ---
@@ -584,6 +600,11 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		deletedContent, err = deleteToEndOfLine(editor, buffer)
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 
+	case key.Rune == 'r': // Replace character under cursor
+		m.waitingForReplace = true
+		editor.UpdateCommand("r")
+		return nil
+
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
 		if !state.WithInsertMode {
 			return nil
@@ -888,6 +909,26 @@ func isWordCharForTextObject(r rune) bool {
 // For Vim text objects, spaces and tabs are considered whitespace.
 func isWhiteSpaceForTextObject(r rune) bool {
 	return r == ' ' || r == '\t'
+}
+
+func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune) *EditorError {
+	cursor := buffer.GetCursor()
+	lineLen := buffer.LineRuneCount(cursor.Position.Row)
+
+	if lineLen == 0 || cursor.Position.Col >= lineLen {
+		return nil
+	}
+
+	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, 1); err != nil {
+		return err
+	}
+
+	if err := buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune{ch}); err != nil {
+		return &EditorError{id: ErrInvalidPositionId, err: err}
+	}
+
+	editor.SaveHistory()
+	return nil
 }
 
 func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
@@ -1484,5 +1525,6 @@ func (m *normalMode) clearPendingState(editor Editor) {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
+	m.waitingForReplace = false
 	editor.ResetPendingCount()
 }
