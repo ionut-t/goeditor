@@ -560,13 +560,13 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	ignoreCase := searchOptions.IgnoreCase
 	smartCase := searchOptions.SmartCase
 
-	if strings.HasSuffix(pattern, "\\c") {
-		pattern = strings.TrimSuffix(pattern, "\\c")
+	if before, ok := strings.CutSuffix(pattern, "\\c"); ok {
+		pattern = before
 		ignoreCase = true
 		smartCase = false
 		query = strings.TrimRight(pattern, "\\c")
-	} else if strings.HasSuffix(pattern, "\\C") {
-		pattern = strings.TrimSuffix(pattern, "\\C")
+	} else if before0, ok0 := strings.CutSuffix(pattern, "\\C"); ok0 {
+		pattern = before0
 		ignoreCase = false
 		searchOptions.SmartCase = true
 		query = strings.TrimRight(pattern, "\\C")
