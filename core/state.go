@@ -741,18 +741,29 @@ func (e *editor) Undo() (string, error) {
 		return "", errors.New("already at oldest change")
 	}
 
+	// Cursor where the change happened (saved with the state being undone)
+	changeCursor := e.cursorHistory[e.historyPos]
+	currentStateContent := e.buffer.GetCurrentContent()
+
 	e.historyPos--
 	prevStateContent := e.history[e.historyPos]
-	prevCursor := e.cursorHistory[e.historyPos]
-
-	currentStateContent := e.buffer.GetCurrentContent()
 
 	if prevStateContent == "" {
 		prevStateContent = "\n"
 	}
 
 	e.buffer.SetContent([]byte(prevStateContent))
-	e.buffer.SetCursor(prevCursor)
+
+	// Jump to where the change happened, clamped to the restored content bounds
+	lineCount := e.buffer.LineCount()
+	if changeCursor.Position.Row >= lineCount {
+		changeCursor.Position.Row = max(0, lineCount-1)
+	}
+	lineLen := e.buffer.LineRuneCount(changeCursor.Position.Row)
+	if changeCursor.Position.Col > lineLen {
+		changeCursor.Position.Col = lineLen
+	}
+	e.buffer.SetCursor(changeCursor)
 
 	e.ScrollViewport()
 
