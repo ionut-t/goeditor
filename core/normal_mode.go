@@ -57,6 +57,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	pendingCount := state.PendingCount
 	availableWidth := state.AvailableWidth
 	skipCursorUpdate := false
+	cursor := buffer.GetCursor() // Get cursor for operations
 
 	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
 	if m.charSearch.waitingForChar {
@@ -152,8 +153,15 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			// Handle text objects after modifier
 			switch key.Rune {
 			case 'w': // iw or aw = inside/around word
-				if op == "yank" {
+				switch op {
+				case "yank":
 					err = yankTextObject(editor, buffer, modifier, 'w')
+					actionTaken = true
+				case "delete":
+					err = deleteTextObject(editor, buffer, modifier, 'w')
+					actionTaken = true
+				case "change":
+					err = changeTextObject(editor, buffer, modifier, 'w')
 					actionTaken = true
 				}
 			default:
@@ -220,7 +228,15 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				err = yankLines(editor, buffer, count)
 				actionTaken = true
 			}
-		case 'w': // dw = delete word, yw = yank word forward
+		case 'c': // cc = change line
+			if op == "change" {
+				_, err = deleteLines(editor, buffer, count)
+				if err == nil {
+					editor.SetInsertMode()
+				}
+				actionTaken = true
+			}
+		case 'w': // dw = delete word, yw = yank word forward, cw = change word
 			switch op {
 			case "delete":
 				err = deleteWords(editor, buffer, count)
@@ -228,13 +244,23 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			case "yank":
 				err = yankWords(editor, buffer, count, true) // forward
 				actionTaken = true
-			}
-		case 'b': // yb = yank word backward
-			if op == "yank" {
-				err = yankWords(editor, buffer, count, false) // backward
+			case "change":
+				err = changeWords(editor, buffer, count)
 				actionTaken = true
 			}
-		case '$': // d$ = delete to end of line, y$ = yank to end of line
+		case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
+			switch op {
+			case "delete":
+				err = deleteWordsBackward(editor, buffer, count)
+				actionTaken = true
+			case "yank":
+				err = yankWords(editor, buffer, count, false) // backward
+				actionTaken = true
+			case "change":
+				err = changeWordsBackward(editor, buffer, count)
+				actionTaken = true
+			}
+		case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
 			switch op {
 			case "delete":
 				var deletedContent string
@@ -243,6 +269,29 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				actionTaken = true
 			case "yank":
 				err = yankToEndOfLine(editor, buffer)
+				actionTaken = true
+			case "change":
+				err = changeToEndOfLine(editor, buffer)
+				actionTaken = true
+			}
+		case 'G': // dG, yG, cG
+			switch op {
+			case "delete":
+				count := buffer.LineCount() - cursor.Position.Row
+				var deletedContent string
+				deletedContent, err = deleteLines(editor, buffer, count)
+				editor.DispatchSignal(DeleteSignal{content: deletedContent})
+				actionTaken = true
+			case "yank":
+				count := buffer.LineCount() - cursor.Position.Row
+				err = yankLines(editor, buffer, count)
+				actionTaken = true
+			case "change":
+				count := buffer.LineCount() - cursor.Position.Row
+				_, err = deleteLines(editor, buffer, count)
+				if err == nil {
+					editor.SetInsertMode()
+				}
 				actionTaken = true
 			}
 
@@ -274,7 +323,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if pendingCount == nil {
 			// Start of count (unless it follows '0' motion)
 			if m.pendingKey.Rune == '0' { // Check local pendingKey for '0' motion
-				cursor := buffer.GetCursor()
 				cursor.MoveToLineStart()
 				buffer.SetCursor(cursor)                 // Update buffer cursor!
 				m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear pending '0' motion key
@@ -301,7 +349,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// '0' is move-to-start-of-line command if it's the first digit pressed
 		m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear any other pending op (like 'd')
 		editor.ResetPendingCount()               // Ensure no count is active (redundant but safe)
-		cursor := buffer.GetCursor()
 		cursor.MoveToLineStart()
 		buffer.SetCursor(cursor) // Update buffer cursor!
 		actionTaken = true
@@ -328,8 +375,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	}
 
 	// --- Handle Single-Key Commands or Start of Sequences ---
-	cursor := buffer.GetCursor() // Get cursor for operations
-	col := cursor.Position.Col   // Use Column from cursor
+	col := cursor.Position.Col // Use Column from cursor
 	var moveErr error
 
 	switch {
@@ -543,18 +589,7 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			return nil
 		}
 
-		lineLen := buffer.LineRuneCount(cursor.Position.Row)
-		if cursor.Position.Col < lineLen {
-			delCount := lineLen - cursor.Position.Col
-			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, delCount)
-			if err == nil {
-				editor.SaveHistory()
-			}
-		}
-		if err == nil {
-			buffer.SetCursor(cursor) // Ensure cursor is at deletion point
-			editor.SetInsertMode()   // Enter insert mode
-		}
+		err = changeToEndOfLine(editor, buffer)
 	case key.Rune == 'd': // Start 'delete' operation
 		if !state.WithInsertMode {
 			return nil
@@ -709,28 +744,138 @@ func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError)
 func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
-	// Simulate word motion to find end position
 	tempCursor := cursor
 	availableWidth := editor.GetState().AvailableWidth
 
-	errMove := tempCursor.MoveWordForward(buffer, count, availableWidth)
+	_ = tempCursor.MoveWordForward(buffer, count, availableWidth)
 	endPos := tempCursor.Position
 
-	// Calculate deletion range (careful with multi-line)
-	// Simple version: delete from startPos.Col to endPos.Col if on same line
-	if startPos.Row == endPos.Row && errMove == nil {
-		deleteCount := endPos.Col - startPos.Col
-		if deleteCount > 0 {
-			err = buffer.DeleteRunesAt(startPos.Row, startPos.Col, deleteCount)
-			if err == nil {
-				editor.SaveHistory()
-			}
+	if startPos != endPos {
+		err = deleteRange(buffer, startPos, endPos)
+		if err == nil {
+			editor.SaveHistory()
+			buffer.SetCursor(cursor) // Cursor stays at startPos
 		}
-	} else {
-		// TODO: Implement multi-line dw/cw/yw
 	}
 
 	return err
+}
+
+func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	startPos := cursor.Position
+	tempCursor := cursor
+	availableWidth := editor.GetState().AvailableWidth
+
+	// For 'cw', Vim deletes to the end of the current word (like 'ce').
+	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth)
+
+	// In 'cw', we delete INCLUDING the character at the end of the word.
+	// But deleteRange is exclusive of endPos, so we move one right.
+	tempCursor.MoveRight(buffer, 1, availableWidth)
+	exclusiveEndPos := tempCursor.Position
+
+	if startPos != exclusiveEndPos {
+		err := deleteRange(buffer, startPos, exclusiveEndPos)
+		if err == nil {
+			editor.SaveHistory()
+			buffer.SetCursor(cursor)
+			editor.SetInsertMode()
+		}
+		return err
+	}
+
+	return nil
+}
+
+func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	originalPos := cursor.Position
+	tempCursor := cursor
+	availableWidth := editor.GetState().AvailableWidth
+
+	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+	startPos := tempCursor.Position
+
+	if startPos != originalPos {
+		err := deleteRange(buffer, startPos, originalPos)
+		if err == nil {
+			editor.SaveHistory()
+			cursor.Position = startPos // Move cursor to the beginning of the deleted range
+			buffer.SetCursor(cursor)
+		}
+		return err
+	}
+	return nil
+}
+
+func changeWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	endPos := cursor.Position
+	tempCursor := cursor
+	availableWidth := editor.GetState().AvailableWidth
+
+	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+	startPos := tempCursor.Position
+
+	if startPos != endPos {
+		err := deleteRange(buffer, startPos, endPos)
+		if err == nil {
+			editor.SaveHistory()
+			cursor.Position = startPos // Move cursor to the beginning of the deleted range
+			buffer.SetCursor(cursor)
+			editor.SetInsertMode()
+		}
+		return err
+	}
+	return nil
+}
+
+// deleteRange deletes text from start (inclusive) to end (exclusive).
+// Handles multi-line deletions.
+func deleteRange(buffer Buffer, start, end Position) *EditorError {
+	// Ensure start is before end
+	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
+		start, end = end, start
+	}
+
+	if start.Row == end.Row {
+		// Single line deletion
+		count := end.Col - start.Col
+		if count > 0 {
+			return buffer.DeleteRunesAt(start.Row, start.Col, count)
+		}
+		return nil
+	}
+
+	// Multi-line deletion
+	// 1. Delete from start.Col to end of start line
+	startLineLen := buffer.LineRuneCount(start.Row)
+	if startLineLen > start.Col {
+		if err := buffer.DeleteRunesAt(start.Row, start.Col, startLineLen-start.Col); err != nil {
+			return err
+		}
+	}
+
+	// 2. Delete full lines between start.Row and end.Row
+	// We delete from bottom-up to keep indices stable
+	for r := end.Row - 1; r > start.Row; r-- {
+		lineLen := buffer.LineRuneCount(r)
+		// Delete line + newline
+		if err := buffer.DeleteRunesAt(r, 0, lineLen+1); err != nil {
+			return err
+		}
+	}
+
+	// 3. Delete from start of end line to end.Col, then merge with start line
+	// The end line is now at start.Row + 1
+	if err := buffer.DeleteRunesAt(start.Row+1, 0, end.Col); err != nil {
+		return err
+	}
+
+	// Merge start.Row and the remains of end line (which is now at start.Row+1)
+	// Deleting the newline at the end of start.Row merges them.
+	return buffer.DeleteRunesAt(start.Row, buffer.LineRuneCount(start.Row), 1)
 }
 
 // isWordCharForTextObject checks if a rune is a word character for text objects.
@@ -743,6 +888,21 @@ func isWordCharForTextObject(r rune) bool {
 // For Vim text objects, spaces and tabs are considered whitespace.
 func isWhiteSpaceForTextObject(r rune) bool {
 	return r == ' ' || r == '\t'
+}
+
+func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
+	cursor := buffer.GetCursor()
+	lineLen := buffer.LineRuneCount(cursor.Position.Row)
+	if cursor.Position.Col < lineLen {
+		delCount := lineLen - cursor.Position.Col
+		if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, delCount); err != nil {
+			return err
+		}
+		editor.SaveHistory()
+	}
+	buffer.SetCursor(cursor)
+	editor.SetInsertMode()
+	return nil
 }
 
 func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
@@ -914,64 +1074,39 @@ func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 // 3. On punctuation/other:
 //   - 'iw': Selects just the character
 //   - 'aw': Selects the character plus surrounding whitespace
-func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
-	cursor := buffer.GetCursor()
-	originalPos := cursor.Position
-
-	if textObject != 'w' {
-		return &EditorError{
-			id:  ErrInvalidMotionId,
-			err: fmt.Errorf("unsupported text object: %c", textObject),
-		}
-	}
-
-	// Get the current line
-	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+//
+// wordTextObjectRange returns the start and end column (inclusive) for a word text object.
+func wordTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol int, endCol int, found bool) {
+	lineRunes := buffer.GetLineRunes(pos.Row)
 	if len(lineRunes) == 0 {
-		return nil // Nothing to yank on empty line
+		return 0, 0, false
 	}
 
-	col := cursor.Position.Col
+	col := pos.Col
 	if col >= len(lineRunes) {
 		col = len(lineRunes) - 1
 	}
 
-	// Determine the character under the cursor and its type to apply Vim's text object rules
-	startCol := col
-	endCol := col
+	startCol = col
+	endCol = col
 
 	cursorChar := lineRunes[col]
 	onWord := isWordCharForTextObject(cursorChar)
 
 	if onWord {
 		// Case 1: Cursor is on a word character
-		// 'iw' (inner word): Selects the word under the cursor
-		// 'aw' (around word): Selects the word under the cursor and one surrounding whitespace
-
-		// Find the start of the current word
 		for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
 			startCol--
 		}
-
-		// Find the end of the current word
 		for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
 			endCol++
 		}
 
-		// For 'aw', include trailing whitespace (or leading if no trailing)
-		// This matches Vim's behavior where 'aw' prioritizes trailing, then leading whitespace
-		// Examples:
-		//   "word  " with cursor on 'w' -> "word  " (includes trailing spaces)
-		//   "  word" with cursor on 'w' -> "  word" (includes leading spaces when no trailing)
-		//   "word" with cursor on 'w' -> "word" (no surrounding whitespace to include)
 		if modifier == 'a' {
 			origEndCol := endCol
-			// Try to include trailing whitespace
 			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
 				endCol++
 			}
-
-			// If no trailing whitespace was found, look for leading whitespace
 			if endCol == origEndCol {
 				for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
 					startCol--
@@ -980,10 +1115,6 @@ func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune
 		}
 	} else if isWhiteSpaceForTextObject(cursorChar) {
 		// Case 2: Cursor is on whitespace
-		// 'iw' on whitespace: Selects the whitespace block itself
-		// 'aw' on whitespace: Selects the whitespace block plus an adjacent word (prioritizes trailing)
-
-		// Find the extent of the current whitespace block
 		for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
 			startCol--
 		}
@@ -991,18 +1122,12 @@ func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune
 			endCol++
 		}
 
-		// For 'aw', extend to include an adjacent word
-		// Examples:
-		//   "word1   word2" with cursor on middle space -> "   word2" (trailing word)
-		//   "word  " with cursor on trailing space -> "word  " (leading word when no trailing)
 		if modifier == 'a' {
-			// Try to include trailing word first
 			if endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
 				for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
 					endCol++
 				}
 			} else if startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
-				// If no trailing word, include leading word
 				for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
 					startCol--
 				}
@@ -1010,46 +1135,108 @@ func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune
 		}
 	} else {
 		// Case 3: Cursor is on punctuation or other non-word, non-whitespace character
-		// 'iw': Selects just the character itself
-		// 'aw': Selects the character plus any surrounding whitespace
 		if modifier == 'a' {
-			// Expand to include leading whitespace
 			for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
 				startCol--
 			}
-			// Expand to include trailing whitespace
 			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
 				endCol++
 			}
 		}
 	}
 
-	// Set up character-wise selection for yank highlight (stay in normal mode)
-	// Do this atomically in one SetState to avoid flicker
-	state := editor.GetState()
-	state.VisualStart = Position{Row: cursor.Position.Row, Col: endCol}
-	state.YankSelection = SelectionCharacter // Mark as character-wise selection
-	editor.SetState(state)
+	return startCol, endCol, true
+}
 
-	// Set cursor to start of selection
-	cursor.Position = Position{Row: originalPos.Row, Col: startCol}
-	buffer.SetCursor(cursor)
+func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
+	cursor := buffer.GetCursor()
 
-	// Copy the selection (this also dispatches the YankSignal)
-	if err := editor.Copy(yankType); err != nil {
-		// On error, clear the selection
-		state.VisualStart = Position{-1, -1}
-		state.YankSelection = SelectionNone
-		editor.SetState(state)
+	if textObject != 'w' {
 		return &EditorError{
-			id:  ErrFailedToYankId,
-			err: err,
+			id:  ErrInvalidMotionId,
+			err: fmt.Errorf("unsupported text object: %c", textObject),
 		}
 	}
 
-	// Keep the visual selection active for the yank highlight
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	if !found {
+		return nil
+	}
+
+	// Set up character-wise selection for yank highlight
+	state := editor.GetState()
+	state.VisualStart = Position{Row: cursor.Position.Row, Col: endCol}
+	state.YankSelection = SelectionCharacter
+	editor.SetState(state)
+
+	cursor.Position.Col = startCol
+	buffer.SetCursor(cursor)
+
+	if err := editor.Copy(yankType); err != nil {
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{id: ErrFailedToYankId, err: err}
+	}
 
 	return nil
+}
+
+func deleteTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
+	cursor := buffer.GetCursor()
+
+	if textObject != 'w' {
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: fmt.Errorf("unsupported text object: %c", textObject),
+		}
+	}
+
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	if !found {
+		return nil
+	}
+
+	startPos := Position{Row: cursor.Position.Row, Col: startCol}
+	endPos := Position{Row: cursor.Position.Row, Col: endCol + 1} // deleteRange is exclusive
+
+	err := deleteRange(buffer, startPos, endPos)
+	if err == nil {
+		editor.SaveHistory()
+		cursor.Position = startPos
+		buffer.SetCursor(cursor)
+	}
+
+	return err
+}
+
+func changeTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
+	cursor := buffer.GetCursor()
+
+	if textObject != 'w' {
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: fmt.Errorf("unsupported text object: %c", textObject),
+		}
+	}
+
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	if !found {
+		return nil
+	}
+
+	startPos := Position{Row: cursor.Position.Row, Col: startCol}
+	endPos := Position{Row: cursor.Position.Row, Col: endCol + 1} // deleteRange is exclusive
+
+	err := deleteRange(buffer, startPos, endPos)
+	if err == nil {
+		editor.SaveHistory()
+		cursor.Position = startPos
+		buffer.SetCursor(cursor)
+		editor.SetInsertMode()
+	}
+
+	return err
 }
 
 // findCharOnLine searches for a character on the current line.
@@ -1243,11 +1430,6 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 	}
 
 	return nil
-}
-
-// resetCharSearch clears the character search state
-func (m *normalMode) resetCharSearch() {
-	m.charSearch = charSearchState{}
 }
 
 // handleCharSearchRepeat handles repeating (;) or reversing (,) the last character search.
