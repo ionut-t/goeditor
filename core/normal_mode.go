@@ -276,6 +276,18 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				err = changeWordsBackward(editor, buffer, count)
 				actionTaken = true
 			}
+		case 'e': // de = delete to word end, ye = yank to word end, ce = change to word end
+			switch op {
+			case "delete":
+				err = deleteWordToEnd(editor, buffer, count)
+				actionTaken = true
+			case "yank":
+				err = yankWordToEnd(editor, buffer, count)
+				actionTaken = true
+			case "change":
+				err = changeWords(editor, buffer, count) // ce and cw behave the same
+				actionTaken = true
+			}
 		case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
 			switch op {
 			case "delete":
@@ -809,6 +821,66 @@ func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 			editor.SetInsertMode()
 		}
 		return err
+	}
+
+	return nil
+}
+
+func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	startPos := cursor.Position
+	tempCursor := cursor
+	availableWidth := editor.GetState().AvailableWidth
+
+	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	// MoveWordToEnd lands on the last char of the word (inclusive), so move one right
+	// to get the exclusive end for deleteRange.
+	tempCursor.MoveRight(buffer, 1, availableWidth)
+	exclusiveEndPos := tempCursor.Position
+
+	if startPos != exclusiveEndPos {
+		err := deleteRange(buffer, startPos, exclusiveEndPos)
+		if err == nil {
+			editor.SaveHistory()
+			buffer.SetCursor(cursor)
+		}
+		return err
+	}
+	return nil
+}
+
+func yankWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	state := editor.GetState()
+	originalPos := cursor.Position
+	availableWidth := state.AvailableWidth
+
+	tempCursor := cursor
+	moveErr := tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	endPos := tempCursor.Position
+
+	// ye is inclusive — no MoveLeftOrUp adjustment unlike yw/yb.
+	state.VisualStart = endPos
+	state.YankSelection = SelectionCharacter
+	editor.SetState(state)
+
+	cursor.Position = originalPos
+	buffer.SetCursor(cursor)
+
+	if err := editor.Copy(yankType); err != nil {
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		return &EditorError{id: ErrFailedToYankId, err: err}
+	}
+
+	if moveErr != nil && moveErr != ErrEndOfBuffer && moveErr != ErrStartOfBuffer {
+		state.VisualStart = Position{-1, -1}
+		state.YankSelection = SelectionNone
+		editor.SetState(state)
+		cursor.Position = originalPos
+		buffer.SetCursor(cursor)
+		return &EditorError{id: ErrInvalidMotionId, err: moveErr}
 	}
 
 	return nil
