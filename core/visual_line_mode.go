@@ -3,6 +3,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 )
 
 type visualLineMode struct {
@@ -403,7 +404,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 
 	availableWidth := editor.GetState().AvailableWidth
 
-	contentDeleted := ""
+	var contentDeleted strings.Builder
 	var firstErr *EditorError
 
 	// Delete lines from bottom up to keep indices valid
@@ -415,7 +416,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 				firstErr = err
 			}
 			if err == nil {
-				contentDeleted += string(lineRunes) + "\n"
+				contentDeleted.WriteString(string(lineRunes) + "\n")
 			}
 		} else {
 			// Clear the last line
@@ -424,7 +425,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 				firstErr = err
 			}
 			if err == nil {
-				contentDeleted += string(buffer.GetLineRunes(i)) + "\n"
+				contentDeleted.WriteString(string(buffer.GetLineRunes(i)) + "\n")
 			}
 		}
 	}
@@ -445,5 +446,5 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 		editor.SaveHistory() // Save history only if all deletions likely succeeded
 	}
 
-	return contentDeleted, firstErr
+	return contentDeleted.String(), firstErr
 }
