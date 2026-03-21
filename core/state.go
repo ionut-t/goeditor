@@ -3,8 +3,11 @@ package core
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 )
 
 type SearchQuery struct {
@@ -46,6 +49,8 @@ type State struct {
 
 	AvailableWidth int // Width available for text rendering
 
+	isWordCharFunc func(rune) bool // Pre-computed classifier for word characters
+
 	WithCommandMode bool // Whether command mode is enabled
 
 	WithInsertMode bool // Whether insert mode is enabled
@@ -55,6 +60,59 @@ type State struct {
 	WithVisualLineMode bool // Whether visual line mode is enabled
 
 	WithSearchMode bool // Whether search mode is enabled
+}
+
+// defaultIsWordCharFunc is the singleton default classifier (letters, digits, '_').
+// Initialized once via sync.Once to avoid repeated allocations.
+var (
+	defaultIsWordCharFunc     func(rune) bool
+	defaultIsWordCharFuncOnce sync.Once
+)
+
+func getDefaultIsWordCharFunc() func(rune) bool {
+	defaultIsWordCharFuncOnce.Do(func() {
+		defaultIsWordCharFunc = func(r rune) bool {
+			return unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_'
+		}
+	})
+	return defaultIsWordCharFunc
+}
+
+// createIsWordCharClassifier builds a func(rune) bool that returns true for
+// standard word characters (letters, digits, '_') plus any extra runes.
+// For small sets of extra chars a linear scan is used (better cache locality);
+// for larger sets a map provides O(1) lookup.
+func createIsWordCharClassifier(extraChars []rune) func(rune) bool {
+	if len(extraChars) == 0 {
+		return getDefaultIsWordCharFunc()
+	}
+	if len(extraChars) < 8 {
+		extra := make([]rune, len(extraChars))
+		copy(extra, extraChars)
+		return func(r rune) bool {
+			if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' {
+				return true
+			}
+			return slices.Contains(extra, r)
+		}
+	}
+	extraMap := make(map[rune]struct{}, len(extraChars))
+	for _, ch := range extraChars {
+		extraMap[ch] = struct{}{}
+	}
+	return func(r rune) bool {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' {
+			return true
+		}
+		_, ok := extraMap[r]
+		return ok
+	}
+}
+
+// IsWordChar reports whether r is considered a word character in this state.
+// isWordCharFunc is guaranteed to be non-nil by InitialState and SetExtraWordChars.
+func (s State) IsWordChar(r rune) bool {
+	return s.isWordCharFunc(r)
 }
 
 // InitialState creates a default state
@@ -76,6 +134,7 @@ func InitialState() State {
 		RelativeNumbers:   false, // Default to absolute numbers
 		Quit:              false,
 		VimMode:           true,
+		isWordCharFunc:    getDefaultIsWordCharFunc(),
 
 		WithCommandMode:    true,
 		WithInsertMode:     true,
@@ -963,6 +1022,14 @@ func (e *editor) Save(path *string) {
 func (e *editor) Quit() {
 	e.state.Quit = true
 	e.DispatchSignal(QuitSignal{})
+}
+
+func (e *editor) SetExtraWordChars(chars ...rune) {
+	e.state.isWordCharFunc = createIsWordCharClassifier(chars)
+}
+
+func (e *editor) IsWordChar(r rune) bool {
+	return e.state.IsWordChar(r)
 }
 
 func (e *editor) ResetPendingCount() {

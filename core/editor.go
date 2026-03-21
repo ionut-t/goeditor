@@ -92,6 +92,9 @@ type Editor interface {
 
 	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
 
+	SetExtraWordChars(chars ...rune) // Set additional characters to be considered part of words for navigation and selection
+	IsWordChar(r rune) bool         // Reports whether r is considered a word character in this editor's context
+
 	ResetSelection()
 }
 

@@ -409,11 +409,11 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case key.Rune == '}':
 		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == '0':
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
@@ -769,7 +769,7 @@ func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	tempCursor := cursor
 	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordForward(buffer, count, availableWidth)
+	_ = tempCursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
 	endPos := tempCursor.Position
 
 	if startPos != endPos {
@@ -790,7 +790,7 @@ func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 	availableWidth := editor.GetState().AvailableWidth
 
 	// For 'cw', Vim deletes to the end of the current word (like 'ce').
-	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth)
+	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 
 	// In 'cw', we delete INCLUDING the character at the end of the word.
 	// But deleteRange is exclusive of endPos, so we move one right.
@@ -816,7 +816,7 @@ func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	tempCursor := cursor
 	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 	startPos := tempCursor.Position
 
 	if startPos != originalPos {
@@ -837,7 +837,7 @@ func changeWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	tempCursor := cursor
 	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 	startPos := tempCursor.Position
 
 	if startPos != endPos {
@@ -900,18 +900,6 @@ func deleteRange(buffer Buffer, start, end Position) *EditorError {
 	return buffer.DeleteRunesAt(start.Row, buffer.LineRuneCount(start.Row), 1)
 }
 
-// isWordCharForTextObject checks if a rune is a word character for text objects.
-// Matches Vim's default 'iskeyword' which includes letters, numbers, and underscore.
-func isWordCharForTextObject(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
-}
-
-// isWhiteSpaceForTextObject checks if a rune is whitespace.
-// For Vim text objects, spaces and tabs are considered whitespace.
-func isWhiteSpaceForTextObject(r rune) bool {
-	return r == ' ' || r == '\t'
-}
-
 func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune) *EditorError {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
@@ -969,6 +957,7 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 
 func yankLines(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
+	state := editor.GetState()
 	originalPos := cursor.Position // Save original cursor position
 	startLine := cursor.Position.Row
 	endLine := startLine + count - 1
@@ -979,7 +968,6 @@ func yankLines(editor Editor, buffer Buffer, count int) *EditorError {
 
 	// Set up line-wise selection for yank highlight (stay in normal mode)
 	// Do this atomically in one SetState to avoid flicker
-	state := editor.GetState()
 	state.VisualStart = Position{Row: endLine, Col: max(buffer.LineRuneCount(endLine)-1, 0)}
 	state.YankSelection = SelectionLine // Mark as line-wise selection
 	editor.SetState(state)
@@ -1008,23 +996,23 @@ func yankLines(editor Editor, buffer Buffer, count int) *EditorError {
 
 func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorError {
 	cursor := buffer.GetCursor()
+	state := editor.GetState()
 	originalPos := cursor.Position
-	availableWidth := editor.GetState().AvailableWidth
+	availableWidth := state.AvailableWidth
 
 	// Calculate end position by moving cursor
 	tempCursor := cursor
 	var moveErr error
 	if forward {
-		moveErr = tempCursor.MoveWordForward(buffer, count, availableWidth)
+		moveErr = tempCursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
 	} else {
-		moveErr = tempCursor.MoveWordBackward(buffer, count, availableWidth)
+		moveErr = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 	}
 
 	endPos := tempCursor.Position
 
 	// Set up character-wise selection for yank highlight (stay in normal mode)
 	// Do this atomically in one SetState to avoid flicker
-	state := editor.GetState()
 	state.VisualStart = endPos
 	state.YankSelection = SelectionCharacter // Mark as character-wise selection
 	editor.SetState(state)
@@ -1062,6 +1050,7 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 
 func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 	cursor := buffer.GetCursor()
+	state := editor.GetState()
 	originalPos := cursor.Position
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
 
@@ -1072,7 +1061,6 @@ func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 
 	// Set up character-wise selection for yank highlight (stay in normal mode)
 	// Do this atomically in one SetState to avoid flicker
-	state := editor.GetState()
 	state.VisualStart = Position{Row: cursor.Position.Row, Col: lineLen - 1}
 	state.YankSelection = SelectionCharacter // Mark as character-wise selection
 	editor.SetState(state)
@@ -1118,7 +1106,7 @@ func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 //   - 'aw': Selects the character plus surrounding whitespace
 //
 // wordTextObjectRange returns the start and end column (inclusive) for a word text object.
-func wordTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol int, endCol int, found bool) {
+func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, isWordChar func(rune) bool) (startCol int, endCol int, found bool) {
 	lineRunes := buffer.GetLineRunes(pos.Row)
 	if len(lineRunes) == 0 {
 		return 0, 0, false
@@ -1133,44 +1121,44 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol i
 	endCol = col
 
 	cursorChar := lineRunes[col]
-	onWord := isWordCharForTextObject(cursorChar)
+	onWord := isWordChar(cursorChar)
 
 	if onWord {
 		// Case 1: Cursor is on a word character
-		for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
+		for startCol > 0 && isWordChar(lineRunes[startCol-1]) {
 			startCol--
 		}
-		for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
+		for endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
 			endCol++
 		}
 
 		if modifier == 'a' {
 			origEndCol := endCol
-			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+			for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
 				endCol++
 			}
 			if endCol == origEndCol {
-				for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+				for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
 					startCol--
 				}
 			}
 		}
-	} else if isWhiteSpaceForTextObject(cursorChar) {
+	} else if isWhiteSpace(cursorChar) {
 		// Case 2: Cursor is on whitespace
-		for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+		for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
 			startCol--
 		}
-		for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+		for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
 			endCol++
 		}
 
 		if modifier == 'a' {
-			if endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
-				for endCol < len(lineRunes)-1 && isWordCharForTextObject(lineRunes[endCol+1]) {
+			if endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
+				for endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
 					endCol++
 				}
-			} else if startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
-				for startCol > 0 && isWordCharForTextObject(lineRunes[startCol-1]) {
+			} else if startCol > 0 && isWordChar(lineRunes[startCol-1]) {
+				for startCol > 0 && isWordChar(lineRunes[startCol-1]) {
 					startCol--
 				}
 			}
@@ -1178,10 +1166,10 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol i
 	} else {
 		// Case 3: Cursor is on punctuation or other non-word, non-whitespace character
 		if modifier == 'a' {
-			for startCol > 0 && isWhiteSpaceForTextObject(lineRunes[startCol-1]) {
+			for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
 				startCol--
 			}
-			for endCol < len(lineRunes)-1 && isWhiteSpaceForTextObject(lineRunes[endCol+1]) {
+			for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
 				endCol++
 			}
 		}
@@ -1192,6 +1180,7 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol i
 
 func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
 	cursor := buffer.GetCursor()
+	state := editor.GetState()
 
 	if textObject != 'w' {
 		return &EditorError{
@@ -1200,13 +1189,12 @@ func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune
 		}
 	}
 
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
 	if !found {
 		return nil
 	}
 
 	// Set up character-wise selection for yank highlight
-	state := editor.GetState()
 	state.VisualStart = Position{Row: cursor.Position.Row, Col: endCol}
 	state.YankSelection = SelectionCharacter
 	editor.SetState(state)
@@ -1234,7 +1222,7 @@ func deleteTextObject(editor Editor, buffer Buffer, modifier rune, textObject ru
 		}
 	}
 
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
 	if !found {
 		return nil
 	}
@@ -1262,7 +1250,7 @@ func changeTextObject(editor Editor, buffer Buffer, modifier rune, textObject ru
 		}
 	}
 
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier)
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
 	if !found {
 		return nil
 	}
@@ -1370,6 +1358,7 @@ func performCharSearch(buffer Buffer, cs *charSearchState, searchType rune, char
 // like df, (delete until comma), yt; (yank till semicolon), etc.
 func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
+	state := editor.GetState()
 	startPos := cursor.Position
 	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
 
@@ -1435,7 +1424,6 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 	case "yank":
 		if deleteCount > 0 {
 			// Set up visual selection for yank
-			state := editor.GetState()
 			state.VisualStart = Position{Row: startPos.Row, Col: endCol - 1}
 			state.YankSelection = SelectionCharacter
 			editor.SetState(state)

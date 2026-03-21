@@ -544,6 +544,13 @@ func (m *Model) SetLanguage(language string, theme string) {
 	}
 }
 
+// SetExtraWordChars allows specifying additional characters to be considered part of words for cursor movement and selection.
+// By default, the editor considers alphanumeric characters and underscores as part of words.
+// This method allows to include additional characters (e.g., hyphens, dots).
+func (m *Model) SetExtraWordChars(chars ...rune) {
+	m.editor.SetExtraWordChars(chars...)
+}
+
 // SetExtraHighlightedContextLines sets the number of extra lines to tokenise around the visible viewport.
 // This is crucial for Markdown where code blocks need context (the opening ```) to highlight correctly.
 //

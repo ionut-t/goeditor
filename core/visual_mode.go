@@ -249,11 +249,11 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case key.Rune == '}':
 		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth)
+		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == '0' || key.Key == KeyHome:
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:

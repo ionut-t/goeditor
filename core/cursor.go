@@ -1,6 +1,8 @@
 package core
 
-import "unicode"
+import (
+	"unicode"
+)
 
 // Cursor represents the current position for editing operations
 type Cursor struct {
@@ -295,16 +297,12 @@ func (c *Cursor) MoveToBufferEnd(buffer Buffer, availableWidth int) {
 
 // --- Word Movement (Using Unicode and Runes) ---
 // These generally work on logical positions, but update the preferred visual column at the end.
-func isWordChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_'
-}
-
 func isWhiteSpace(r rune) bool {
 	return r == ' ' || r == '\t'
 }
 
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
-func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int) error {
+func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
@@ -380,7 +378,7 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int) e
 }
 
 // MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e' behavior).
-func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, availableWidth int) error {
+func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
@@ -446,7 +444,7 @@ endMove:
 }
 
 // MoveWordBackward moves the cursor backward by count words (Vim 'b' behavior)
-func (c *Cursor) MoveWordBackward(buffer Buffer, count int, availableWidth int) error {
+func (c *Cursor) MoveWordBackward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}

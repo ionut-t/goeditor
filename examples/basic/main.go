@@ -127,6 +127,7 @@ func main() {
 		Wrap:       true,
 		Backwards:  false,
 	})
+	textEditor.SetExtraWordChars('-')
 
 	if content, err := os.ReadFile(file); err == nil {
 		textEditor.SetBytes(content)
