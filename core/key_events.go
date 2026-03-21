@@ -33,6 +33,10 @@ const (
 	// Editing keys
 	KeyDelete
 	KeyInsert
+
+	// Ctrl+letter shortcuts
+	KeyCtrlD
+	KeyCtrlU
 )
 
 // KeyModifiers represents modifier keys held during a keystroke

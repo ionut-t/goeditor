@@ -1216,7 +1216,7 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 	k := msg.Key()
 	result := core.KeyEvent{}
 
-	if k.Text != "" && len(k.Text) > 0 {
+	if k.Text != "" {
 		result.Rune = rune(k.Text[0])
 	}
 
@@ -1259,6 +1259,15 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 		result.Key = core.KeyPageUp
 	case tea.KeyPgDown:
 		result.Key = core.KeyPageDown
+	default:
+		if k.Mod&tea.ModCtrl != 0 {
+			switch k.Code {
+			case 'd':
+				result.Key = core.KeyCtrlD
+			case 'u':
+				result.Key = core.KeyCtrlU
+			}
+		}
 	}
 
 	return result

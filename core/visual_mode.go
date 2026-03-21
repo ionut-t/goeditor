@@ -242,6 +242,10 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		moveErr = cursor.MoveDown(buffer, count, availableWidth)
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
+	case key.Key == KeyCtrlD:
+		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
+	case key.Key == KeyCtrlU:
+		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
 	case key.Rune == '{':

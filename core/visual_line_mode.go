@@ -255,6 +255,13 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
 		movementAttempted = true
 
+	case KeyCtrlD:
+		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
+		movementAttempted = true
+	case KeyCtrlU:
+		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
+		movementAttempted = true
+
 	default:
 		col := cursor.Position.Col // Get Column from cursor state
 		switch {                   // Allow rune based keys

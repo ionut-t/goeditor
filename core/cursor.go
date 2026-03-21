@@ -578,3 +578,11 @@ func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
 
 	return nil
 }
+
+func (c *Cursor) ScrollUp(buffer Buffer, viewportHeight, availableWidth int) error {
+	return c.MoveUp(buffer, max(viewportHeight/2, 1), availableWidth)
+}
+
+func (c *Cursor) ScrollDown(buffer Buffer, viewportHeight, availableWidth int) error {
+	return c.MoveDown(buffer, max(viewportHeight/2, 1), availableWidth)
+}
