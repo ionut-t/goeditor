@@ -685,17 +685,14 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		moveErr = cursor.MoveLeft(buffer, count, availableWidth)
 
 	default:
-		// Unknown key - potentially beep or show message
-		// Clear pending state if an unrecognized key is pressed
+		// Unknown key - clear pending state if an unrecognized key is pressed
 		m.pendingKey = KeyEvent{Key: KeyUnknown}
-		// Keep count until non-digit command pressed
-		// editor.SetMessage(fmt.Sprintf("Unknown key: %s", key.String()))
+	}
 
-		// Reset count if it was pending and used by a command/motion executed above
-		// (Excludes cases where we returned early, like starting d/y/c or parsing digits)
-		if countWasPending {
-			editor.ResetPendingCount()
-		}
+	// Reset count after any command that consumed it (excludes early returns for
+	// digit accumulation and multi-key sequences like d/y/c which return early)
+	if countWasPending {
+		editor.ResetPendingCount()
 	}
 
 	// Update cursor in buffer if no error or only boundary error
