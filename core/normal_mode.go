@@ -1011,14 +1011,37 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 
 	endPos := tempCursor.Position
 
+	// If the cursor actually moved, we need to make the yank exclusive.
+	// In Vim, 'yw' and 'yb' are exclusive motions.
+	// Since editor.Copy is inclusive of both ends, we need to adjust
+	// the larger of the two positions back by one character.
+	var selStart, selEnd Position
+	if originalPos.Row < endPos.Row || (originalPos.Row == endPos.Row && originalPos.Col < endPos.Col) {
+		selStart = originalPos
+		selEnd = endPos
+	} else {
+		selStart = endPos
+		selEnd = originalPos
+	}
+
+	if selStart != selEnd {
+		// Make the yank range exclusive by moving the end of the range back by one character.
+		// MoveLeftOrUp correctly handles the case where the motion spanned multiple lines
+		// and we want to exclude the character at the start of the next line (and potentially
+		// the newline of the current line if it's an exclusive motion like 'yw' at EOL).
+		endCursor := Cursor{Position: selEnd}
+		_ = endCursor.MoveLeftOrUp(buffer, 1, availableWidth)
+		selEnd = endCursor.Position
+	}
+
 	// Set up character-wise selection for yank highlight (stay in normal mode)
 	// Do this atomically in one SetState to avoid flicker
-	state.VisualStart = endPos
+	state.VisualStart = selEnd
 	state.YankSelection = SelectionCharacter // Mark as character-wise selection
 	editor.SetState(state)
 
-	// Restore cursor to original position
-	cursor.Position = originalPos
+	// Set cursor to selStart for Copy (it uses current cursor as one end)
+	cursor.Position = selStart
 	buffer.SetCursor(cursor)
 
 	// Copy the selection (this also dispatches the YankSignal)
@@ -1027,6 +1050,9 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 		state.VisualStart = Position{-1, -1}
 		state.YankSelection = SelectionNone
 		editor.SetState(state)
+		// Restore cursor to original position on error
+		cursor.Position = originalPos
+		buffer.SetCursor(cursor)
 		return &EditorError{
 			id:  ErrFailedToYankId,
 			err: err,
@@ -1039,6 +1065,9 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 		state.VisualStart = Position{-1, -1}
 		state.YankSelection = SelectionNone
 		editor.SetState(state)
+		// Restore cursor to original position on error
+		cursor.Position = originalPos
+		buffer.SetCursor(cursor)
 		return &EditorError{
 			id:  ErrInvalidMotionId,
 			err: moveErr,
