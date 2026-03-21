@@ -601,6 +601,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 
 	case key.Rune == 'r': // Replace character under cursor
+		if !state.WithInsertMode {
+			return nil
+		}
+
 		m.waitingForReplace = true
 		editor.UpdateCommand("r")
 		return nil
