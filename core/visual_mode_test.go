@@ -60,11 +60,12 @@ func TestVisualModeDelete(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
-	t.Run("v+w then d deletes word and space", func(t *testing.T) {
+	t.Run("v+w then d deletes word and trailing space", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'v', 'w', 'd')
-		// v starts at 0, w moves to col 6, selection covers cols 0–6 ("hello w")
-		assert.Equal(t, "orld", content(e))
+		// 'w' in visual mode is exclusive: stops before the first char of the next word,
+		// so the selection covers "hello " (cols 0–5), matching dw behaviour.
+		assert.Equal(t, "world", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
@@ -111,6 +112,73 @@ func TestVisualModeChange(t *testing.T) {
 		keys(e, 'v', 'l', 'l', 'l', 'l', 'c')
 		keys(e, 'h', 'i')
 		assert.Equal(t, "hi world", content(e))
+	})
+}
+
+// TestVisualModeTextObjects tests text object selections in character-wise visual mode.
+func TestVisualModeTextObjects(t *testing.T) {
+	// viw / vaw
+
+	t.Run("viw selects inside word from start", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'v', 'i', 'w', 'd')
+		assert.Equal(t, " world", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("viw selects inside word from mid-word", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'l', 'l', 'v', 'i', 'w', 'd')
+		assert.Equal(t, " world", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("vaw selects around word including trailing space", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'v', 'a', 'w', 'd')
+		assert.Equal(t, "world", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("vaw on middle word includes leading space", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'w', 'v', 'a', 'w', 'd')
+		assert.Equal(t, "one three", content(e))
+	})
+
+	// vip / vap
+
+	t.Run("vip switches to visual line mode", func(t *testing.T) {
+		e := newTestEditor("hello\nworld\n\nfoo")
+		keys(e, 'v', 'i', 'p')
+		assert.True(t, e.IsVisualLineMode())
+	})
+
+	t.Run("vip then d deletes paragraph", func(t *testing.T) {
+		e := newTestEditor("hello\nworld\n\nfoo")
+		keys(e, 'v', 'i', 'p', 'd')
+		assert.Equal(t, "\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("vap then d deletes paragraph and surrounding blanks", func(t *testing.T) {
+		e := newTestEditor("hello\nworld\n\n\nfoo")
+		keys(e, 'v', 'a', 'p', 'd')
+		assert.Equal(t, "foo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("vip from mid-paragraph selects whole paragraph", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\n\nfoo")
+		keys(e, 'j', 'v', 'i', 'p', 'd')
+		assert.Equal(t, "\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("vip on blank line selects just the blank line", func(t *testing.T) {
+		e := newTestEditor("hello\n\nworld")
+		keys(e, 'j', 'v', 'i', 'p', 'd')
+		assert.Equal(t, "hello\nworld", content(e))
 	})
 }
 

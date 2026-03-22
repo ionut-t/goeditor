@@ -6,9 +6,10 @@ import (
 )
 
 type visualMode struct {
-	startPos     Position        // Where visual selection started
-	currentCount *int            // Temporary count parsed within visual mode
-	charSearch   charSearchState // Character search state (f/F/t/T)
+	startPos        Position        // Where visual selection started
+	currentCount    *int            // Temporary count parsed within visual mode
+	charSearch      charSearchState // Character search state (f/F/t/T)
+	pendingModifier rune            // 'i' or 'a' when waiting for text object key
 }
 
 func NewVisualMode() EditorMode {
@@ -27,6 +28,7 @@ func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	m.startPos = buffer.GetCursor().Position
 	m.currentCount = nil
 	m.charSearch = charSearchState{}
+	m.pendingModifier = 0
 	// Update editor state to reflect visual mode is active
 	state := editor.GetState()
 	state.VisualStart = m.startPos
@@ -108,6 +110,37 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	// If a digit was just processed, wait for the next key
 	if processedDigit {
+		return nil
+	}
+
+	// --- Text Object Dispatch (after 'i'/'a' modifier) ---
+	if m.pendingModifier != 0 {
+		modifier := m.pendingModifier
+		m.pendingModifier = 0
+		switch key.Rune {
+		case 'w': // viw / vaw — adjust selection to cover the word
+			startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
+			if found {
+				m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
+				state := editor.GetState()
+				state.VisualStart = m.startPos
+				editor.SetState(state)
+				cursor.Position.Col = endCol
+				buffer.SetCursor(cursor)
+			}
+		case 'p': // vip / vap — expand to paragraph and switch to visual line mode
+			startRow, endRow, found := paragraphRows(buffer, cursor.Position, modifier)
+			if found {
+				cursor.Position = Position{Row: startRow, Col: 0}
+				buffer.SetCursor(cursor)
+				editor.SetVisualLineMode()
+				// SetVisualLineMode.Enter() records startPos from the buffer cursor (startRow).
+				// Now move cursor to endRow to define the selection end.
+				cursor = buffer.GetCursor()
+				cursor.Position.Row = endRow
+				buffer.SetCursor(cursor)
+			}
+		}
 		return nil
 	}
 
@@ -206,6 +239,10 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		actionTaken = true
 		editor.ResetPendingCount()
 
+	case 'i', 'a': // Text object modifier — wait for the object key (w, p, …)
+		m.pendingModifier = key.Rune
+		actionTaken = true
+
 	case 'v':
 		editor.SetNormalMode()
 		actionTaken = true
@@ -254,6 +291,19 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
 		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		// 'w' is an exclusive motion. In charwise visual mode the endpoint is
+		// inclusive, so adjust back one column when the cursor just crossed
+		// whitespace onto the first char of a new word — otherwise vw would
+		// include that char but dw would not.
+		if moveErr == nil {
+			col := cursor.Position.Col
+			lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+			if col > 0 && col < len(lineRunes) &&
+				editor.IsWordChar(lineRunes[col]) &&
+				isWhiteSpace(lineRunes[col-1]) {
+				cursor.Position.Col--
+			}
+		}
 	case key.Rune == 'e':
 		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'b':
