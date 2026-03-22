@@ -3,7 +3,6 @@ package core
 
 import (
 	"errors"
-	"strings"
 )
 
 type visualLineMode struct {
@@ -65,38 +64,9 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
 	if m.charSearch.waitingForChar {
-		m.charSearch.waitingForChar = false
-		editor.UpdateCommand("") // Clear the command display
-
-		// Handle escape to cancel
-		if key.Key == KeyEscape {
-			m.charSearch = charSearchState{}
-			editor.SetNormalMode()
-			return nil
+		if handled, err := handleVisualCharSearchInput(&m.charSearch, editor, buffer, key); handled {
+			return err
 		}
-
-		// Get the character to search for
-		if key.Rune == 0 {
-			// Not a valid character
-			m.charSearch = charSearchState{}
-			return nil
-		}
-
-		state := editor.GetState()
-		count := 1
-		if state.PendingCount != nil {
-			count = *state.PendingCount
-			editor.ResetPendingCount()
-		}
-
-		// Perform the character search (extends selection)
-		searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, key.Rune, count)
-		if searchErr != nil {
-			// Character not found - this is non-fatal
-			m.charSearch = charSearchState{}
-			editor.DispatchError(ErrCharNotFoundId, searchErr)
-		}
-		return nil
 	}
 
 	count, processedDigit := getMoveCount(m, editor, key)
@@ -392,65 +362,3 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	return err
 }
 
-// Helper function to delete a range of lines (inclusive)
-// Similar to deleteLines from normalMode but takes range directly
-func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string, *EditorError) {
-	if startRow < 0 || endRow >= buffer.LineCount() || startRow > endRow {
-		return "", &EditorError{
-			id:  ErrInvalidPositionId,
-			err: errors.New("invalid line range for deletion"),
-		}
-	}
-
-	availableWidth := editor.GetState().AvailableWidth
-
-	var contentDeleted strings.Builder
-	var firstErr *EditorError
-
-	// Delete lines from bottom up to keep indices valid
-	for i := endRow; i >= startRow; i-- {
-		lineRunes := buffer.GetLineRunes(i)
-
-		var err *EditorError
-		if buffer.LineCount() == 1 {
-			// Only line left — clear it but keep the row
-			err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
-		} else if i == buffer.LineCount()-1 {
-			// Last line in a multi-line buffer: clear content then remove the row
-			// by deleting the newline at the end of the previous line.
-			if len(lineRunes) > 0 {
-				err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
-			}
-			if err == nil {
-				err = buffer.DeleteRunesAt(i-1, buffer.LineRuneCount(i-1), 1)
-			}
-		} else {
-			err = buffer.DeleteRunesAt(i, 0, len(lineRunes)+1)
-		}
-
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-		if err == nil {
-			contentDeleted.WriteString(string(lineRunes) + "\n")
-		}
-	}
-
-	// Adjust cursor after deletion
-	cursor := buffer.GetCursor() // Get current cursor state (might have moved during deletion?)
-	newRow := startRow
-	if newRow >= buffer.LineCount() { // If deletion removed lines up to the end
-		newRow = max(buffer.LineCount()-1, 0) // Move to last available line or 0
-	}
-	cursor.Position.Row = newRow
-	buffer.SetCursor(cursor)    // Set row first
-	cursor = buffer.GetCursor() // Get it back to use methods
-	cursor.MoveToFirstNonBlank(buffer, availableWidth)
-	buffer.SetCursor(cursor) // Final position
-
-	if firstErr == nil {
-		editor.SaveHistory() // Save history only if all deletions likely succeeded
-	}
-
-	return contentDeleted.String(), firstErr
-}
