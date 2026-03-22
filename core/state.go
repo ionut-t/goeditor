@@ -864,12 +864,50 @@ func (e *editor) Paste() (string, error) {
 		return "", fmt.Errorf("failed to read clipboard: %w", err)
 	}
 
-	// Insert content at the current cursor position
 	cursor := e.buffer.GetCursor()
-	e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(content))
 
-	// Update the state to reflect the new content
-	e.SaveHistory() // Save the new state after pasting
+	if before, ok := strings.CutSuffix(content, "\n"); ok {
+		// Linewise paste: insert the content as a new line below the current line,
+		// regardless of the cursor column — matching Vim's 'p' behaviour for line-wise yanks.
+		// Detected via trailing newline, which all line-wise yanks (yy, Vy) append.
+		lineText := before
+		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
+		e.buffer.InsertRunesAt(cursor.Position.Row, lineLen, []rune("\n"+lineText))
+
+		// Place cursor at the start of the newly inserted line.
+		cursor.Position.Row++
+		cursor.Position.Col = 0
+		e.buffer.SetCursor(cursor)
+	} else {
+		// Character-wise paste: insert AFTER the cursor char — matching Vim's 'p' behaviour.
+		e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col+1, []rune(content))
+	}
+
+	e.SaveHistory()
+
+	return content, nil
+}
+
+func (e *editor) PasteBefore() (string, error) {
+	content, err := e.clipboard.Read()
+	if err != nil {
+		return "", fmt.Errorf("failed to read clipboard: %w", err)
+	}
+
+	cursor := e.buffer.GetCursor()
+
+	if before, ok := strings.CutSuffix(content, "\n"); ok {
+		// Linewise paste above: insert the yanked line before the current line.
+		// Inserting lineText+"\n" at (row, 0) pushes the current line down; cursor stays at row.
+		e.buffer.InsertRunesAt(cursor.Position.Row, 0, []rune(before+"\n"))
+		cursor.Position.Col = 0
+		e.buffer.SetCursor(cursor)
+	} else {
+		// Character-wise paste before: insert at the current cursor position (same as 'p' for chars).
+		e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(content))
+	}
+
+	e.SaveHistory()
 
 	return content, nil
 }

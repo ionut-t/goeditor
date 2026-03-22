@@ -65,8 +65,9 @@ type Editor interface {
 	SaveHistory() // Indicate a state should be saved for undo
 	Undo() (string, error)
 	Redo() (string, error)
-	Paste() (string, error) // Paste from clipboard
-	Copy(op copyType) error // Copy to clipboard
+	Paste() (string, error)       // Paste from clipboard after/below cursor
+	PasteBefore() (string, error) // Paste from clipboard before/above cursor
+	Copy(op copyType) error       // Copy to clipboard
 
 	// Viewport scrolling (Could be part of UpdateState or separate)
 	ScrollViewport()

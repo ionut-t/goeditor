@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 type normalMode struct {
@@ -662,9 +663,55 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		}
 
 		content, pasteErr := editor.Paste()
-		count = len(content)
 
-		cursor.MoveRight(buffer, count, availableWidth)
+		if strings.HasSuffix(content, "\n") {
+			// Linewise paste: Paste() already inserted below and set cursor to (row+1, 0).
+			// Repeat for any additional count (e.g. 3p pastes 3 lines).
+			for i := 1; i < count; i++ {
+				if _, loopErr := editor.Paste(); loopErr != nil {
+					pasteErr = loopErr
+					break
+				}
+			}
+			// Cursor was set inside Paste(); refresh and skip the normal MoveRight.
+			cursor = buffer.GetCursor()
+			skipCursorUpdate = true
+		} else {
+			count = len(content)
+			cursor.MoveRight(buffer, count, availableWidth)
+		}
+
+		if pasteErr != nil {
+			err = &EditorError{
+				id:  ErrFailedToPasteId,
+				err: pasteErr,
+			}
+		} else {
+			editor.DispatchSignal(PasteSignal{content: content})
+		}
+
+	case key.Rune == 'P':
+		if !state.WithInsertMode {
+			return nil
+		}
+
+		content, pasteErr := editor.PasteBefore()
+
+		if strings.HasSuffix(content, "\n") {
+			// Linewise paste above: PasteBefore() inserted above and cursor stays at the same row.
+			// Repeat for any additional count (e.g. 3P pastes 3 lines above).
+			for i := 1; i < count; i++ {
+				if _, loopErr := editor.PasteBefore(); loopErr != nil {
+					pasteErr = loopErr
+					break
+				}
+			}
+			cursor = buffer.GetCursor()
+			skipCursorUpdate = true
+		} else {
+			count = len(content)
+			cursor.MoveRight(buffer, count, availableWidth)
+		}
 
 		if pasteErr != nil {
 			err = &EditorError{
