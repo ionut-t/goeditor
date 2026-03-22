@@ -60,12 +60,12 @@ func TestVisualModeDelete(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
-	t.Run("v+w then d deletes word and trailing space", func(t *testing.T) {
+	t.Run("v+w then d deletes up to and including first char of next word", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'v', 'w', 'd')
-		// 'w' in visual mode is exclusive: stops before the first char of the next word,
-		// so the selection covers "hello " (cols 0–5), matching dw behaviour.
-		assert.Equal(t, "world", content(e))
+		// w is a plain motion in visual mode: cursor lands on 'w' of "world" (col 6),
+		// so the inclusive selection covers "hello w" (cols 0–6).
+		assert.Equal(t, "orld", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
@@ -296,16 +296,15 @@ func TestVisualModeMovementSequences(t *testing.T) {
 		keys(e, 'l') // move right
 		assert.Equal(t, Position{1, 1}, cursorPos(e))
 	})
-	t.Run("v+w: word forward moves cursor past word", func(t *testing.T) {
+	t.Run("v+w: word forward moves cursor to start of next word", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'v', 'w')
-		assert.Equal(t, Position{0, 5}, cursorPos(e)) // stops at space, not at 'w' of world
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
-	t.Run("v+w+w: second w advances past first word", func(t *testing.T) {
+	t.Run("v+w+w: second w advances to start of second next word", func(t *testing.T) {
 		e := newTestEditor("hello world foo")
 		keys(e, 'v', 'w', 'w')
-		// first w: col 0→5 (exclusive adjustment); second w from space: col 5→6 (no adjustment)
-		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assert.Equal(t, Position{0, 12}, cursorPos(e))
 	})
 	t.Run("v+e: word end moves to last char of word", func(t *testing.T) {
 		e := newTestEditor("hello world")

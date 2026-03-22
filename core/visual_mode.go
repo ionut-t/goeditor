@@ -249,26 +249,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
 	case key.Rune == 'w':
-		// 'w' is an exclusive motion. In charwise visual mode the endpoint is
-		// inclusive, so adjust back one column when the cursor just crossed
-		// whitespace onto the first char of a new word — otherwise vw would
-		// include that char but dw would not.
-		// Guard: skip the adjustment when already on whitespace (the cursor was
-		// placed there by a previous w adjustment). Without this guard, pressing
-		// w a second time bounces between the space and the word start forever.
-		preMoveLineRunes := buffer.GetLineRunes(cursor.Position.Row)
-		preMoveCol := cursor.Position.Col
-		startedOnWhitespace := preMoveCol < len(preMoveLineRunes) && isWhiteSpace(preMoveLineRunes[preMoveCol])
 		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
-		if moveErr == nil && !startedOnWhitespace {
-			col := cursor.Position.Col
-			lineRunes := buffer.GetLineRunes(cursor.Position.Row)
-			if col > 0 && col < len(lineRunes) &&
-				editor.IsWordChar(lineRunes[col]) &&
-				isWhiteSpace(lineRunes[col-1]) {
-				cursor.Position.Col--
-			}
-		}
 	case key.Rune == 'e':
 		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'b':
