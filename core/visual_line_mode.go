@@ -409,24 +409,30 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 
 	// Delete lines from bottom up to keep indices valid
 	for i := endRow; i >= startRow; i-- {
-		if buffer.LineCount() > 1 { // Don't delete the very last line, clear it instead
-			lineRunes := buffer.GetLineRunes(i)
-			err := buffer.DeleteRunesAt(i, 0, len(lineRunes)+1) // +1 deletes newline
-			if err != nil && firstErr == nil {
-				firstErr = err
+		lineRunes := buffer.GetLineRunes(i)
+
+		var err *EditorError
+		if buffer.LineCount() == 1 {
+			// Only line left — clear it but keep the row
+			err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
+		} else if i == buffer.LineCount()-1 {
+			// Last line in a multi-line buffer: clear content then remove the row
+			// by deleting the newline at the end of the previous line.
+			if len(lineRunes) > 0 {
+				err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
 			}
 			if err == nil {
-				contentDeleted.WriteString(string(lineRunes) + "\n")
+				err = buffer.DeleteRunesAt(i-1, buffer.LineRuneCount(i-1), 1)
 			}
 		} else {
-			// Clear the last line
-			err := buffer.DeleteRunesAt(i, 0, len(buffer.GetLineRunes(i)))
-			if err != nil && firstErr == nil {
-				firstErr = err
-			}
-			if err == nil {
-				contentDeleted.WriteString(string(buffer.GetLineRunes(i)) + "\n")
-			}
+			err = buffer.DeleteRunesAt(i, 0, len(lineRunes)+1)
+		}
+
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if err == nil {
+			contentDeleted.WriteString(string(lineRunes) + "\n")
 		}
 	}
 

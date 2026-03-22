@@ -746,14 +746,24 @@ func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError)
 	for i := endLine; i >= startLine; i-- {
 		lineRunes := buffer.GetLineRunes(i)
 
-		if buffer.LineCount() > 1 { // Don't delete the very last line, clear it instead
-			deletedContent = string(lineRunes) + "\n" + deletedContent
-			// Delete line content + newline (represented by moving to next line)
-			err = buffer.DeleteRunesAt(i, 0, len(lineRunes)+1) // +1 deletes newline
-		} else {
-			// Clear the last line
+		if buffer.LineCount() == 1 {
+			// Only line left — clear it but keep the row
 			deletedContent = string(lineRunes) + deletedContent
 			err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
+		} else if i == buffer.LineCount()-1 {
+			// Last line in a multi-line buffer: clear content then remove the row
+			// by deleting the newline at the end of the previous line.
+			deletedContent = string(lineRunes) + "\n" + deletedContent
+			if len(lineRunes) > 0 {
+				err = buffer.DeleteRunesAt(i, 0, len(lineRunes))
+				if err != nil {
+					return "", err
+				}
+			}
+			err = buffer.DeleteRunesAt(i-1, buffer.LineRuneCount(i-1), 1)
+		} else {
+			deletedContent = string(lineRunes) + "\n" + deletedContent
+			err = buffer.DeleteRunesAt(i, 0, len(lineRunes)+1)
 		}
 		if err != nil {
 			return "", err

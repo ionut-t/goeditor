@@ -152,10 +152,11 @@ type editor struct {
 	state       State
 
 	// IMPROVEMENT: Use a more efficient history mechanism (diffs, ring buffer)
-	history       []string // Store snapshots of buffer content as strings
-	cursorHistory []Cursor // Store cursor states corresponding to history
-	historyPos    int      // Current position in the history (-1 = initial state)
-	maxHistory    uint32   // Max number of history entries
+	history         []string // Store snapshots of buffer content as strings
+	cursorHistory   []Cursor // Store cursor states corresponding to history
+	historyPos      int      // Current position in the history (-1 = initial state)
+	maxHistory      uint32   // Max number of history entries
+	preChangeCursor Cursor   // Cursor position captured at the start of each key event
 
 	clipboard    Clipboard // Clipboard interface for copy/paste
 	updateSignal chan Signal
@@ -336,6 +337,9 @@ func (e *editor) HandleKey(key KeyEvent) *EditorError {
 			err: errors.New("no current mode set"),
 		}
 	}
+
+	// Snapshot cursor before any change so SaveHistory can record the pre-change position.
+	e.preChangeCursor = e.buffer.GetCursor()
 
 	// Let the current mode handle the key
 	err := e.currentMode.HandleKey(e, e.buffer, key)
@@ -779,6 +783,12 @@ func (e *editor) SaveHistory() {
 		}
 	}
 
+	// Before appending the new state, record the pre-change cursor in the current slot
+	// so that Undo can restore the cursor to where it was before this change.
+	if e.historyPos >= 0 && e.historyPos < len(e.cursorHistory) {
+		e.cursorHistory[e.historyPos] = e.preChangeCursor
+	}
+
 	// Add the new state
 	e.history = append(e.history, currentState)
 	e.cursorHistory = append(e.cursorHistory, currentCursor)
@@ -800,12 +810,12 @@ func (e *editor) Undo() (string, error) {
 		return "", errors.New("already at oldest change")
 	}
 
-	// Cursor where the change happened (saved with the state being undone)
-	changeCursor := e.cursorHistory[e.historyPos]
 	currentStateContent := e.buffer.GetCurrentContent()
 
 	e.historyPos--
 	prevStateContent := e.history[e.historyPos]
+	// Restore the cursor to where it was in the previous state, not where it ended up after the change.
+	changeCursor := e.cursorHistory[e.historyPos]
 
 	if prevStateContent == "" {
 		prevStateContent = "\n"
