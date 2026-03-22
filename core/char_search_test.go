@@ -151,27 +151,20 @@ func TestCharSearchWithOperators(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
-	t.Run("dF deletes backward to and including char, excluding cursor char", func(t *testing.T) {
+	t.Run("dF deletes backward to and including found char and cursor char", func(t *testing.T) {
 		e := newTestEditor("hello world")
-		// TODO: bug in handleCharSearchOperator — endCol = startPos.Col excludes the cursor char;
-		// should be endCol = startPos.Col + 1 so that dF includes the char under the cursor.
-		// Expected correct behaviour: dF{'w'} from col 10 deletes cols 6–10 ("world"), leaving "hello ".
-		// cursor at col 10 ('d'); 'w' at col 6; dF deletes cols 6–9 ("worl"), 'd' stays
+		// cursor at col 10 ('d'); 'w' at col 6; dF deletes cols 6–10 ("world"), leaving "hello "
 		keys(e, '$', 'd', 'F', 'w')
-		assert.Equal(t, "hello d", content(e))
+		assert.Equal(t, "hello ", content(e))
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
 
-	t.Run("dT deletes backward one-after char to one-before cursor", func(t *testing.T) {
+	t.Run("dT deletes backward one-after found char up to but not including cursor char", func(t *testing.T) {
 		e := newTestEditor("hello world")
-		// TODO: bug in handleCharSearchOperator — an extra startCol++ shifts the range start one too far right.
-		// findCharOnLine for 'T' already returns col+1 (one after the found char), so the extra bump is wrong.
-		// Expected correct behaviour: dT{'w'} from col 10 deletes cols 7–9 ("orl"), leaving "hello wd".
-		// cursor at col 10 ('d'); 'w' at col 6; T lands at col 7, startCol bumped to 8
-		// deletes cols 8–9 ("rl"), leaving "hello wod"
+		// cursor at col 10 ('d'); 'w' at col 6; T lands at col 7; dT deletes cols 7–9 ("orl"), leaving "hello wd"
 		keys(e, '$', 'd', 'T', 'w')
-		assert.Equal(t, "hello wod", content(e))
-		assert.Equal(t, Position{0, 8}, cursorPos(e))
+		assert.Equal(t, "hello wd", content(e))
+		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 
 	t.Run("yf yanks to and including char", func(t *testing.T) {
