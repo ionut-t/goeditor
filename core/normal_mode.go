@@ -783,12 +783,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 // handleCharSearchRepeat handles repeating (;) or reversing (,) the last character search.
 func (m *normalMode) handleCharSearchRepeat(editor Editor, buffer Buffer, reverse bool) Cursor {
-	cursor := buffer.GetCursor()
-
-	if m.charSearch.searchType == 0 || m.charSearch.lastChar == 0 {
-		return cursor // No previous search to repeat
-	}
-
 	state := editor.GetState()
 	count := 1
 	if state.PendingCount != nil {
@@ -796,34 +790,7 @@ func (m *normalMode) handleCharSearchRepeat(editor Editor, buffer Buffer, revers
 		editor.ResetPendingCount()
 	}
 
-	effectiveSearchType := m.charSearch.searchType
-	if reverse {
-		// Reverse the search direction
-		switch m.charSearch.searchType {
-		case 'f':
-			effectiveSearchType = 'F'
-		case 'F':
-			effectiveSearchType = 'f'
-		case 't':
-			effectiveSearchType = 'T'
-		case 'T':
-			effectiveSearchType = 't'
-		}
-	}
-
-	// Save original type to restore after reverse search
-	originalType := m.charSearch.searchType
-
-	searchErr := performCharSearch(buffer, &m.charSearch, effectiveSearchType, m.charSearch.lastChar, count)
-
-	// Restore original type if reversed search was temporary
-	if reverse {
-		m.charSearch.searchType = originalType
-	}
-
-	if searchErr != nil {
-		editor.DispatchError(ErrCharNotFoundId, searchErr)
-	}
+	repeatCharSearch(&m.charSearch, editor, buffer, count, reverse)
 
 	return buffer.GetCursor() // Return refreshed cursor
 }

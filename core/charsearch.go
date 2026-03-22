@@ -71,7 +71,6 @@ func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, 
 }
 
 // performCharSearch executes a character search and moves the cursor.
-// This is the shared implementation used by normal, visual, and visual line modes.
 // Returns error if character not found.
 func performCharSearch(buffer Buffer, cs *charSearchState, searchType rune, char rune, count int) error {
 	cursor := buffer.GetCursor()
@@ -202,7 +201,6 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 }
 
 // handleVisualCharSearchInput encapsulates the repeated waitingForChar block used
-// identically in visual_mode.go and visual_line_mode.go.
 // Returns (true, err) if the event was handled, (false, nil) if not.
 func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
 	cs.waitingForChar = false
@@ -233,4 +231,34 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 	}
 
 	return true, nil
+}
+
+// repeatCharSearch repeats (reverse=false) or reverses (reverse=true) the last
+// character search stored in cs.
+func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count int, reverse bool) {
+	if cs.searchType == 0 || cs.lastChar == 0 {
+		return
+	}
+
+	searchType := cs.searchType
+	if reverse {
+		switch cs.searchType {
+		case 'f':
+			searchType = 'F'
+		case 'F':
+			searchType = 'f'
+		case 't':
+			searchType = 'T'
+		case 'T':
+			searchType = 't'
+		}
+	}
+
+	originalType := cs.searchType
+	if err := performCharSearch(buffer, cs, searchType, cs.lastChar, count); err != nil {
+		editor.DispatchError(ErrCharNotFoundId, err)
+	}
+	if reverse {
+		cs.searchType = originalType
+	}
 }

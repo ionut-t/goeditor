@@ -305,40 +305,14 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 
 		case key.Rune == ';': // Repeat last character search
-			if m.charSearch.searchType != 0 && m.charSearch.lastChar != 0 {
-				searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, m.charSearch.lastChar, count)
-				if searchErr != nil {
-					editor.DispatchError(ErrCharNotFoundId, searchErr)
-				}
-				cursor = buffer.GetCursor() // Refresh cursor after search
-				movementAttempted = true
-			}
+			repeatCharSearch(&m.charSearch, editor, buffer, count, false)
+			cursor = buffer.GetCursor()
+			movementAttempted = true
 
 		case key.Rune == ',': // Repeat last character search in opposite direction
-			if m.charSearch.searchType != 0 && m.charSearch.lastChar != 0 {
-				// Reverse the search direction
-				reversedType := m.charSearch.searchType
-				switch m.charSearch.searchType {
-				case 'f':
-					reversedType = 'F'
-				case 'F':
-					reversedType = 'f'
-				case 't':
-					reversedType = 'T'
-				case 'T':
-					reversedType = 't'
-				}
-
-				// Temporarily use the reversed type
-				originalType := m.charSearch.searchType
-				searchErr := performCharSearch(buffer, &m.charSearch, reversedType, m.charSearch.lastChar, count)
-				m.charSearch.searchType = originalType // Restore original type
-				if searchErr != nil {
-					editor.DispatchError(ErrCharNotFoundId, searchErr)
-				}
-				cursor = buffer.GetCursor() // Refresh cursor after search
-				movementAttempted = true
-			}
+			repeatCharSearch(&m.charSearch, editor, buffer, count, true)
+			cursor = buffer.GetCursor()
+			movementAttempted = true
 
 		default:
 			// Key was not a digit, action, or recognized movement
