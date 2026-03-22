@@ -196,6 +196,54 @@ func TestDeleteAroundWord(t *testing.T) {
 	})
 }
 
+// TestDeleteCharBefore tests 'X' — delete character before cursor.
+func TestDeleteCharBefore(t *testing.T) {
+	t.Run("deletes character to the left of cursor", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'l', 'l', 'X') // cursor at col 2; X deletes col 1 ('e')
+		assert.Equal(t, "hllo", content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+
+	t.Run("at col 0 does nothing", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'X')
+		assert.Equal(t, "hello", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("X at end of line deletes last char", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', 'X') // col 4; X deletes col 3 ('l')
+		assert.Equal(t, "helo", content(e))
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+}
+
+// TestDeleteToEndOfLineShortcut tests 'D' — shortcut for d$.
+func TestDeleteToEndOfLineShortcut(t *testing.T) {
+	t.Run("from start of line clears it", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'D')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("from mid-line deletes to end", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'w', 'D') // cursor at col 6; D deletes "world"
+		assert.Equal(t, "hello ", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("on empty line does nothing", func(t *testing.T) {
+		e := newTestEditor("hello\n\nworld")
+		keys(e, 'j', 'D') // move to blank line; D is a no-op
+		assert.Equal(t, "hello\n\nworld", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
+
 // TestUndoDeleteLine verifies that undo restores both content and cursor position.
 func TestUndoDeleteLine(t *testing.T) {
 	t.Run("undo dd on last line restores cursor to deleted row", func(t *testing.T) {

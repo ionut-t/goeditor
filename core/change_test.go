@@ -106,6 +106,32 @@ func TestChangeWordBackward(t *testing.T) {
 	})
 }
 
+// TestChangeToEndOfLineShortcut tests 'C' — shortcut for c$.
+func TestChangeToEndOfLineShortcut(t *testing.T) {
+	t.Run("from start of line clears it and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'C')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("from mid-line deletes to end and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'w', 'C') // cursor at col 6; C deletes "world"
+		assert.Equal(t, "hello ", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("typing after C replaces rest of line", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'w', 'C')
+		keys(e, 'e', 'a', 'r', 't', 'h')
+		assert.Equal(t, "hello earth", content(e))
+	})
+}
+
 // TestChangeToEndOfLine tests 'c$' — change to end of line.
 func TestChangeToEndOfLine(t *testing.T) {
 	t.Run("from start clears line", func(t *testing.T) {
