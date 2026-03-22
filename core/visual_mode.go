@@ -246,27 +246,21 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	switch {
 	case key.Rune == 'h' || key.Key == KeyLeft:
 		moveErr = cursor.MoveLeftOrUp(buffer, count, col)
-	case key.Rune == 'j' || key.Key == KeyDown:
-		moveErr = cursor.MoveDown(buffer, count, availableWidth)
-	case key.Rune == 'k' || key.Key == KeyUp:
-		moveErr = cursor.MoveUp(buffer, count, availableWidth)
-	case key.Key == KeyCtrlD:
-		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
-	case key.Key == KeyCtrlU:
-		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
-	case key.Rune == '{':
-		moveErr = cursor.MoveBlockBackward(buffer, count)
-	case key.Rune == '}':
-		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
 		// 'w' is an exclusive motion. In charwise visual mode the endpoint is
 		// inclusive, so adjust back one column when the cursor just crossed
 		// whitespace onto the first char of a new word — otherwise vw would
 		// include that char but dw would not.
-		if moveErr == nil {
+		// Guard: skip the adjustment when already on whitespace (the cursor was
+		// placed there by a previous w adjustment). Without this guard, pressing
+		// w a second time bounces between the space and the word start forever.
+		preMoveLineRunes := buffer.GetLineRunes(cursor.Position.Row)
+		preMoveCol := cursor.Position.Col
+		startedOnWhitespace := preMoveCol < len(preMoveLineRunes) && isWhiteSpace(preMoveLineRunes[preMoveCol])
+		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		if moveErr == nil && !startedOnWhitespace {
 			col := cursor.Position.Col
 			lineRunes := buffer.GetLineRunes(cursor.Position.Row)
 			if col > 0 && col < len(lineRunes) &&
@@ -279,60 +273,13 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	case key.Rune == 'b':
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
-	case key.Rune == '0' || key.Key == KeyHome:
-		cursor.MoveToLineStart()
-	case key.Rune == '$' || key.Key == KeyEnd:
-		cursor.MoveToLineEnd(buffer, availableWidth)
-	case key.Rune == '^':
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)
-	case key.Rune == 'g':
-		cursor.MoveToBufferStart()
-	case key.Rune == 'G':
-		cursor.MoveToBufferEnd(buffer, availableWidth)
-
-	case key.Key == KeyEnter:
-		if count > 0 {
-			cursor.Position.Row = count - 1
-			buffer.SetCursor(cursor)
-			editor.UpdateCommand("")
-			editor.ResetPendingCount()
-		}
-
-	// Character search motions
-	case key.Rune == 'f': // Find character forward
-		m.charSearch.searchType = 'f'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("f")
-		return nil
-
-	case key.Rune == 'F': // Find character backward
-		m.charSearch.searchType = 'F'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("F")
-		return nil
-
-	case key.Rune == 't': // Till character forward
-		m.charSearch.searchType = 't'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("t")
-		return nil
-
-	case key.Rune == 'T': // Till character backward
-		m.charSearch.searchType = 'T'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("T")
-		return nil
-
-	case key.Rune == ';': // Repeat last character search
-		repeatCharSearch(&m.charSearch, editor, buffer, count, false)
-		cursor = buffer.GetCursor()
-
-	case key.Rune == ',': // Repeat last character search in opposite direction
-		repeatCharSearch(&m.charSearch, editor, buffer, count, true)
-		cursor = buffer.GetCursor()
-
 	default:
-		if countWasPending {
+		var movementAttempted, earlyReturn bool
+		moveErr, movementAttempted, earlyReturn = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
+		if earlyReturn {
+			return nil
+		}
+		if !movementAttempted && countWasPending {
 			editor.ResetPendingCount()
 		}
 	}

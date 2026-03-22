@@ -235,88 +235,19 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	default:
 		col := cursor.Position.Col // Get Column from cursor state
-		switch {                   // Allow rune based keys
-		case key.Rune == 'j':
-			moveErr = cursor.MoveDown(buffer, moveCount, availableWidth)
-			movementAttempted = true
-		case key.Rune == 'k':
-			moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
-			movementAttempted = true
-		// Horizontal movements affect cursor position but not line selection extent
+		switch {                   // Horizontal movements (always count=1 in line mode)
 		case key.Rune == 'h' || key.Key == KeyLeft:
 			moveErr = cursor.MoveLeftOrUp(buffer, 1, col)
 			movementAttempted = true
 		case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 			moveErr = cursor.MoveRightOrDown(buffer, 1, col)
 			movementAttempted = true
-		case key.Rune == '{':
-			moveErr = cursor.MoveBlockBackward(buffer, count)
-			movementAttempted = true
-		case key.Rune == '}':
-			moveErr = cursor.MoveBlockForward(buffer, count)
-			movementAttempted = true
-		case key.Rune == '0' || key.Key == KeyHome:
-			cursor.MoveToLineStart()
-			movementAttempted = true
-		case key.Rune == '$' || key.Key == KeyEnd:
-			cursor.MoveToLineEnd(buffer, availableWidth)
-			movementAttempted = true
-		case key.Rune == '^':
-			cursor.MoveToFirstNonBlank(buffer, availableWidth)
-			movementAttempted = true
-		case key.Rune == 'g':
-			cursor.MoveToBufferStart()
-			movementAttempted = true
-		case key.Rune == 'G':
-			cursor.MoveToBufferEnd(buffer, availableWidth)
-			movementAttempted = true
-
-		case key.Key == KeyEnter:
-			if count > 0 {
-				cursor.Position.Row = count - 1
-				buffer.SetCursor(cursor)
-				editor.UpdateCommand("")
-				editor.ResetPendingCount()
-			}
-
-		// Character search motions
-		case key.Rune == 'f': // Find character forward
-			m.charSearch.searchType = 'f'
-			m.charSearch.waitingForChar = true
-			editor.UpdateCommand("f")
-			return nil
-
-		case key.Rune == 'F': // Find character backward
-			m.charSearch.searchType = 'F'
-			m.charSearch.waitingForChar = true
-			editor.UpdateCommand("F")
-			return nil
-
-		case key.Rune == 't': // Till character forward
-			m.charSearch.searchType = 't'
-			m.charSearch.waitingForChar = true
-			editor.UpdateCommand("t")
-			return nil
-
-		case key.Rune == 'T': // Till character backward
-			m.charSearch.searchType = 'T'
-			m.charSearch.waitingForChar = true
-			editor.UpdateCommand("T")
-			return nil
-
-		case key.Rune == ';': // Repeat last character search
-			repeatCharSearch(&m.charSearch, editor, buffer, count, false)
-			cursor = buffer.GetCursor()
-			movementAttempted = true
-
-		case key.Rune == ',': // Repeat last character search in opposite direction
-			repeatCharSearch(&m.charSearch, editor, buffer, count, true)
-			cursor = buffer.GetCursor()
-			movementAttempted = true
-
 		default:
-			// Key was not a digit, action, or recognized movement
-			break
+			var earlyReturn bool
+			moveErr, movementAttempted, earlyReturn = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
+			if earlyReturn {
+				return nil
+			}
 		}
 	}
 

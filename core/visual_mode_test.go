@@ -286,3 +286,56 @@ func TestVisualLineModeChange(t *testing.T) {
 		assert.Equal(t, "newthird", content(e))
 	})
 }
+
+// TestVisualModeMovementSequences tests that navigation keys work after shared-motion keys.
+func TestVisualModeMovementSequences(t *testing.T) {
+	t.Run("v+j+l: j then l both move cursor", func(t *testing.T) {
+		e := newTestEditor("abcd\nefgh")
+		keys(e, 'v', 'j') // enter visual, move down
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		keys(e, 'l') // move right
+		assert.Equal(t, Position{1, 1}, cursorPos(e))
+	})
+	t.Run("v+w: word forward moves cursor past word", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'v', 'w')
+		assert.Equal(t, Position{0, 5}, cursorPos(e)) // stops at space, not at 'w' of world
+	})
+	t.Run("v+w+w: second w advances past first word", func(t *testing.T) {
+		e := newTestEditor("hello world foo")
+		keys(e, 'v', 'w', 'w')
+		// first w: col 0→5 (exclusive adjustment); second w from space: col 5→6 (no adjustment)
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+	t.Run("v+e: word end moves to last char of word", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'v', 'e')
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+	t.Run("v+b: word backward from middle moves to word start", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'l', 'l', 'l', 'v', 'b') // cursor at col 3, then v+b
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+	t.Run("V+j: j in visual line mode extends selection", func(t *testing.T) {
+		e := newTestEditor("line1\nline2\nline3")
+		keys(e, 'V', 'j', 'd') // visual line, extend down, delete 2 lines
+		assert.Equal(t, "line3", content(e))
+	})
+	t.Run("V+w: w moves cursor forward in visual line mode", func(t *testing.T) {
+		e := newTestEditor("hello world\nfoo")
+		keys(e, 'V', 'w') // enter visual line, move forward one word
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assert.True(t, e.IsVisualLineMode())
+	})
+	t.Run("V+e: e moves cursor to word end in visual line mode", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'V', 'e')
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+	t.Run("V+b: b moves cursor word backward in visual line mode", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'l', 'V', 'b') // cursor at col 8 (mid "world"), then V+b → start of "world"
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+}
