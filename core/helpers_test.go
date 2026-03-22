@@ -50,3 +50,8 @@ func setWidth(e Editor, width int) {
 	s.AvailableWidth = width
 	e.SetState(s)
 }
+
+func escape(e Editor)    { e.HandleKey(KeyEvent{Key: KeyEscape}) }
+func backspace(e Editor) { e.HandleKey(KeyEvent{Key: KeyBackspace}) }
+func enter(e Editor)     { e.HandleKey(KeyEvent{Key: KeyEnter}) }
+func tab(e Editor)       { e.HandleKey(KeyEvent{Key: KeyTab}) }
