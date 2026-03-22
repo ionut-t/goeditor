@@ -156,3 +156,41 @@ func TestYankAroundWord(t *testing.T) {
 		assert.Equal(t, "two ", cb.content)
 	})
 }
+
+// TestYankInsideParagraph tests 'yip' — yank inside paragraph (linewise).
+func TestYankInsideParagraph(t *testing.T) {
+	t.Run("yanks all lines of the paragraph with trailing newline", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello\nworld\n\nfoo")
+		keys(e, 'y', 'i', 'p')
+		assert.Equal(t, "hello\nworld\n", cb.content)
+		assert.Equal(t, "hello\nworld\n\nfoo", content(e)) // buffer unchanged
+	})
+
+	t.Run("from mid-paragraph yanks the whole block", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree\n\nfoo")
+		keys(e, 'j', 'y', 'i', 'p') // cursor on row 1
+		assert.Equal(t, "one\ntwo\nthree\n", cb.content)
+	})
+
+	t.Run("on blank line yanks the blank line", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello\n\nworld")
+		keys(e, 'j', 'y', 'i', 'p') // cursor on blank row 1
+		assert.Equal(t, "\n", cb.content)
+		assert.Equal(t, "hello\n\nworld", content(e)) // buffer unchanged
+	})
+}
+
+// TestYankAroundParagraph tests 'yap' — yank around paragraph (block + surrounding blanks, linewise).
+func TestYankAroundParagraph(t *testing.T) {
+	t.Run("includes trailing blank lines", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello\nworld\n\n\nfoo")
+		keys(e, 'y', 'a', 'p')
+		assert.Equal(t, "hello\nworld\n\n\n", cb.content)
+	})
+
+	t.Run("no trailing blanks: absorbs leading blank lines", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("foo\n\nhello\nworld")
+		keys(e, 'j', 'j', 'y', 'a', 'p') // cursor on row 2
+		assert.Equal(t, "\nhello\nworld\n", cb.content)
+	})
+}

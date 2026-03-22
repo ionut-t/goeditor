@@ -993,12 +993,16 @@ func (e *editor) Copy(op copyType) error {
 		if sliceEndCol > 0 { // Only copy if end is not before beginning
 			contentBuilder.WriteString(string(lastLineRunes[:sliceEndCol]))
 		}
+		// For linewise selections every line — including a blank last line — must end with "\n".
+		if isLineWise {
+			contentBuilder.WriteRune('\n')
+		}
 	}
 
-	// Add trailing newline for line-wise operations
+	// Add trailing newline for line-wise single-line operations.
+	// This also handles blank-line yanks where content is "" but must become "\n".
 	content := contentBuilder.String()
-	if isLineWise && !strings.HasSuffix(content, "\n") && content != "" { // Ensure we add newline for line-wise if needed
-		// Check if content is just "" (e.g. empty line copied line-wise)
+	if isLineWise && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
 

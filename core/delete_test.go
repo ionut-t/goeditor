@@ -196,6 +196,93 @@ func TestDeleteAroundWord(t *testing.T) {
 	})
 }
 
+// TestDeleteInsideParagraph tests 'dip' — delete inside paragraph (contiguous non-blank lines).
+func TestDeleteInsideParagraph(t *testing.T) {
+	t.Run("single paragraph — removes all lines leaving the blank separator", func(t *testing.T) {
+		e := newTestEditor("hello\nworld\n\nfoo")
+		// cursor on row 0; paragraph is rows 0-1
+		keys(e, 'd', 'i', 'p')
+		assert.Equal(t, "\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("cursor mid-paragraph still deletes the whole block", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\n\nfoo")
+		keys(e, 'j', 'd', 'i', 'p') // cursor on row 1
+		assert.Equal(t, "\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("last paragraph absorbs preceding newline", func(t *testing.T) {
+		e := newTestEditor("foo\n\nhello\nworld")
+		keys(e, 'j', 'j', 'd', 'i', 'p') // cursor on row 2
+		assert.Equal(t, "foo\n", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("only content in buffer clears to empty", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'd', 'i', 'p')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("on blank line deletes the blank line", func(t *testing.T) {
+		e := newTestEditor("hello\n\nworld")
+		keys(e, 'j', 'd', 'i', 'p') // cursor on blank row 1
+		assert.Equal(t, "hello\nworld", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("on multiple consecutive blank lines deletes the whole blank block", func(t *testing.T) {
+		e := newTestEditor("hello\n\n\nworld")
+		keys(e, 'j', 'd', 'i', 'p') // cursor on blank row 1
+		assert.Equal(t, "hello\nworld", content(e))
+	})
+}
+
+// TestDeleteAroundParagraph tests 'dap' — delete around paragraph (block + surrounding blanks).
+func TestDeleteAroundParagraph(t *testing.T) {
+	t.Run("includes trailing blank lines", func(t *testing.T) {
+		e := newTestEditor("hello\nworld\n\n\nfoo")
+		// paragraph rows 0-1, trailing blanks rows 2-3
+		keys(e, 'd', 'a', 'p')
+		assert.Equal(t, "foo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("no trailing blanks: absorbs leading blank lines instead", func(t *testing.T) {
+		e := newTestEditor("foo\n\n\nhello\nworld")
+		// paragraph rows 3-4, no trailing blanks; leading blanks rows 1-2
+		// dap deletes rows 1-4; only "foo" remains → cursor at row 0
+		keys(e, 'j', 'j', 'j', 'd', 'a', 'p') // cursor on row 3
+		assert.Equal(t, "foo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("no surrounding blanks: same as dip", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'd', 'a', 'p')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("on blank line between paragraphs: deletes blank + paragraph below", func(t *testing.T) {
+		e := newTestEditor("foo\n\nhello\nworld")
+		keys(e, 'j', 'd', 'a', 'p') // cursor on blank row 1; deletes "\nhello\nworld", leaving "foo"
+		assert.Equal(t, "foo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("on blank line at end: deletes blank + paragraph above", func(t *testing.T) {
+		// "intro" at row 0, blank at row 1, "hello" at row 2, blank at row 3.
+		// dap on row 3 absorbs the blank + the paragraph above ("hello"), leaving "intro".
+		e := newTestEditor("intro\n\nhello\n")
+		keys(e, 'j', 'j', 'j', 'd', 'a', 'p') // cursor on blank row 3
+		assert.Equal(t, "intro", content(e))
+	})
+}
+
 // TestDeleteCharBefore tests 'X' — delete character before cursor.
 func TestDeleteCharBefore(t *testing.T) {
 	t.Run("deletes character to the left of cursor", func(t *testing.T) {

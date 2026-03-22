@@ -212,3 +212,55 @@ func TestChangeAroundWord(t *testing.T) {
 		assertInsertMode(t, e)
 	})
 }
+
+// TestChangeInsideParagraph tests 'cip' — replace paragraph with one empty line and enter insert mode.
+func TestChangeInsideParagraph(t *testing.T) {
+	t.Run("opens empty line in place of paragraph", func(t *testing.T) {
+		// cip leaves one blank line where the paragraph was (like Vim's 'c' on a linewise selection).
+		e := newTestEditor("hello\nworld\n\nfoo")
+		keys(e, 'c', 'i', 'p')
+		assert.Equal(t, "\n\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("on blank line preserves blank line and enters insert mode", func(t *testing.T) {
+		// cip on a blank line behaves like 'cc' on a blank line: no content change, just insert mode.
+		e := newTestEditor("hello\n\nworld")
+		keys(e, 'j', 'c', 'i', 'p') // cursor on blank row 1
+		assert.Equal(t, "hello\n\nworld", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+}
+
+// TestChangeAroundParagraph tests 'cap' — delete paragraph + surrounding blanks, then open one
+// blank line at the original paragraph position (matching Vim's cap behaviour).
+func TestChangeAroundParagraph(t *testing.T) {
+	t.Run("opens blank line before next paragraph", func(t *testing.T) {
+		// dap would leave "foo"; cap additionally opens a blank line so cursor is ready to type.
+		e := newTestEditor("hello\nworld\n\nfoo")
+		keys(e, 'c', 'a', 'p')
+		assert.Equal(t, "\nfoo", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("no following paragraph: cursor on empty line", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'c', 'a', 'p')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("preceding content: opens blank line below it", func(t *testing.T) {
+		// 'a' absorbs the leading blank; the blank + paragraph are removed and a new
+		// blank line is opened after "foo" for the replacement content.
+		e := newTestEditor("foo\n\nhello\nworld")
+		keys(e, 'j', 'j', 'c', 'a', 'p') // cursor on "hello"
+		assert.Equal(t, "foo\n", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+}
