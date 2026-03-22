@@ -528,22 +528,28 @@ func (c *Cursor) MoveBlockBackward(buffer Buffer, count int) error {
 		return ErrStartOfBuffer
 	}
 
-	// Skip non-empty lines
-	for c.Position.Row > 0 {
-		line := buffer.GetLineRunes(c.Position.Row)
-		if len(line) == 0 {
+	for range count {
+		if c.Position.Row <= 0 {
 			break
 		}
-		c.Position.Row--
-	}
 
-	// Skip empty lines
-	for c.Position.Row > 0 {
-		line := buffer.GetLineRunes(c.Position.Row)
-		if len(line) != 0 {
-			break
+		// If on a blank line, skip past it first (backward)
+		for c.Position.Row > 0 {
+			line := buffer.GetLineRunes(c.Position.Row)
+			if len(line) != 0 {
+				break
+			}
+			c.Position.Row--
 		}
-		c.Position.Row--
+
+		// Skip non-blank lines backward until we hit a blank line or the start of buffer
+		for c.Position.Row > 0 {
+			line := buffer.GetLineRunes(c.Position.Row)
+			if len(line) == 0 {
+				break
+			}
+			c.Position.Row--
+		}
 	}
 
 	c.Position.Col = 0
@@ -556,22 +562,28 @@ func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
 		return ErrEndOfBuffer
 	}
 
-	// Skip non-empty lines
-	for c.Position.Row < buffer.LineCount()-1 {
-		line := buffer.GetLineRunes(c.Position.Row)
-		if len(line) == 0 {
+	for range count {
+		if c.Position.Row >= buffer.LineCount()-1 {
 			break
 		}
-		c.Position.Row++
-	}
 
-	// Skip empty lines
-	for c.Position.Row < buffer.LineCount()-1 {
-		line := buffer.GetLineRunes(c.Position.Row)
-		if len(line) != 0 {
-			break
+		// If on a blank line, skip past it first
+		for c.Position.Row < buffer.LineCount()-1 {
+			line := buffer.GetLineRunes(c.Position.Row)
+			if len(line) != 0 {
+				break
+			}
+			c.Position.Row++
 		}
-		c.Position.Row++
+
+		// Skip non-blank lines forward until we hit a blank line or the end of buffer
+		for c.Position.Row < buffer.LineCount()-1 {
+			line := buffer.GetLineRunes(c.Position.Row)
+			if len(line) == 0 {
+				break
+			}
+			c.Position.Row++
+		}
 	}
 
 	c.Position.Col = 0

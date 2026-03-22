@@ -282,3 +282,91 @@ func TestMoveWordToEnd(t *testing.T) {
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
 }
+
+// TestMoveParagraphForward tests '}' — move to the next blank line (paragraph boundary).
+// Like Vim: from a non-blank line, lands on the next blank line (or last line if none).
+// From a blank line, skips the blank gap first, then lands on the following blank line.
+func TestMoveParagraphForward(t *testing.T) {
+	t.Run("lands on the blank line between paragraphs", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree\nfour")
+		keys(e, '}') // from row 0: skip "one","two", land on row 2 (blank)
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("from within paragraph lands on blank separator", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree\nfour")
+		keys(e, 'j', '}') // row 1 → skip "two", land on row 2 (blank)
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("from blank line skips blank gap and lands on next blank", func(t *testing.T) {
+		e := newTestEditor("one\n\n\nthree\nfour\n\nsix")
+		keys(e, 'j', '}') // row 1 (blank): skip blanks (1,2), skip non-blank (3,4), land on row 5 (blank)
+		assert.Equal(t, Position{5, 0}, cursorPos(e))
+	})
+
+	t.Run("at last line stays put", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree")
+		keys(e, 'G', '}') // G → last line (row 3); } is a no-op
+		assert.Equal(t, Position{3, 0}, cursorPos(e))
+	})
+
+	t.Run("no blank line: lands on last line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, '}') // skip non-blank until last line; no blank found
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("two } jumps land on successive blank lines", func(t *testing.T) {
+		e := newTestEditor("a\n\nb\n\nc")
+		keys(e, '}', '}') // row 0 → row 1 (blank) → row 3 (blank)
+		assert.Equal(t, Position{3, 0}, cursorPos(e))
+	})
+
+	t.Run("count: 2} jumps two paragraph boundaries", func(t *testing.T) {
+		e := newTestEditor("a\n\nb\n\nc")
+		keys(e, '2', '}') // row 0 → row 1 (blank) → row 3 (blank)
+		assert.Equal(t, Position{3, 0}, cursorPos(e))
+	})
+}
+
+// TestMoveParagraphBackward tests '{' — move to the previous blank line (paragraph boundary).
+// Like Vim: from a non-blank line, lands on the previous blank line (or row 0 if none).
+// From a blank line, skips the blank gap first, then lands on the preceding blank line.
+func TestMoveParagraphBackward(t *testing.T) {
+	t.Run("lands on the blank line between paragraphs", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree\nfour")
+		keys(e, 'G', '{') // from row 4: skip "four","three", land on row 2 (blank)
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("from start of paragraph lands on blank separator", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree\nfour")
+		keys(e, 'j', 'j', 'j', '{') // row 3 → skip "three", land on row 2 (blank)
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("from blank line skips blank gap and lands on previous blank", func(t *testing.T) {
+		e := newTestEditor("one\n\nthree\nfour\n\nsix")
+		keys(e, 'G', '{', '{') // row 5 (blank) → skip blank, skip "four","three", land row 1 (blank)
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("no blank before first paragraph: lands on row 0", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree")
+		keys(e, 'j', '{') // row 1 → skip "two","one", hit row 0 (start of buffer)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("at first line stays put", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree")
+		keys(e, '{') // row 0; { is a no-op
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("two { jumps land on successive blank lines", func(t *testing.T) {
+		e := newTestEditor("a\n\nb\n\nc")
+		keys(e, 'G', '{', '{') // row 4 → row 3 (blank) → row 1 (blank)
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
