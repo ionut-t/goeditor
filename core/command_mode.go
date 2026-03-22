@@ -33,7 +33,7 @@ func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 			editor.UpdateCommand(":" + m.commandBuffer) // Update display
 		} else {
 			// Backspace on empty command line goes back to normal mode
-			editor.SetVisualMode()
+			editor.SetNormalMode()
 		}
 		return nil
 

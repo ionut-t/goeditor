@@ -76,14 +76,11 @@ func TestCommandModeTyping(t *testing.T) {
 		assert.Equal(t, ":w", e.GetState().CommandLine)
 	})
 
-	t.Run("Backspace on empty command buffer exits command mode", func(t *testing.T) {
+	t.Run("Backspace on empty command buffer exits to normal mode", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, ':')
 		backspace(e)
-		// TODO: bug in command_mode.go — SetVisualMode() is called instead of SetNormalMode()
-		// when backspace is pressed on an empty command buffer. Comment in code says "goes back
-		// to normal mode" but the call is wrong.
-		assert.True(t, e.IsVisualMode())
+		assert.True(t, e.IsNormalMode())
 	})
 }
 
