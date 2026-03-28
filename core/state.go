@@ -880,7 +880,10 @@ func (e *editor) Paste() (string, error) {
 		e.buffer.SetCursor(cursor)
 	} else {
 		// Character-wise paste: insert AFTER the cursor char — matching Vim's 'p' behaviour.
-		e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col+1, []rune(content))
+		// On an empty line Col+1 would exceed the line length, so clamp to lineLen.
+		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
+		insertCol := min(cursor.Position.Col+1, lineLen)
+		e.buffer.InsertRunesAt(cursor.Position.Row, insertCol, []rune(content))
 	}
 
 	e.SaveHistory()

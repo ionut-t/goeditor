@@ -38,6 +38,28 @@ func TestPasteCharacterWise(t *testing.T) {
 	})
 }
 
+// TestPasteCharacterWiseOnEmptyLine tests 'p' and 'P' on an empty line.
+// On an empty line there is no character to insert after, so the text is inserted at column 0.
+func TestPasteCharacterWiseOnEmptyLine(t *testing.T) {
+	t.Run("p on empty line inserts text at col 0", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello\n\nworld")
+		keys(e, 'y', 'e') // yank "hello"
+		keys(e, 'j')      // move to empty line (row 1)
+		keys(e, 'p')      // paste on empty line
+		assert.Equal(t, "hello\nhello\nworld", content(e))
+		assert.Equal(t, Position{1, 5}, cursorPos(e))
+	})
+
+	t.Run("P on empty line inserts text at col 0", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello\n\nworld")
+		keys(e, 'y', 'e') // yank "hello"
+		keys(e, 'j')      // move to empty line (row 1)
+		keys(e, 'P')      // paste before on empty line
+		assert.Equal(t, "hello\nhello\nworld", content(e))
+		assert.Equal(t, Position{1, 5}, cursorPos(e))
+	})
+}
+
 // TestPasteLinewise tests 'p' after a line-wise yank ('yy').
 // Linewise paste inserts the yanked line below the current line and moves the cursor
 // to the start of the newly inserted line — matching Vim's behaviour.
