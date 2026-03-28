@@ -331,6 +331,34 @@ func TestDeleteToEndOfLineShortcut(t *testing.T) {
 	})
 }
 
+// TestDeleteToBufferStart tests 'dgg' — delete from the first line up to and including the cursor line.
+func TestDeleteToBufferStart(t *testing.T) {
+	t.Run("dgg deletes from first line to cursor line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'j', 'j') // cursor on row 2
+		keys(e, 'd', 'g', 'g')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("dgg on first line deletes only the first line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'd', 'g', 'g')
+		assert.Equal(t, "two\nthree", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("Escape after dg cancels without deleting", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'j')
+		e.HandleKey(KeyEvent{Rune: 'd'})
+		e.HandleKey(KeyEvent{Rune: 'g'})
+		escape(e)
+		assert.Equal(t, "one\ntwo\nthree", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
+
 // TestUndoDeleteLine verifies that undo restores both content and cursor position.
 func TestUndoDeleteLine(t *testing.T) {
 	t.Run("undo dd on last line restores cursor to deleted row", func(t *testing.T) {

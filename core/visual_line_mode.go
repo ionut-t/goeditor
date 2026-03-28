@@ -9,6 +9,7 @@ type visualLineMode struct {
 	startPos     Position        // Only the Row is relevant for selection extent
 	currentCount *int            // Temporary count parsed within visual line mode
 	charSearch   charSearchState // Character search state (f/F/t/T)
+	waitingForG  bool            // true after 'g' is pressed, waiting for second key
 }
 
 func NewVisualLineMode() EditorMode {
@@ -28,6 +29,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	m.startPos = buffer.GetCursor().Position
 	m.currentCount = nil
 	m.charSearch = charSearchState{}
+	m.waitingForG = false
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
 	state.VisualStart = m.startPos // Use VisualStart to indicate visual active
@@ -41,6 +43,7 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 	editor.SetState(state)
 	editor.UpdateStatus("") // Clear status or let normal mode set it
 	m.currentCount = nil
+	m.waitingForG = false
 }
 
 func (m *visualLineMode) GetCurrentCount() *int {
@@ -73,6 +76,25 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// If a digit was just processed, wait for the next key
 	if processedDigit {
+		return nil
+	}
+
+	// --- Handle 'g' prefix (gg, ge) ---
+	if m.waitingForG {
+		m.waitingForG = false
+		editor.UpdateCommand("")
+		if key.Key != KeyEscape {
+			switch key.Rune {
+			case 'g':
+				cursor.MoveToBufferStart()
+				buffer.SetCursor(cursor)
+			case 'e':
+				moveErr := cursor.MoveWordToEndBackward(buffer, count, editor.GetState().AvailableWidth, editor.IsWordChar)
+				if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
+					buffer.SetCursor(cursor)
+				}
+			}
+		}
 		return nil
 	}
 
@@ -242,6 +264,10 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 			moveErr = cursor.MoveRightOrDown(buffer, 1, col)
 			movementAttempted = true
+		case key.Rune == 'g':
+			m.waitingForG = true
+			editor.UpdateCommand("g")
+			return nil
 		default:
 			var earlyReturn bool
 			moveErr, movementAttempted, earlyReturn = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)

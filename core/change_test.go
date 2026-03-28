@@ -264,3 +264,15 @@ func TestChangeAroundParagraph(t *testing.T) {
 		assertInsertMode(t, e)
 	})
 }
+
+// TestChangeToBufferStart tests 'cgg' — delete from the first line to the cursor line and enter insert mode.
+func TestChangeToBufferStart(t *testing.T) {
+	t.Run("cgg deletes to top and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'j', 'j') // cursor on row 2
+		keys(e, 'c', 'g', 'g')
+		assert.Equal(t, "", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+}

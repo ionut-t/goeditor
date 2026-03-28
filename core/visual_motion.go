@@ -2,14 +2,11 @@ package core
 
 // applyVisualMotion handles motion keys shared by all visual modes.
 //
-// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, g, G, Enter, w/e/b, f/F/t/T, ;/,
+// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,
 // Excludes:
-//   - h/l  — count differs between charwise (user count) and line (always 1)
+//   - h/l            — count differs: charwise uses the user count, line mode always uses 1
+//   - g              — handled by each mode's waitingForG state before reaching here
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
-//
-// Note: charwise visual mode handles w with an additional exclusive-motion adjustment
-// in its own switch before delegating here, so the w case here only activates for
-// visual line mode (where the adjustment is not needed).
 //
 // Returns (moveErr, movementAttempted, earlyReturn).
 // earlyReturn=true signals the caller must return nil immediately (charSearch initiated).
@@ -52,8 +49,14 @@ func applyVisualMotion(
 	case key.Rune == '^':
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 		movementAttempted = true
-	case key.Rune == 'g':
-		cursor.MoveToBufferStart()
+	case key.Rune == 'w':
+		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		movementAttempted = true
+	case key.Rune == 'e':
+		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+		movementAttempted = true
+	case key.Rune == 'b':
+		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == 'G':
 		cursor.MoveToBufferEnd(buffer, availableWidth)
@@ -89,15 +92,6 @@ func applyVisualMotion(
 	case key.Rune == ';':
 		repeatCharSearch(cs, editor, buffer, count, false)
 		*cursor = buffer.GetCursor()
-		movementAttempted = true
-	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
-		movementAttempted = true
-	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
-		movementAttempted = true
-	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == ',':
 		repeatCharSearch(cs, editor, buffer, count, true)

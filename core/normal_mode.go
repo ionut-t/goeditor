@@ -11,6 +11,7 @@ type normalMode struct {
 	pendingModifier   rune            // Stores text object modifier ('i' for inside, 'a' for around)
 	charSearch        charSearchState // Character search state (f/F/t/T)
 	waitingForReplace bool            // True when waiting for character input after 'r'
+	waitingForG       bool            // True after 'g' is pressed, waiting for second key (gg, ge)
 }
 
 func NewNormalMode() EditorMode {
@@ -32,6 +33,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
+	m.waitingForG = false
 	editor.ResetPendingCount()
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
@@ -45,6 +47,7 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
+	m.waitingForG = false
 }
 
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
@@ -125,6 +128,77 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 		err = replaceCharUnderCursor(editor, buffer, key.Rune)
 		return err
+	}
+
+	// --- Handle 'g' prefix (gg = go to top/line N, ge = end of previous word,
+	//                         dgg/ygg/cgg = operator to top of buffer) ---
+	if m.waitingForG {
+		m.waitingForG = false
+		editor.UpdateCommand("")
+		if key.Key == KeyEscape {
+			m.pendingKey = KeyEvent{Key: KeyUnknown}
+			editor.ResetPendingCount()
+			return nil
+		}
+
+		// Operator + gg: dgg, ygg, cgg
+		if (m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0) && key.Rune == 'g' {
+			firstKey := m.pendingKey
+			m.pendingKey = KeyEvent{Key: KeyUnknown}
+			editor.ResetPendingCount()
+
+			originalRow := cursor.Position.Row
+			cursor.MoveToBufferStart()
+			buffer.SetCursor(cursor)
+			lineCount := originalRow + 1
+
+			switch firstKey.Rune {
+			case 'd':
+				if !state.WithInsertMode {
+					return nil
+				}
+				var deletedContent string
+				deletedContent, err = deleteLines(editor, buffer, lineCount)
+				editor.DispatchSignal(DeleteSignal{content: deletedContent})
+			case 'y':
+				err = yankLines(editor, buffer, lineCount)
+			case 'c':
+				if !state.WithInsertMode {
+					return nil
+				}
+				_, err = deleteLines(editor, buffer, lineCount)
+				if err == nil {
+					editor.SetInsertMode()
+				}
+			}
+			return err
+		}
+
+		gCount := 1
+		if pendingCount != nil {
+			gCount = *pendingCount
+			editor.ResetPendingCount()
+		}
+		switch key.Rune {
+		case 'g': // gg — go to top; with count N go to line N
+			if gCount > 1 {
+				row := gCount - 1
+				if row >= buffer.LineCount() {
+					row = buffer.LineCount() - 1
+				}
+				cursor.Position.Row = row
+				cursor.Position.Col = 0
+			} else {
+				cursor.MoveToBufferStart()
+			}
+			buffer.SetCursor(cursor)
+		case 'e': // ge — end of previous word
+			moveErr := cursor.MoveWordToEndBackward(buffer, gCount, availableWidth, editor.IsWordChar)
+			if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
+				buffer.SetCursor(cursor)
+			}
+		}
+		return nil
 	}
 
 	// --- Handle Pending Operation (e.g., after 'd') ---
@@ -217,6 +291,13 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 			// Keep pendingKey - we'll process the operator after getting the character
 			return nil
+		}
+
+		// Check for 'g' prefix motion (dgg, ygg, cgg)
+		if key.Rune == 'g' {
+			m.waitingForG = true
+			editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+			return nil // Keep pendingKey, wait for the second key
 		}
 
 		// Consume the pending key now if not waiting for text object
@@ -443,7 +524,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case key.Rune == '^' || key.Key == KeyHome:
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 	case key.Rune == 'g':
-		cursor.MoveToBufferStart() // Move to first line
+		m.waitingForG = true
+		editor.UpdateCommand("g")
+		return nil // wait for second key; preserve pendingCount for 5gg etc.
 	case key.Rune == 'G':
 		cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
@@ -801,5 +884,6 @@ func (m *normalMode) clearPendingState(editor Editor) {
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
+	m.waitingForG = false
 	editor.ResetPendingCount()
 }

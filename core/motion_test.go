@@ -182,13 +182,13 @@ func TestMoveToFirstNonBlank(t *testing.T) {
 func TestMoveToBufferStart(t *testing.T) {
 	t.Run("moves to row 0 col 0", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
-		keys(e, 'j', 'j', 'g')
+		keys(e, 'j', 'j', 'g', 'g')
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
 	t.Run("already on first line stays at row 0", func(t *testing.T) {
 		e := newTestEditor("hello")
-		keys(e, 'l', 'l', 'g')
+		keys(e, 'l', 'l', 'g', 'g')
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
@@ -370,3 +370,65 @@ func TestMoveParagraphBackward(t *testing.T) {
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
 	})
 }
+
+// TestGPrefix tests the 'g' prefix commands (gg, ge).
+func TestGPrefix(t *testing.T) {
+	// gg
+	t.Run("gg goes to top of buffer", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'G')
+		keys(e, 'g', 'g')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("5gg goes to line 5", func(t *testing.T) {
+		e := newTestEditor("a\nb\nc\nd\ne\nf")
+		keys(e, '5', 'g', 'g')
+		assert.Equal(t, Position{4, 0}, cursorPos(e))
+	})
+
+	t.Run("gg count beyond last line clamps to last line", func(t *testing.T) {
+		e := newTestEditor("a\nb")
+		keys(e, '9', 'g', 'g')
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	// ge
+	t.Run("ge moves to end of previous word", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'w') // cursor at 'w' of "world" (col 6)
+		keys(e, 'g', 'e')
+		assert.Equal(t, Position{0, 4}, cursorPos(e)) // 'o' of "hello"
+	})
+
+	t.Run("ge from start of word moves to end of previous word", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'w', 'w') // cursor at 't' of "three" (col 8)
+		keys(e, 'g', 'e')
+		assert.Equal(t, Position{0, 6}, cursorPos(e)) // 'o' of "two"
+	})
+
+	t.Run("ge at start of buffer returns error and stays", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'g', 'e')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("ge crosses line boundary", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'j') // row 1
+		keys(e, 'g', 'e')
+		assert.Equal(t, Position{0, 4}, cursorPos(e)) // 'o' of "hello"
+	})
+
+	// Escape cancels pending g
+	t.Run("Escape after g cancels prefix", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'j') // row 1
+		e.HandleKey(KeyEvent{Rune: 'g'})
+		escape(e)
+		assert.Equal(t, Position{1, 0}, cursorPos(e)) // cursor unchanged
+		assert.True(t, e.IsNormalMode())
+	})
+}
+

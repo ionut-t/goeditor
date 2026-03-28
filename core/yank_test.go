@@ -194,3 +194,43 @@ func TestYankAroundParagraph(t *testing.T) {
 		assert.Equal(t, "\nhello\nworld\n", cb.content)
 	})
 }
+
+// TestYankToBufferStart tests 'ygg' — yank from the first line to and including the cursor line.
+func TestYankToBufferStart(t *testing.T) {
+	t.Run("ygg yanks from first line to cursor line", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'j', 'j') // cursor on row 2
+		keys(e, 'y', 'g', 'g')
+		assert.Equal(t, "one\ntwo\nthree\n", cb.content)
+		assert.Equal(t, "one\ntwo\nthree", content(e)) // buffer unchanged
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+}
+
+// TestYankToEndOfBuffer tests 'yG' — yank from current line to end of buffer.
+func TestYankToEndOfBuffer(t *testing.T) {
+	t.Run("from first line yanks entire buffer", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'y', 'G')
+		assert.Equal(t, "one\ntwo\nthree\n", cb.content)
+		assert.Equal(t, "one\ntwo\nthree", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("from middle line yanks to end", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'j')
+		keys(e, 'y', 'G')
+		assert.Equal(t, "two\nthree\n", cb.content)
+		assert.Equal(t, "one\ntwo\nthree", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("from last line yanks only that line", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'G')
+		keys(e, 'y', 'G')
+		assert.Equal(t, "three\n", cb.content)
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+}
