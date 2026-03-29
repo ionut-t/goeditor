@@ -50,387 +50,428 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.waitingForG = false
 }
 
+// HandleKey dispatches each incoming key to the appropriate handler.
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	if m.charSearch.waitingForChar {
+		return m.handleCharSearchKey(editor, buffer, key)
+	}
+	if m.waitingForReplace {
+		return m.handleReplaceKey(editor, buffer, key)
+	}
+	if m.waitingForG {
+		return m.handleGKey(editor, buffer, key)
+	}
+	if m.hasPendingOperator() {
+		return m.handlePendingOperator(editor, buffer, key)
+	}
+	return m.handleBaseKey(editor, buffer, key)
+}
+
+// handleCharSearchKey handles character input while waiting for the target of f/F/t/T.
+func (m *normalMode) handleCharSearchKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	m.charSearch.waitingForChar = false
+	editor.UpdateCommand("") // Clear the command display
+
+	state := editor.GetState()
+	pendingCount := state.PendingCount
+
+	// Handle escape to cancel
+	if key.Key == KeyEscape {
+		m.clearPendingState(editor)
+		return nil
+	}
+
+	// Get the character to search for
+	if key.Rune == 0 {
+		// Not a valid character
+		m.clearPendingState(editor)
+		return nil
+	}
+
+	count := 1
+	if pendingCount != nil {
+		count = *pendingCount
+		editor.ResetPendingCount()
+	}
+
+	// Check if there's a pending operator (d/y/c)
+	if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
+		// Operator + character search motion (e.g., df,  yt;)
+		firstKey := m.pendingKey
+		m.pendingKey = KeyEvent{Key: KeyUnknown}
+
+		op := operatorName(firstKey.Rune)
+
+		if op != "" {
+			err := handleCharSearchOperator(editor, buffer, op, m.charSearch.searchType, key.Rune, count)
+			if err != nil {
+				m.clearPendingState(editor)
+			}
+			return err
+		}
+	}
+
+	// No pending operator - just perform the character search
+	if err := performCharSearch(buffer, &m.charSearch, key.Rune, count); err != nil {
+		m.clearPendingState(editor)
+		editor.DispatchError(ErrCharNotFoundId, err)
+	}
+	return nil
+}
+
+// handleReplaceKey handles character input while waiting for the replacement character after 'r'.
+func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	m.waitingForReplace = false
+	editor.UpdateCommand("")
+
+	if key.Key == KeyEscape || key.Rune == 0 {
+		return nil
+	}
+
+	return replaceCharUnderCursor(editor, buffer, key.Rune)
+}
+
+// handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg).
+func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	m.waitingForG = false
+	editor.UpdateCommand("")
+
+	state := editor.GetState()
+	pendingCount := state.PendingCount
+	cursor := buffer.GetCursor()
+	availableWidth := state.AvailableWidth
+
+	if key.Key == KeyEscape {
+		m.pendingKey = KeyEvent{Key: KeyUnknown}
+		editor.ResetPendingCount()
+		return nil
+	}
+
+	// Operator + gg: dgg, ygg, cgg
+	if (m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0) && key.Rune == 'g' {
+		return m.handleOperatorGG(editor, buffer, cursor, state)
+	}
+
+	gCount := 1
+	if pendingCount != nil {
+		gCount = *pendingCount
+		editor.ResetPendingCount()
+	}
+	switch key.Rune {
+	case 'g': // gg — go to top; with count N go to line N
+		if gCount > 1 {
+			row := gCount - 1
+			if row >= buffer.LineCount() {
+				row = buffer.LineCount() - 1
+			}
+			cursor.Position.Row = row
+			cursor.Position.Col = 0
+		} else {
+			cursor.MoveToBufferStart()
+		}
+		buffer.SetCursor(cursor)
+	case 'e': // ge — end of previous word
+		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, availableWidth, editor.IsWordChar)
+		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
+			buffer.SetCursor(cursor)
+		}
+	}
+	return nil
+}
+
+// handleOperatorGG handles dgg / ygg / cgg — operator applied from current line to buffer top.
+func (m *normalMode) handleOperatorGG(editor Editor, buffer Buffer, cursor Cursor, state State) *EditorError {
 	var err *EditorError
-	actionTaken := false // Track if the key (or sequence) resulted in an action
+
+	firstKey := m.pendingKey
+	m.pendingKey = KeyEvent{Key: KeyUnknown}
+	editor.ResetPendingCount()
+
+	originalRow := cursor.Position.Row
+	cursor.MoveToBufferStart()
+	buffer.SetCursor(cursor)
+	lineCount := originalRow + 1
+
+	switch firstKey.Rune {
+	case 'd':
+		if !state.WithInsertMode {
+			return nil
+		}
+		var deletedContent string
+		deletedContent, err = deleteLines(editor, buffer, lineCount)
+		editor.DispatchSignal(DeleteSignal{content: deletedContent})
+	case 'y':
+		err = yankLines(editor, buffer, lineCount)
+	case 'c':
+		if !state.WithInsertMode {
+			return nil
+		}
+		_, err = deleteLines(editor, buffer, lineCount)
+		if err == nil {
+			editor.SetInsertMode()
+		}
+	}
+	return err
+}
+
+// hasPendingOperator reports whether a pending operator key is set.
+func (m *normalMode) hasPendingOperator() bool {
+	return m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0
+}
+
+// handlePendingOperator handles the second key of a d/y/c operator sequence.
+func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	firstKey := m.pendingKey
+
+	state := editor.GetState()
+	pendingCount := state.PendingCount
+
+	count := 1
+	if pendingCount != nil {
+		count = *pendingCount
+		editor.ResetPendingCount()
+	}
+
+	op := operatorName(firstKey.Rune)
+	if op == "" {
+		m.pendingKey = KeyEvent{Key: KeyUnknown}
+		m.pendingModifier = 0
+		return &EditorError{
+			id:  ErrNoPendingOperationId,
+			err: ErrNoPendingOperation,
+		}
+	}
+
+	// Check if we're waiting for a text object after modifier (i/a)
+	if m.pendingModifier != 0 {
+		return m.handleTextObject(editor, buffer, key, op)
+	}
+
+	// Check for text object modifiers (i/a)
+	if key.Rune == 'i' || key.Rune == 'a' {
+		m.pendingModifier = key.Rune
+		editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
+		return nil // Wait for the text object key
+	}
+
+	// Check for character search motions (f/F/t/T)
+	if key.Rune == 'f' || key.Rune == 'F' || key.Rune == 't' || key.Rune == 'T' {
+		m.charSearch.searchType = key.Rune
+		m.charSearch.waitingForChar = true
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+		// Keep pendingKey - we'll process the operator after getting the character
+		return nil
+	}
+
+	// Check for 'g' prefix motion (dgg, ygg, cgg)
+	if key.Rune == 'g' {
+		m.waitingForG = true
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+		return nil // Keep pendingKey, wait for the second key
+	}
+
+	// Consume the pending key now if not waiting for text object
+	m.pendingKey = KeyEvent{Key: KeyUnknown}
+
+	return m.dispatchOperatorMotion(editor, buffer, key, op, firstKey.Rune, count)
+}
+
+// handleTextObject handles a text object key (w, p, …) after a pending modifier (i/a).
+func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, op string) *EditorError {
+	var err *EditorError
+	actionTaken := false
+
+	modifier := m.pendingModifier
+	m.pendingModifier = 0
+	m.pendingKey = KeyEvent{Key: KeyUnknown}
+
+	// Handle text objects after modifier
+	switch key.Rune {
+	case 'w': // iw or aw = inside/around word
+		switch op {
+		case "yank":
+			err = yankTextObject(editor, buffer, modifier, 'w')
+			actionTaken = true
+		case "delete":
+			err = deleteTextObject(editor, buffer, modifier, 'w')
+			actionTaken = true
+		case "change":
+			err = changeTextObject(editor, buffer, modifier, 'w')
+			actionTaken = true
+		}
+	case 'p': // ip or ap = inside/around paragraph
+		switch op {
+		case "yank":
+			err = yankParagraphTextObject(editor, buffer, modifier)
+			actionTaken = true
+		case "delete":
+			err = deleteParagraphTextObject(editor, buffer, modifier)
+			actionTaken = true
+		case "change":
+			err = changeParagraphTextObject(editor, buffer, modifier)
+			actionTaken = true
+		}
+	default:
+		editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid text object '%c' after '%c'", key.Rune, modifier))
+		actionTaken = true
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if actionTaken {
+		editor.UpdateCommand("")
+		return nil
+	}
+
+	return nil
+}
+
+// dispatchOperatorMotion executes the appropriate buffer operation for an operator+motion pair.
+func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key KeyEvent, op string, firstKeyRune rune, count int) *EditorError {
+	var err *EditorError
+	actionTaken := false
+
+	cursor := buffer.GetCursor()
+
+	// Handle motion keys after the operator
+	// Supported operator-motion commands:
+	//
+	// Yank commands:
+	//   yy  - yank current line (line-wise)
+	//   yw  - yank word forward (character-wise)
+	//   yb  - yank word backward (character-wise)
+	//   y$  - yank to end of line (character-wise)
+	//   yiw - yank inside word (character-wise)
+	//   yaw - yank around word, includes surrounding whitespace (character-wise)
+	//
+	// Delete commands:
+	//   dd  - delete current line (line-wise)
+	//   dw  - delete word forward (character-wise)
+	//   d$  - delete to end of line (character-wise)
+	switch key.Rune {
+	case 'd': // dd = delete line
+		if op == "delete" {
+			var deletedContent string
+			deletedContent, err = deleteLines(editor, buffer, count)
+			editor.DispatchSignal(DeleteSignal{content: deletedContent})
+			actionTaken = true
+		}
+	case 'y': // yy = yank line
+		if op == "yank" {
+			err = yankLines(editor, buffer, count)
+			actionTaken = true
+		}
+	case 'c': // cc = change line
+		if op == "change" {
+			_, err = deleteLines(editor, buffer, count)
+			if err == nil {
+				editor.SetInsertMode()
+			}
+			actionTaken = true
+		}
+	case 'w': // dw = delete word, yw = yank word forward, cw = change word
+		switch op {
+		case "delete":
+			err = deleteWords(editor, buffer, count)
+			actionTaken = true
+		case "yank":
+			err = yankWords(editor, buffer, count, true) // forward
+			actionTaken = true
+		case "change":
+			err = changeWords(editor, buffer, count)
+			actionTaken = true
+		}
+	case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
+		switch op {
+		case "delete":
+			err = deleteWordsBackward(editor, buffer, count)
+			actionTaken = true
+		case "yank":
+			err = yankWords(editor, buffer, count, false) // backward
+			actionTaken = true
+		case "change":
+			err = changeWordsBackward(editor, buffer, count)
+			actionTaken = true
+		}
+	case 'e': // de = delete to word end, ye = yank to word end, ce = change to word end
+		switch op {
+		case "delete":
+			err = deleteWordToEnd(editor, buffer, count)
+			actionTaken = true
+		case "yank":
+			err = yankWordToEnd(editor, buffer, count)
+			actionTaken = true
+		case "change":
+			err = changeWords(editor, buffer, count) // ce and cw behave the same
+			actionTaken = true
+		}
+	case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
+		switch op {
+		case "delete":
+			var deletedContent string
+			deletedContent, err = deleteToEndOfLine(editor, buffer)
+			editor.DispatchSignal(DeleteSignal{content: deletedContent})
+			actionTaken = true
+		case "yank":
+			err = yankToEndOfLine(editor, buffer)
+			actionTaken = true
+		case "change":
+			err = changeToEndOfLine(editor, buffer)
+			actionTaken = true
+		}
+	case 'G': // dG, yG, cG
+		switch op {
+		case "delete":
+			count := buffer.LineCount() - cursor.Position.Row
+			var deletedContent string
+			deletedContent, err = deleteLines(editor, buffer, count)
+			editor.DispatchSignal(DeleteSignal{content: deletedContent})
+			actionTaken = true
+		case "yank":
+			count := buffer.LineCount() - cursor.Position.Row
+			err = yankLines(editor, buffer, count)
+			actionTaken = true
+		case "change":
+			count := buffer.LineCount() - cursor.Position.Row
+			_, err = deleteLines(editor, buffer, count)
+			if err == nil {
+				editor.SetInsertMode()
+			}
+			actionTaken = true
+		}
+
+	default:
+		// Invalid motion key after operator
+		editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid motion after '%c'", firstKeyRune))
+		actionTaken = true         // Consumed the keys, even if invalid combo
+		editor.ResetPendingCount() // Reset count if combo was invalid
+	}
+
+	if err != nil {
+		return err // Return error from buffer operation
+	}
+
+	if actionTaken {
+		editor.UpdateCommand("")
+		return nil
+	} // Sequence handled
+
+	// If we fall through here, it means the second key wasn't a recognized motion
+	// for the pending operator. We just discard the pending op.
+
+	return nil
+}
+
+// handleBaseKey handles count accumulation and single-key normal-mode commands.
+func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	var err *EditorError
 	state := editor.GetState()
 	pendingCount := state.PendingCount
 	availableWidth := state.AvailableWidth
 	skipCursorUpdate := false
-	cursor := buffer.GetCursor() // Get cursor for operations
-
-	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
-	if m.charSearch.waitingForChar {
-		m.charSearch.waitingForChar = false
-		editor.UpdateCommand("") // Clear the command display
-
-		// Handle escape to cancel
-		if key.Key == KeyEscape {
-			m.clearPendingState(editor)
-			return nil
-		}
-
-		// Get the character to search for
-		if key.Rune == 0 {
-			// Not a valid character
-			m.clearPendingState(editor)
-			return nil
-		}
-
-		count := 1
-		if pendingCount != nil {
-			count = *pendingCount
-			editor.ResetPendingCount()
-		}
-
-		// Check if there's a pending operator (d/y/c)
-		if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
-			// Operator + character search motion (e.g., df,  yt;)
-			firstKey := m.pendingKey
-			m.pendingKey = KeyEvent{Key: KeyUnknown}
-
-			op := ""
-			switch firstKey.Rune {
-			case 'd':
-				op = "delete"
-			case 'y':
-				op = "yank"
-			case 'c':
-				op = "change"
-			}
-
-			if op != "" {
-				err = handleCharSearchOperator(editor, buffer, op, m.charSearch.searchType, key.Rune, count)
-				if err != nil {
-					m.clearPendingState(editor)
-				}
-				return err
-			}
-		}
-
-		// No pending operator - just perform the character search
-		searchErr := performCharSearch(buffer, &m.charSearch, m.charSearch.searchType, key.Rune, count)
-		if searchErr != nil {
-			m.clearPendingState(editor)
-			editor.DispatchError(ErrCharNotFoundId, searchErr)
-		}
-		return nil
-	}
-
-	// --- Handle Replace Character Input (waiting for character after 'r') ---
-	if m.waitingForReplace {
-		m.waitingForReplace = false
-		editor.UpdateCommand("")
-
-		if key.Key == KeyEscape || key.Rune == 0 {
-			return nil
-		}
-
-		err = replaceCharUnderCursor(editor, buffer, key.Rune)
-		return err
-	}
-
-	// --- Handle 'g' prefix (gg = go to top/line N, ge = end of previous word,
-	//                         dgg/ygg/cgg = operator to top of buffer) ---
-	if m.waitingForG {
-		m.waitingForG = false
-		editor.UpdateCommand("")
-		if key.Key == KeyEscape {
-			m.pendingKey = KeyEvent{Key: KeyUnknown}
-			editor.ResetPendingCount()
-			return nil
-		}
-
-		// Operator + gg: dgg, ygg, cgg
-		if (m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0) && key.Rune == 'g' {
-			firstKey := m.pendingKey
-			m.pendingKey = KeyEvent{Key: KeyUnknown}
-			editor.ResetPendingCount()
-
-			originalRow := cursor.Position.Row
-			cursor.MoveToBufferStart()
-			buffer.SetCursor(cursor)
-			lineCount := originalRow + 1
-
-			switch firstKey.Rune {
-			case 'd':
-				if !state.WithInsertMode {
-					return nil
-				}
-				var deletedContent string
-				deletedContent, err = deleteLines(editor, buffer, lineCount)
-				editor.DispatchSignal(DeleteSignal{content: deletedContent})
-			case 'y':
-				err = yankLines(editor, buffer, lineCount)
-			case 'c':
-				if !state.WithInsertMode {
-					return nil
-				}
-				_, err = deleteLines(editor, buffer, lineCount)
-				if err == nil {
-					editor.SetInsertMode()
-				}
-			}
-			return err
-		}
-
-		gCount := 1
-		if pendingCount != nil {
-			gCount = *pendingCount
-			editor.ResetPendingCount()
-		}
-		switch key.Rune {
-		case 'g': // gg — go to top; with count N go to line N
-			if gCount > 1 {
-				row := gCount - 1
-				if row >= buffer.LineCount() {
-					row = buffer.LineCount() - 1
-				}
-				cursor.Position.Row = row
-				cursor.Position.Col = 0
-			} else {
-				cursor.MoveToBufferStart()
-			}
-			buffer.SetCursor(cursor)
-		case 'e': // ge — end of previous word
-			moveErr := cursor.MoveWordToEndBackward(buffer, gCount, availableWidth, editor.IsWordChar)
-			if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
-				buffer.SetCursor(cursor)
-			}
-		}
-		return nil
-	}
-
-	// --- Handle Pending Operation (e.g., after 'd') ---
-	if m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 {
-		firstKey := m.pendingKey
-
-		count := 1
-		if pendingCount != nil {
-			count = *pendingCount
-			editor.ResetPendingCount()
-		}
-
-		op := ""
-		switch firstKey.Rune {
-		case 'd':
-			op = "delete"
-		case 'y':
-			op = "yank"
-		case 'c': // Add change later
-			op = "change"
-		default:
-			m.pendingKey = KeyEvent{Key: KeyUnknown}
-			m.pendingModifier = 0
-			return &EditorError{
-				id:  ErrNoPendingOperationId,
-				err: ErrNoPendingOperation,
-			}
-		}
-
-		// Check if we're waiting for a text object after modifier (i/a)
-		if m.pendingModifier != 0 {
-			modifier := m.pendingModifier
-			m.pendingModifier = 0
-			m.pendingKey = KeyEvent{Key: KeyUnknown}
-
-			// Handle text objects after modifier
-			switch key.Rune {
-			case 'w': // iw or aw = inside/around word
-				switch op {
-				case "yank":
-					err = yankTextObject(editor, buffer, modifier, 'w')
-					actionTaken = true
-				case "delete":
-					err = deleteTextObject(editor, buffer, modifier, 'w')
-					actionTaken = true
-				case "change":
-					err = changeTextObject(editor, buffer, modifier, 'w')
-					actionTaken = true
-				}
-			case 'p': // ip or ap = inside/around paragraph
-				switch op {
-				case "yank":
-					err = yankParagraphTextObject(editor, buffer, modifier)
-					actionTaken = true
-				case "delete":
-					err = deleteParagraphTextObject(editor, buffer, modifier)
-					actionTaken = true
-				case "change":
-					err = changeParagraphTextObject(editor, buffer, modifier)
-					actionTaken = true
-				}
-			default:
-				editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid text object '%c' after '%c'", key.Rune, modifier))
-				actionTaken = true
-			}
-
-			if err != nil {
-				return err
-			}
-
-			if actionTaken {
-				editor.UpdateCommand("")
-				return nil
-			}
-
-			return nil
-		}
-
-		// Check for text object modifiers (i/a)
-		if key.Rune == 'i' || key.Rune == 'a' {
-			m.pendingModifier = key.Rune
-			editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
-			return nil // Wait for the text object key
-		}
-
-		// Check for character search motions (f/F/t/T)
-		if key.Rune == 'f' || key.Rune == 'F' || key.Rune == 't' || key.Rune == 'T' {
-			m.charSearch.searchType = key.Rune
-			m.charSearch.waitingForChar = true
-			editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
-			// Keep pendingKey - we'll process the operator after getting the character
-			return nil
-		}
-
-		// Check for 'g' prefix motion (dgg, ygg, cgg)
-		if key.Rune == 'g' {
-			m.waitingForG = true
-			editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
-			return nil // Keep pendingKey, wait for the second key
-		}
-
-		// Consume the pending key now if not waiting for text object
-		m.pendingKey = KeyEvent{Key: KeyUnknown}
-
-		// Handle motion keys after the operator
-		// Supported operator-motion commands:
-		//
-		// Yank commands:
-		//   yy  - yank current line (line-wise)
-		//   yw  - yank word forward (character-wise)
-		//   yb  - yank word backward (character-wise)
-		//   y$  - yank to end of line (character-wise)
-		//   yiw - yank inside word (character-wise)
-		//   yaw - yank around word, includes surrounding whitespace (character-wise)
-		//
-		// Delete commands:
-		//   dd  - delete current line (line-wise)
-		//   dw  - delete word forward (character-wise)
-		//   d$  - delete to end of line (character-wise)
-		switch key.Rune {
-		case 'd': // dd = delete line
-			if op == "delete" {
-				var deletedContent string
-				deletedContent, err = deleteLines(editor, buffer, count)
-				editor.DispatchSignal(DeleteSignal{content: deletedContent})
-				actionTaken = true
-			}
-		case 'y': // yy = yank line
-			if op == "yank" {
-				err = yankLines(editor, buffer, count)
-				actionTaken = true
-			}
-		case 'c': // cc = change line
-			if op == "change" {
-				_, err = deleteLines(editor, buffer, count)
-				if err == nil {
-					editor.SetInsertMode()
-				}
-				actionTaken = true
-			}
-		case 'w': // dw = delete word, yw = yank word forward, cw = change word
-			switch op {
-			case "delete":
-				err = deleteWords(editor, buffer, count)
-				actionTaken = true
-			case "yank":
-				err = yankWords(editor, buffer, count, true) // forward
-				actionTaken = true
-			case "change":
-				err = changeWords(editor, buffer, count)
-				actionTaken = true
-			}
-		case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
-			switch op {
-			case "delete":
-				err = deleteWordsBackward(editor, buffer, count)
-				actionTaken = true
-			case "yank":
-				err = yankWords(editor, buffer, count, false) // backward
-				actionTaken = true
-			case "change":
-				err = changeWordsBackward(editor, buffer, count)
-				actionTaken = true
-			}
-		case 'e': // de = delete to word end, ye = yank to word end, ce = change to word end
-			switch op {
-			case "delete":
-				err = deleteWordToEnd(editor, buffer, count)
-				actionTaken = true
-			case "yank":
-				err = yankWordToEnd(editor, buffer, count)
-				actionTaken = true
-			case "change":
-				err = changeWords(editor, buffer, count) // ce and cw behave the same
-				actionTaken = true
-			}
-		case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
-			switch op {
-			case "delete":
-				var deletedContent string
-				deletedContent, err = deleteToEndOfLine(editor, buffer)
-				editor.DispatchSignal(DeleteSignal{content: deletedContent})
-				actionTaken = true
-			case "yank":
-				err = yankToEndOfLine(editor, buffer)
-				actionTaken = true
-			case "change":
-				err = changeToEndOfLine(editor, buffer)
-				actionTaken = true
-			}
-		case 'G': // dG, yG, cG
-			switch op {
-			case "delete":
-				count := buffer.LineCount() - cursor.Position.Row
-				var deletedContent string
-				deletedContent, err = deleteLines(editor, buffer, count)
-				editor.DispatchSignal(DeleteSignal{content: deletedContent})
-				actionTaken = true
-			case "yank":
-				count := buffer.LineCount() - cursor.Position.Row
-				err = yankLines(editor, buffer, count)
-				actionTaken = true
-			case "change":
-				count := buffer.LineCount() - cursor.Position.Row
-				_, err = deleteLines(editor, buffer, count)
-				if err == nil {
-					editor.SetInsertMode()
-				}
-				actionTaken = true
-			}
-
-		default:
-			// Invalid motion key after operator
-			editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid motion after '%c'", firstKey.Rune))
-			actionTaken = true         // Consumed the keys, even if invalid combo
-			editor.ResetPendingCount() // Reset count if combo was invalid
-		}
-
-		if err != nil {
-			return err // Return error from buffer operation
-		}
-
-		if actionTaken {
-			editor.UpdateCommand("")
-			return nil
-		} // Sequence handled
-
-		// If we fall through here, it means the second key wasn't a recognized motion
-		// for the pending operator. We just discard the pending op.
-
-		return nil
-	}
+	cursor := buffer.GetCursor()
 
 	// --- Handle Numeric Input for Counts ---
 	if key.Rune >= '1' && key.Rune <= '9' {
@@ -444,7 +485,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				// Start the count state with the current digit
 				state.PendingCount = &digit
 				editor.SetState(state) // Save state
-				actionTaken = true     // '0' motion was taken
 			} else {
 				// Normal start of count
 				state.PendingCount = &digit // Update state directly
@@ -466,7 +506,6 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.ResetPendingCount()               // Ensure no count is active (redundant but safe)
 		cursor.MoveToLineStart()
 		buffer.SetCursor(cursor) // Update buffer cursor!
-		actionTaken = true
 		// Don't return yet, let subsequent logic handle potential errors/updates
 	} else if key.Rune == '0' && pendingCount != nil {
 		// '0' as part of a multi-digit count
@@ -846,22 +885,35 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		editor.ResetPendingCount()
 	}
 
+	boundaryErr := isBoundaryError(moveErr)
+
 	// Update cursor in buffer if no error or only boundary error
 	// SKIP THIS IF WE JUST DID UNDO/REDO
-	if !skipCursorUpdate && ((err == nil && moveErr == nil) ||
-		errors.Is(moveErr, ErrEndOfBuffer) ||
-		errors.Is(moveErr, ErrStartOfBuffer) ||
-		errors.Is(moveErr, ErrEndOfLine) ||
-		errors.Is(moveErr, ErrStartOfLine)) {
+	if !skipCursorUpdate && ((err == nil && moveErr == nil) || boundaryErr) {
 		buffer.SetCursor(cursor) // Update the buffer's cursor state
-		// Don't return boundary errors as fatal errors to the editor loop
-		if err != nil && !(errors.Is(moveErr, ErrEndOfBuffer) || errors.Is(moveErr, ErrStartOfBuffer) || errors.Is(moveErr, ErrEndOfLine) || errors.Is(moveErr, ErrStartOfLine)) {
+
+		// Don't return boundary errors to the editor loop
+		if err != nil && !boundaryErr {
 			return err // Return actual errors (e.g., from delete/insert)
 		}
+
 		return nil
 	}
 
 	return err // Return other errors
+}
+
+// operatorName maps a d/y/c rune to its operation name string.
+func operatorName(r rune) string {
+	switch r {
+	case 'd':
+		return "delete"
+	case 'y':
+		return "yank"
+	case 'c':
+		return "change"
+	}
+	return ""
 }
 
 // handleCharSearchRepeat handles repeating (;) or reversing (,) the last character search.

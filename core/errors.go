@@ -63,3 +63,10 @@ func (e *editor) DispatchError(id ErrorId, err error) {
 	default: // Ignore if the channel is full
 	}
 }
+
+func isBoundaryError(err error) bool {
+	return errors.Is(err, ErrEndOfBuffer) ||
+		errors.Is(err, ErrStartOfBuffer) ||
+		errors.Is(err, ErrEndOfLine) ||
+		errors.Is(err, ErrStartOfLine)
+}

@@ -1,8 +1,31 @@
 package core
 
+import "errors"
+
+// handleVisualGKey handles the second key of a 'g' prefix in any visual mode (gg / ge).
+// It resets the waitingForG flag, clears the command display, and applies the motion.
+func handleVisualGKey(waitingForG *bool, editor Editor, buffer Buffer, key KeyEvent, count int) {
+	*waitingForG = false
+	editor.UpdateCommand("")
+	if key.Key == KeyEscape {
+		return
+	}
+	cursor := buffer.GetCursor()
+	switch key.Rune {
+	case 'g':
+		cursor.MoveToBufferStart()
+		buffer.SetCursor(cursor)
+	case 'e':
+		moveErr := cursor.MoveWordToEndBackward(buffer, count, editor.GetState().AvailableWidth, editor.IsWordChar)
+		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
+			buffer.SetCursor(cursor)
+		}
+	}
+}
+
 // applyVisualMotion handles motion keys shared by all visual modes.
 //
-// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,
+// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,, /, n/N
 // Excludes:
 //   - h/l            — count differs: charwise uses the user count, line mode always uses 1
 //   - g              — handled by each mode's waitingForG state before reaching here
@@ -96,6 +119,15 @@ func applyVisualMotion(
 	case key.Rune == ',':
 		repeatCharSearch(cs, editor, buffer, count, true)
 		*cursor = buffer.GetCursor()
+		movementAttempted = true
+	case key.Rune == '/':
+		editor.SetSearchMode()
+		earlyReturn = true
+	case key.Rune == 'n':
+		*cursor = editor.NextSearchResult()
+		movementAttempted = true
+	case key.Rune == 'N':
+		*cursor = editor.PreviousSearchResult()
 		movementAttempted = true
 	}
 	return

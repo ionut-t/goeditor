@@ -1,10 +1,6 @@
 // editor/visual_line_mode.go
 package core
 
-import (
-	"errors"
-)
-
 type visualLineMode struct {
 	startPos     Position        // Only the Row is relevant for selection extent
 	currentCount *int            // Temporary count parsed within visual line mode
@@ -54,18 +50,13 @@ func (m *visualLineMode) SetCurrentCount(count *int) {
 	m.currentCount = count
 }
 
+// HandleKey dispatches each incoming key to the appropriate handler.
 func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
 		editor.SetNormalMode()
 		return nil
 	}
 
-	cursor := buffer.GetCursor() // Get current cursor state
-	var err *EditorError
-	actionTaken := false // Flag if an action was performed
-	availableWidth := editor.GetState().AvailableWidth
-
-	// --- Handle Character Search Input (waiting for character after f/F/t/T) ---
 	if m.charSearch.waitingForChar {
 		if handled, err := handleVisualCharSearchInput(&m.charSearch, editor, buffer, key); handled {
 			return err
@@ -73,62 +64,50 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	count, processedDigit := getMoveCount(m, editor, key)
-
-	// If a digit was just processed, wait for the next key
 	if processedDigit {
 		return nil
 	}
 
-	// --- Handle 'g' prefix (gg, ge) ---
 	if m.waitingForG {
-		m.waitingForG = false
-		editor.UpdateCommand("")
-		if key.Key != KeyEscape {
-			switch key.Rune {
-			case 'g':
-				cursor.MoveToBufferStart()
-				buffer.SetCursor(cursor)
-			case 'e':
-				moveErr := cursor.MoveWordToEndBackward(buffer, count, editor.GetState().AvailableWidth, editor.IsWordChar)
-				if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
-					buffer.SetCursor(cursor)
-				}
-			}
-		}
+		handleVisualGKey(&m.waitingForG, editor, buffer, key, count)
 		return nil
 	}
 
-	state := editor.GetState()
+	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
+		return err
+	}
 
-	// --- Visual Line Mode Actions ---
+	return m.handleMovement(editor, buffer, key, count)
+}
+
+// handleAction handles keys that operate on the line selection (d/y/p/c/v/V/…).
+// Returns (actionTaken, err); actionTaken=true signals HandleKey to return immediately.
+func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
+	cursor := buffer.GetCursor()
+	state := editor.GetState()
+	var err *EditorError
+
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected lines
 		if !state.WithInsertMode {
-			return nil
+			return true, nil
 		}
-
 		if key.Rune == 'x' {
 			_ = editor.Copy(cutType)
 		}
-
-		startRow, endRow := m.startPos.Row, cursor.Position.Row
-		if startRow > endRow {
-			startRow, endRow = endRow, startRow // Ensure start <= end
-		}
-
+		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
-
-		contentDeleted, err := deleteLineRange(editor, buffer, startRow, endRow)
-
-		if err == nil {
+		contentDeleted, delErr := deleteLineRange(editor, buffer, startRow, endRow)
+		if delErr == nil {
 			editor.SaveHistory()
 			editor.SetNormalMode()
 			editor.DispatchSignal(DeleteSignal{content: contentDeleted})
+		} else {
+			err = delErr
 		}
-
-		actionTaken = true
+		return true, err
 
 	case 'y': // Yank selected lines
 		if copyErr := editor.Copy(yankType); copyErr != nil {
@@ -137,34 +116,22 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 				err: copyErr,
 			}
 		}
-		actionTaken = true
+		return true, err
 
 	case 'p':
 		if !state.WithInsertMode {
-			return nil
+			return true, nil
 		}
-
-		startRow, endRow := m.startPos.Row, cursor.Position.Row
-		if startRow > endRow {
-			startRow, endRow = endRow, startRow // Ensure start <= end
-		}
-
+		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
-
 		_, err = deleteLineRange(editor, buffer, startRow, endRow)
-
 		if err == nil {
 			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
-
-		actionTaken = true
-
 		content, pasteErr := editor.Paste()
-		count = len(content)
-
 		if pasteErr != nil {
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
@@ -173,62 +140,58 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		} else {
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
-
-		actionTaken = true
 		editor.ResetPendingCount()
+		return true, err
 
 	case 'c': // Change selected text (delete + enter insert)
 		if !state.WithInsertMode {
-			return nil
+			return true, nil
 		}
-
 		_ = editor.Copy(cutType)
-		startRow, endRow := m.startPos.Row, cursor.Position.Row
-		if startRow > endRow {
-			startRow, endRow = endRow, startRow // Ensure start <= end
-		}
-
+		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
-
-		if _, err = deleteLineRange(editor, buffer, startRow, endRow); err == nil {
+		if _, delErr := deleteLineRange(editor, buffer, startRow, endRow); delErr == nil {
 			editor.SaveHistory()
 			editor.SetInsertMode()
+		} else {
+			err = delErr
 		}
-
-		actionTaken = true
 		editor.ResetPendingCount()
+		return true, err
 
-	// Mode Switches
 	case 'v': // Switch to character-wise visual mode
-		editor.SetVisualMode() // Switch to character-wise visual mode
-		actionTaken = true     // Mode switch is an action
+		editor.SetVisualMode()
+		return true, nil
 	case 'V':
-		editor.SetNormalMode() // Switch to normal mode
-		actionTaken = true
+		editor.SetNormalMode()
+		return true, nil
 
-	case '/':
-		editor.SetSearchMode()
-
-	case 'n':
-		cursor = editor.NextSearchResult()
-
-	case 'N':
-		cursor = editor.PreviousSearchResult()
 	}
 
-	if actionTaken {
-		return err
-	} // Return if delete/yank/paste/change/mode switch was performed
+	return false, nil
+}
 
-	// --- Visual Line Mode Movements (Update selection end row) ---
-	// Only row movements are relevant for selection extent
+// selectionRows returns the normalised (startRow, endRow) of the current line selection.
+func (m *visualLineMode) selectionRows(cursorRow int) (startRow, endRow int) {
+	startRow, endRow = m.startPos.Row, cursorRow
+	if startRow > endRow {
+		startRow, endRow = endRow, startRow
+	}
+	return
+}
 
+// handleMovement handles motion keys that extend the line selection.
+func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	state := editor.GetState()
+	availableWidth := state.AvailableWidth
 	var moveErr error
 	movementAttempted := false
-	moveCount := count // Use 'count' for actual move amount calculation
-	switch key.Key {   // Use Key for arrows/pgup/dn
+	moveCount := count
+
+	switch key.Key {
 	case KeyDown:
 		cursor.MoveDown(buffer, moveCount, availableWidth)
 		movementAttempted = true
@@ -237,27 +200,25 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		movementAttempted = true
 	case KeyPageDown:
 		if count == 1 {
-			moveCount = editor.GetState().ViewportHeight
-		} // Use default only if no count typed
+			moveCount = state.ViewportHeight
+		}
 		moveErr = cursor.MoveDown(buffer, moveCount, availableWidth)
 		movementAttempted = true
 	case KeyPageUp:
 		if count == 1 {
-			moveCount = editor.GetState().ViewportHeight
-		} // Use default only if no count typed
+			moveCount = state.ViewportHeight
+		}
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
 		movementAttempted = true
-
 	case KeyCtrlD:
 		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
 		movementAttempted = true
 	case KeyCtrlU:
 		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
 		movementAttempted = true
-
 	default:
-		col := cursor.Position.Col // Get Column from cursor state
-		switch {                   // Horizontal movements (always count=1 in line mode)
+		col := cursor.Position.Col
+		switch {
 		case key.Rune == 'h' || key.Key == KeyLeft:
 			moveErr = cursor.MoveLeftOrUp(buffer, 1, col)
 			movementAttempted = true
@@ -277,19 +238,10 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 	}
 
-	// Update cursor position in buffer if movement happened
-	if movementAttempted &&
-		(err == nil && moveErr == nil) ||
-		errors.Is(moveErr, ErrEndOfBuffer) ||
-		errors.Is(moveErr, ErrStartOfBuffer) ||
-		errors.Is(moveErr, ErrEndOfLine) ||
-		errors.Is(moveErr, ErrStartOfLine) {
+	if movementAttempted && (moveErr == nil || isBoundaryError(moveErr)) {
 		buffer.SetCursor(cursor)
-		// VisualEnd is implicitly the current cursor, state.VisualStart remains fixed
-		// Boundary errors are ok, just stop moving
 		return nil
 	}
 
-	return err
+	return nil
 }
-

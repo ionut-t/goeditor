@@ -105,6 +105,7 @@ func TestTillBackward(t *testing.T) {
 }
 
 // TestRepeatCharSearch tests ';' and ',' — repeat last char search.
+// "hello world": h=0 e=1 l=2 l=3 o=4 ' '=5 w=6 o=7 r=8 l=9 d=10
 func TestRepeatCharSearch(t *testing.T) {
 	t.Run("; repeats last f search forward", func(t *testing.T) {
 		e := newTestEditor("hello world")
@@ -132,6 +133,23 @@ func TestRepeatCharSearch(t *testing.T) {
 		keys(e, '$', 'F', 'o') // → col 7
 		keys(e, ',')            // reversed F→f: next 'o' forward from col 7 → not found
 		assert.Equal(t, Position{0, 7}, cursorPos(e))
+	})
+
+	t.Run("; repeats t search, skipping past adjacent char", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 't', 'l') // 'l' at col 2; stop at col 1
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+		keys(e, ';') // repeat: next 'l' at col 3; stop at col 2
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("; repeats T search, skipping past adjacent char", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, '$', 'F', 'o') // → col 7
+		keys(e, 'T', 'l')      // 'l' at col 3 (searching back from col 7); stop at col 4
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+		keys(e, ';') // repeat: prev 'l' at col 2; stop at col 3
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
 	})
 }
 

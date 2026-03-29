@@ -72,23 +72,19 @@ func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, 
 
 // performCharSearch executes a character search and moves the cursor.
 // Returns error if character not found.
-func performCharSearch(buffer Buffer, cs *charSearchState, searchType rune, char rune, count int) error {
+func performCharSearch(buffer Buffer, cs *charSearchState, char rune, count int) error {
 	cursor := buffer.GetCursor()
 	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
 
-	newCol := findCharOnLine(lineRunes, cursor.Position.Col, char, searchType, count)
+	newCol := findCharOnLine(lineRunes, cursor.Position.Col, char, cs.searchType, count)
 
 	if newCol == -1 {
 		return fmt.Errorf("character '%c' not found", char)
 	}
 
-	// Update cursor position
 	cursor.Position.Col = newCol
 	buffer.SetCursor(cursor)
-
-	// Save search state for repeat with ; and ,
 	cs.lastChar = char
-	cs.searchType = searchType
 
 	return nil
 }
@@ -224,12 +220,10 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 		editor.ResetPendingCount()
 	}
 
-	searchErr := performCharSearch(buffer, cs, cs.searchType, key.Rune, count)
-	if searchErr != nil {
+	if err := performCharSearch(buffer, cs, key.Rune, count); err != nil {
 		*cs = charSearchState{}
-		editor.DispatchError(ErrCharNotFoundId, searchErr)
+		editor.DispatchError(ErrCharNotFoundId, err)
 	}
-
 	return true, nil
 }
 
@@ -255,10 +249,24 @@ func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count i
 	}
 
 	originalType := cs.searchType
-	if err := performCharSearch(buffer, cs, searchType, cs.lastChar, count); err != nil {
+	cs.searchType = searchType
+
+	// For t/T the cursor sits one col before/after the matched char. Nudge it
+	// one step further so findCharOnLine skips that char and finds the next one.
+	original := buffer.GetCursor()
+	cursor := original
+	switch searchType {
+	case 't':
+		cursor.Position.Col++
+		buffer.SetCursor(cursor)
+	case 'T':
+		cursor.Position.Col--
+		buffer.SetCursor(cursor)
+	}
+
+	if err := performCharSearch(buffer, cs, cs.lastChar, count); err != nil {
+		buffer.SetCursor(original) // undo the nudge if the search found nothing
 		editor.DispatchError(ErrCharNotFoundId, err)
 	}
-	if reverse {
-		cs.searchType = originalType
-	}
+	cs.searchType = originalType
 }
