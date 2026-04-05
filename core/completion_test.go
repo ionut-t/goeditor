@@ -6,52 +6,31 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// --- findCompletionPrefixLength ---
+// --- findWordLengthBeforeCursor ---
 
-// TestFindCompletionPrefixLength tests the pure prefix-matching helper.
-func TestFindCompletionPrefixLength(t *testing.T) {
-	t.Run("exact full match", func(t *testing.T) {
-		assert.Equal(t, 5, findCompletionPrefixLength("hello", "hello"))
+func TestFindWordLengthBeforeCursor(t *testing.T) {
+	isWord := func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+	}
+
+	t.Run("returns length of trailing word", func(t *testing.T) {
+		assert.Equal(t, 3, findWordLengthBeforeCursor("FROM sel", isWord))
 	})
 
-	t.Run("typed suffix matches completion prefix", func(t *testing.T) {
-		// text before cursor ends with "sel"; completion starts with "sel"
-		assert.Equal(t, 3, findCompletionPrefixLength("SELECT sel", "select"))
+	t.Run("empty string returns 0", func(t *testing.T) {
+		assert.Equal(t, 0, findWordLengthBeforeCursor("", isWord))
 	})
 
-	t.Run("case-insensitive match", func(t *testing.T) {
-		assert.Equal(t, 3, findCompletionPrefixLength("SEL", "select"))
+	t.Run("cursor after space returns 0", func(t *testing.T) {
+		assert.Equal(t, 0, findWordLengthBeforeCursor("hello ", isWord))
 	})
 
-	t.Run("no match returns 0", func(t *testing.T) {
-		assert.Equal(t, 0, findCompletionPrefixLength("hello", "world"))
+	t.Run("full word with no preceding text", func(t *testing.T) {
+		assert.Equal(t, 6, findWordLengthBeforeCursor("SELECT", isWord))
 	})
 
-	t.Run("empty text before cursor returns 0", func(t *testing.T) {
-		assert.Equal(t, 0, findCompletionPrefixLength("", "select"))
-	})
-
-	t.Run("empty completion text returns 0", func(t *testing.T) {
-		assert.Equal(t, 0, findCompletionPrefixLength("sel", ""))
-	})
-
-	t.Run("both empty returns 0", func(t *testing.T) {
-		assert.Equal(t, 0, findCompletionPrefixLength("", ""))
-	})
-
-	t.Run("completion longer than typed text: partial match", func(t *testing.T) {
-		// typed "sel" is a prefix of "select" → length 3
-		assert.Equal(t, 3, findCompletionPrefixLength("sel", "select"))
-	})
-
-	t.Run("typed text longer than completion: full completion matches", func(t *testing.T) {
-		// completion is "sel" (len 3); longest suffix of "mysel" that is a prefix of "sel" is "sel"
-		assert.Equal(t, 3, findCompletionPrefixLength("mysel", "sel"))
-	})
-
-	t.Run("prefers longest match", func(t *testing.T) {
-		// "fro" is a 3-char suffix of "fro" and prefix of "from" → 3, not 1
-		assert.Equal(t, 3, findCompletionPrefixLength("fro", "from"))
+	t.Run("stops at non-word character", func(t *testing.T) {
+		assert.Equal(t, 3, findWordLengthBeforeCursor("table.col", isWord))
 	})
 }
 
@@ -68,18 +47,20 @@ func TestInsertCompletionNoPrefix(t *testing.T) {
 		assert.Equal(t, Position{0, 11}, cursorPos(e))
 	})
 
-	t.Run("inserts into empty buffer", func(t *testing.T) {
+	t.Run("cursor at start of word replaces whole word", func(t *testing.T) {
+		// col 0, cursor before "a" — full-word replacement removes "a" too
 		e := newTestEditor("a")
 		keys(e, 'i') // insert mode at col 0
 		err := e.InsertCompletion(Completion{Text: "SELECT"})
 		assert.NoError(t, err)
-		assert.Equal(t, "SELECTa", content(e))
+		assert.Equal(t, "SELECT", content(e))
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
 }
 
-// TestInsertCompletionWithPrefix tests that the typed prefix is replaced by the completion.
-func TestInsertCompletionWithPrefix(t *testing.T) {
+// TestInsertCompletionReplacesWord tests that the typed word fragment is always
+// fully replaced, regardless of whether it shares a prefix with the completion.
+func TestInsertCompletionReplacesWord(t *testing.T) {
 	t.Run("replaces typed prefix with full completion", func(t *testing.T) {
 		e := newTestEditor("sel")
 		keys(e, '$', 'a') // cursor after last char → col 3
@@ -98,7 +79,16 @@ func TestInsertCompletionWithPrefix(t *testing.T) {
 		assert.Equal(t, Position{0, 11}, cursorPos(e))
 	})
 
-	t.Run("case-insensitive prefix replacement", func(t *testing.T) {
+	t.Run("replaces word even when it shares no prefix with completion", func(t *testing.T) {
+		e := newTestEditor("se")
+		keys(e, '$', 'a') // col 2
+		err := e.InsertCompletion(Completion{Text: "insert"})
+		assert.NoError(t, err)
+		assert.Equal(t, "insert", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("replaces word case-insensitively", func(t *testing.T) {
 		e := newTestEditor("SEL")
 		keys(e, '$', 'a') // col 3
 		err := e.InsertCompletion(Completion{Text: "select"})
@@ -108,9 +98,31 @@ func TestInsertCompletionWithPrefix(t *testing.T) {
 	})
 }
 
-// TestInsertCompletionPreservesRemainder tests that text after the cursor is kept.
-func TestInsertCompletionPreservesRemainder(t *testing.T) {
-	t.Run("text after cursor is preserved", func(t *testing.T) {
+// TestInsertCompletionFullWordReplacement tests that the whole word under the
+// cursor is replaced, not just the fragment before it.
+func TestInsertCompletionFullWordReplacement(t *testing.T) {
+	t.Run("replaces entire word when cursor is at end", func(t *testing.T) {
+		e := newTestEditor("sele world")
+		keys(e, '$') // normal mode, end of line — but we want col 4
+		// move to col 4 then enter insert mode
+		keys(e, '0', 'l', 'l', 'l', 'l', 'i') // col 4, after "sele", before " world"
+		err := e.InsertCompletion(Completion{Text: "select"})
+		assert.NoError(t, err)
+		assert.Equal(t, "select world", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("replaces entire word when cursor is mid-word", func(t *testing.T) {
+		// cursor between "sel" and "e": should replace the whole "sele"
+		e := newTestEditor("sele")
+		keys(e, '0', 'l', 'l', 'l', 'i') // insert mode at col 3, "e" is after cursor
+		err := e.InsertCompletion(Completion{Text: "select"})
+		assert.NoError(t, err)
+		assert.Equal(t, "select", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("non-word text after cursor is preserved", func(t *testing.T) {
 		e := newTestEditor("sel world")
 		keys(e, 'l', 'l', 'l', 'i') // insert mode at col 3 (after "sel", before " world")
 		err := e.InsertCompletion(Completion{Text: "select"})

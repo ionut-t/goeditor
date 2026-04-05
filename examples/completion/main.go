@@ -34,13 +34,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case editor.CompletionRequestMsg:
-		// Handle completion request and provide completions
+		// msg.Context is passed through to the response unchanged so the editor
+		// can match the RequestID and discard stale responses. This is especially
+		// important for async providers (e.g. LSP, HTTP) where an earlier response
+		// can arrive after a newer one.
 		completions := getCompletions(msg.Context)
-
-		// Dispatch completion response signal back to editor
-		m.editor.GetEditor().DispatchSignal(
-			core.NewCompletionResponseSignal(completions, msg.Context),
-		)
+		m.editor.SetCompletions(completions, msg.Context)
 		return m, nil
 
 	case editor.ErrorMsg:
@@ -70,7 +69,13 @@ func (m Model) View() tea.View {
 // getCompletions returns completions based on the context
 func getCompletions(ctx core.CompletionContext) []core.Completion {
 	text := strings.ToLower(ctx.TextBeforeCursor)
-	var completions []core.Completion
+	lastWord := getLastWord(text)
+
+	// Don't suggest anything when the user hasn't started a word yet —
+	// returning everything on an empty prefix floods the menu after every space.
+	if lastWord == "" {
+		return nil
+	}
 
 	// SQL-like keywords
 	keywords := []string{
@@ -97,11 +102,16 @@ func getCompletions(ctx core.CompletionContext) []core.Completion {
 		"CONCAT()", "UPPER()", "LOWER()", "LENGTH()",
 	}
 
-	// Determine what to complete based on context
-	if strings.Contains(text, "select") || strings.Contains(text, "from") {
-		// After SELECT or FROM, suggest columns and tables
+	var completions []core.Completion
+
+	// Use the last SQL keyword on the line (not the entire text before cursor)
+	// to decide which category of completions is most relevant. Checking the
+	// whole text would incorrectly activate the column/table branch whenever
+	// "select" or "from" appears anywhere earlier on the line.
+	lastKeyword := getLastSQLKeyword(text)
+	if lastKeyword == "select" || lastKeyword == "from" || lastKeyword == "where" {
 		for _, col := range columns {
-			if strings.HasPrefix(strings.ToLower(col), getLastWord(text)) {
+			if strings.HasPrefix(col, lastWord) {
 				completions = append(completions, core.Completion{
 					Text:        col,
 					Label:       col,
@@ -113,7 +123,7 @@ func getCompletions(ctx core.CompletionContext) []core.Completion {
 		}
 
 		for _, table := range tables {
-			if strings.HasPrefix(strings.ToLower(table), getLastWord(text)) {
+			if strings.HasPrefix(table, lastWord) {
 				completions = append(completions, core.Completion{
 					Text:        table,
 					Label:       table,
@@ -125,8 +135,7 @@ func getCompletions(ctx core.CompletionContext) []core.Completion {
 		}
 	}
 
-	// Always suggest keywords
-	lastWord := getLastWord(text)
+	// Always suggest matching keywords
 	for _, kw := range keywords {
 		if strings.HasPrefix(strings.ToLower(kw), lastWord) {
 			completions = append(completions, core.Completion{
@@ -139,31 +148,15 @@ func getCompletions(ctx core.CompletionContext) []core.Completion {
 		}
 	}
 
-	// Suggest functions if typing a function-like pattern
-	if strings.Contains(text, "(") || lastWord != "" {
-		for _, fn := range functions {
-			if strings.HasPrefix(strings.ToLower(fn), lastWord) {
-				completions = append(completions, core.Completion{
-					Text:        fn,
-					Label:       fn,
-					Description: "SQL Function",
-					Type:        "function",
-					Score:       0.85,
-				})
-			}
-		}
-	}
-
-	// If no specific matches, return all completions
-	if len(completions) == 0 && len(lastWord) > 0 {
-		// Add all keywords
-		for _, kw := range keywords {
+	// Suggest matching functions
+	for _, fn := range functions {
+		if strings.HasPrefix(strings.ToLower(fn), lastWord) {
 			completions = append(completions, core.Completion{
-				Text:        kw,
-				Label:       kw,
-				Description: "SQL Keyword",
-				Type:        "keyword",
-				Score:       0.8,
+				Text:        fn,
+				Label:       fn,
+				Description: "SQL Function",
+				Type:        "function",
+				Score:       0.85,
 			})
 		}
 	}
@@ -174,6 +167,25 @@ func getCompletions(ctx core.CompletionContext) []core.Completion {
 	}
 
 	return completions
+}
+
+// getLastSQLKeyword returns the last SQL keyword found in text (lowercase).
+// This is used to determine completion context without being confused by
+// keywords that appeared earlier in the line.
+func getLastSQLKeyword(text string) string {
+	sqlKeywords := []string{
+		"select", "from", "where", "insert", "update", "delete",
+		"join", "order by", "group by", "having", "limit",
+	}
+	last := ""
+	lastIdx := -1
+	for _, kw := range sqlKeywords {
+		if idx := strings.LastIndex(text, kw); idx > lastIdx {
+			lastIdx = idx
+			last = kw
+		}
+	}
+	return last
 }
 
 // getLastWord extracts the last word from the text (partial word being typed)
@@ -194,7 +206,7 @@ func main() {
 	m.SetLanguage("sql", languageTheme(isDark))
 
 	// Enable auto-trigger completions
-	m.WithAutoTrigger(true)
+	m.WithCompletionAutoTrigger(true)
 	m.WithCompletionDebounce(200 * time.Millisecond)
 
 	// Set some initial content to help demonstrate

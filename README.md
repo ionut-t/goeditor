@@ -20,6 +20,7 @@ A feature-rich, Vim-inspired text editor library for Go, built on [Bubble Tea](h
 - **Cursor modes**: Blinking or steady cursor with mode-specific styling
 - **Focus/Blur**: Programmatic focus management
 - **Placeholder text**: Display helpful text when the buffer is empty
+- **Completion menu**: Pluggable autocompletion with a scrollable, keyboard-navigable suggestion menu
 
 ## Installation
 
@@ -36,7 +37,7 @@ import (
     "log"
 
     tea "charm.land/bubbletea/v2"
-    goeditor "github.com/ionut-t/goeditor"
+    "github.com/ionut-t/goeditor"
 )
 
 func main() {
@@ -110,6 +111,10 @@ m.WithTheme(theme)
 - `Esc` to return to Normal mode
 - `Backspace` to delete characters
 - Arrow keys for navigation
+- `Ctrl+Space` to manually trigger autocompletion
+- `Ctrl+N` / `Ctrl+P` to navigate suggestions
+- `Ctrl+Y` to accept the selected suggestion
+- `Ctrl+E` / `Esc` to dismiss the completion menu
 
 ### Visual Mode
 
@@ -167,6 +172,12 @@ SetPlaceholder(placeholder string)
 Focus()
 Blur()
 IsFocused() bool
+
+// Completion
+SetCompletions(completions []core.Completion, context core.CompletionContext)
+WithCompletionAutoTrigger(enabled bool)
+WithCompletionDebounce(duration time.Duration)
+SetCompletionMenuMaxVisibleItems(max int)
 ```
 
 ### Handling Editor Events
@@ -193,6 +204,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         return m, m.editor.DispatchError(msg.Error, 3*time.Second)
     }
 }
+```
+
+## Autocompletion
+
+GoEditor does not fetch completions itself — it dispatches a `CompletionRequestMsg` when the user triggers completion and expects the host application to respond with `SetCompletions`.
+
+```go
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+
+    case goeditor.CompletionRequestMsg:
+        ctx := msg.Context
+        return m, func() tea.Msg {
+            completions := fetchCompletions(ctx) // your completion source
+            return goeditor.CompletionResponseMsg{
+                Completions: completions,
+                Context:     ctx,
+            }
+        }
+
+    case goeditor.CompletionResponseMsg:
+        m.editor.SetCompletions(msg.Completions, msg.Context)
+    }
+}
+```
+
+Enable auto-trigger (fires on every keystroke in Insert mode):
+
+```go
+m.WithCompletionAutoTrigger(true)
+m.WithCompletionDebounce(150 * time.Millisecond) // optional debounce
 ```
 
 ## Core Package

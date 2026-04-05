@@ -37,6 +37,10 @@ const (
 	// Ctrl+letter shortcuts
 	KeyCtrlD
 	KeyCtrlU
+	KeyCtrlN
+	KeyCtrlP
+	KeyCtrlY
+	KeyCtrlE
 )
 
 // KeyModifiers represents modifier keys held during a keystroke

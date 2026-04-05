@@ -350,46 +350,66 @@ func (e *editor) HandleKey(key KeyEvent) *EditorError {
 	return err
 }
 
-// TriggerCompletion requests completions at the current cursor position
-func (e *editor) TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) {
+// TriggerCompletion requests completions at the current cursor position.
+// It returns the context that was dispatched so callers can track the RequestID.
+func (e *editor) TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext {
 	ctx := e.buildCompletionContext(triggerKind, triggerChar)
 	e.DispatchSignal(CompletionRequestSignal{context: ctx})
+	return ctx
 }
 
-// InsertCompletion inserts the selected completion into the buffer
+// InsertCompletion inserts the selected completion into the buffer, replacing
+// the entire word under the cursor (both the fragment before and after it).
 func (e *editor) InsertCompletion(completion Completion) error {
 	cursor := e.buffer.GetCursor()
 	pos := cursor.Position
 
-	// Get the current text before cursor
-	var textBeforeCursor string
+	var lineRunes []rune
 	if pos.Row >= 0 && pos.Row < e.buffer.LineCount() {
-		lineRunes := e.buffer.GetLineRunes(pos.Row)
-		if pos.Col >= 0 && pos.Col <= len(lineRunes) {
-			textBeforeCursor = string(lineRunes[:pos.Col])
+		lineRunes = e.buffer.GetLineRunes(pos.Row)
+	}
+
+	// Count word chars before cursor (the fragment already typed).
+	var textBeforeCursor string
+	if pos.Col >= 0 && pos.Col <= len(lineRunes) {
+		textBeforeCursor = string(lineRunes[:pos.Col])
+	}
+	wordBefore := findWordLengthBeforeCursor(textBeforeCursor, e.IsWordChar)
+
+	// Count word chars after cursor (the remainder of the same word).
+	wordAfter := 0
+	for _, r := range lineRunes[pos.Col:] {
+		if e.IsWordChar(r) {
+			wordAfter++
+		} else {
+			break
 		}
 	}
 
-	// Find how much of the typed text matches the completion
-	prefixLength := findCompletionPrefixLength(textBeforeCursor, completion.Text)
+	// Delete the word fragment after the cursor first (col doesn't change).
+	if wordAfter > 0 {
+		if err := e.buffer.DeleteRunesAt(pos.Row, pos.Col, wordAfter); err != nil {
+			return err.Error()
+		}
+	}
 
-	// Delete the matching prefix
-	if prefixLength > 0 {
-		deleteStart := pos.Col - prefixLength
+	// Delete the word fragment before the cursor.
+	if wordBefore > 0 {
+		deleteStart := pos.Col - wordBefore
 		if deleteStart >= 0 {
-			if err := e.buffer.DeleteRunesAt(pos.Row, deleteStart, prefixLength); err != nil {
+			if err := e.buffer.DeleteRunesAt(pos.Row, deleteStart, wordBefore); err != nil {
 				return err.Error()
 			}
 			cursor.Position.Col = deleteStart
 		}
 	}
 
-	// Insert completion text
+	// Insert completion text.
 	if err := e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(completion.Text)); err != nil {
 		return err
 	}
 
-	// Move cursor to end of inserted text
+	// Move cursor to end of inserted text.
 	if err := cursor.MoveRight(e.buffer, len([]rune(completion.Text)), e.state.AvailableWidth); err != nil {
 		return err
 	}
@@ -415,7 +435,12 @@ func (e *editor) buildCompletionContext(triggerKind CompletionTriggerKind, trigg
 
 		if pos.Col >= 0 && pos.Col <= len(lineRunes) {
 			textBefore = string(lineRunes[:pos.Col])
-			textAfter = string(lineRunes[pos.Col:])
+			after := lineRunes[pos.Col:]
+			// Strip trailing newline so TextAfterCursor never includes it
+			if len(after) > 0 && after[len(after)-1] == '\n' {
+				after = after[:len(after)-1]
+			}
+			textAfter = string(after)
 		}
 	}
 

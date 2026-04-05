@@ -1,6 +1,5 @@
 package core
 
-import "strings"
 
 // CompletionTriggerKind defines how completion was triggered
 type CompletionTriggerKind int
@@ -66,24 +65,19 @@ type Completion struct {
 	Meta map[string]any
 }
 
-// findCompletionPrefixLength finds the length of the matching prefix between
-// the text before cursor and the completion text (case-insensitive).
-// This determines how many characters to delete before inserting the completion.
-func findCompletionPrefixLength(textBeforeCursor, completionText string) int {
-	// Convert both to lowercase for case-insensitive comparison
-	before := strings.ToLower(textBeforeCursor)
-	completion := strings.ToLower(completionText)
-
-	// Find the longest suffix of textBeforeCursor that is a prefix of completionText
-	maxLen := min(len(before), len(completion))
-
-	for length := maxLen; length > 0; length-- {
-		suffix := before[len(before)-length:]
-		prefix := completion[:length]
-		if suffix == prefix {
-			return length
+// findWordLengthBeforeCursor returns the number of word characters immediately
+// before the cursor — i.e. the length of the partial word currently being typed.
+// This is used by InsertCompletion to determine how much to delete before
+// inserting the selected completion.
+func findWordLengthBeforeCursor(textBeforeCursor string, isWordChar func(rune) bool) int {
+	runes := []rune(textBeforeCursor)
+	length := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		if isWordChar(runes[i]) {
+			length++
+		} else {
+			break
 		}
 	}
-
-	return 0
+	return length
 }

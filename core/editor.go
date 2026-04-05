@@ -47,7 +47,7 @@ type Editor interface {
 
 	// Event handling
 	HandleKey(key KeyEvent) *EditorError // Process a key press
-	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string)
+	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext
 	InsertCompletion(completion Completion) error
 
 	// State Management

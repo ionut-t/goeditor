@@ -1543,15 +1543,17 @@ func (m Model) renderWithCompletionMenu(content string) string {
 		return content
 	}
 
-	maxItems := min(10, len(m.completions))
+	windowStart := m.completionWindowStart
+	windowEnd := min(windowStart+m.completionMenuMaxVisible, len(m.completions))
+	visibleItems := m.completions[windowStart:windowEnd]
+	visibleCount := len(visibleItems)
 
-	// Calculate responsive width based on content
+	// Calculate responsive width based on visible items
 	menuWidth := 20 // Minimum width
 	const spacingBetweenLabelAndType = 4
 
-	for i := range maxItems {
-		completion := m.completions[i]
-		itemWidth := len(completion.Label) + len(completion.Type) + spacingBetweenLabelAndType
+	for _, c := range visibleItems {
+		itemWidth := len(c.Label) + len(c.Type) + spacingBetweenLabelAndType
 		menuWidth = max(menuWidth, itemWidth)
 	}
 	// Cap maximum width at viewport width - 10 (leave some margin)
@@ -1563,19 +1565,17 @@ func (m Model) renderWithCompletionMenu(content string) string {
 	rightPadding := m.precomputedCompletionStyles.rightPadding
 	lineWidth := menuWidth + leftPadding + rightPadding
 
-	menuLines := make([]string, 0, maxItems)
+	menuLines := make([]string, 0, visibleCount)
 
-	for i := range maxItems {
-		completion := m.completions[i]
+	for i, completion := range visibleItems {
+		absoluteIdx := windowStart + i
 
 		labelLen := len(completion.Label)
 		typeLen := len(completion.Type)
 		spacing := max(2, menuWidth-labelLen-typeLen)
 
-		gap := strings.Repeat(" ", spacing)
-
 		var line string
-		if i == m.selectedCompletionIdx {
+		if absoluteIdx == m.selectedCompletionIdx {
 			completionLabel := styles.labelSelected.Render(completion.Label)
 			completionType := styles.completionTypeSelected.Render(completion.Type)
 			gap := styles.gapSelected.Width(spacing).Render("")
@@ -1586,6 +1586,7 @@ func (m Model) renderWithCompletionMenu(content string) string {
 		} else {
 			completionLabel := m.theme.CompletionMenuLabelStyle.Render(completion.Label)
 			completionType := m.theme.CompletionMenuTypeStyle.Render(completion.Type)
+			gap := strings.Repeat(" ", spacing)
 
 			line = m.theme.CompletionMenuItemStyle.
 				Width(lineWidth).
@@ -1604,8 +1605,8 @@ func (m Model) renderWithCompletionMenu(content string) string {
 	menuRow := cursorRow + 1
 
 	// If menu would go off screen, show above cursor
-	if menuRow+maxItems+2 > m.viewport.Height() {
-		menuRow = max(0, cursorRow-maxItems-2)
+	if menuRow+visibleCount+2 > m.viewport.Height() {
+		menuRow = max(0, cursorRow-visibleCount-2)
 	}
 
 	// Calculate cursor's screen column (including line numbers)

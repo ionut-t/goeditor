@@ -244,10 +244,17 @@ type Model struct {
 	completions                 []core.Completion
 	completionContext           core.CompletionContext
 	selectedCompletionIdx       int
+	completionWindowStart       int // index of the first visible item in the sliding window
 	autoTriggerEnabled          bool
 	lastCompletionRequest       time.Time
 	completionDebounceTime      time.Duration
 	precomputedCompletionStyles completionStyles
+	// completionDismissedWord tracks the word prefix that was typed when the user
+	// pressed Escape to dismiss the menu. Auto-trigger is suppressed while the
+	// typed prefix still matches this value, so the menu doesn't immediately
+	// reopen on the next keystroke.
+	completionDismissedWord  string
+	completionMenuMaxVisible int
 
 	cursorBlinkCancel context.CancelFunc
 	clearMsgCancel    context.CancelFunc
@@ -416,6 +423,7 @@ func New(width, height int) Model {
 		autoTriggerEnabled:          false,
 		completionDebounceTime:      300 * time.Millisecond,
 		precomputedCompletionStyles: setupCompletionStyles(defaultTheme),
+		completionMenuMaxVisible:    10,
 	}
 
 	m.SetSize(width, height)
@@ -574,14 +582,26 @@ func (m *Model) WithSyntaxHighlighter(highlighter *highlighter.Highlighter) {
 	m.highlighter = highlighter
 }
 
-// WithAutoTrigger enables or disables auto-trigger completions
-func (m *Model) WithAutoTrigger(enabled bool) {
+// WithCompletionAutoTrigger enables or disables auto-trigger completions.
+func (m *Model) WithCompletionAutoTrigger(enabled bool) {
 	m.autoTriggerEnabled = enabled
 }
 
-// WithCompletionDebounce sets the debounce time for auto-trigger completions
+// WithCompletionDebounce sets the debounce time for auto-trigger completions.
 func (m *Model) WithCompletionDebounce(duration time.Duration) {
 	m.completionDebounceTime = duration
+}
+
+// SetCompletions sends completion results to the editor to be displayed in the completion menu.
+func (m Model) SetCompletions(completions []core.Completion, context core.CompletionContext) {
+	m.editor.DispatchSignal(
+		core.NewCompletionResponseSignal(completions, context),
+	)
+}
+
+// SetCompletionMenuMaxVisibleItems sets the maximum number of visible items in the completion menu.
+func (m *Model) SetCompletionMenuMaxVisibleItems(max int) {
+	m.completionMenuMaxVisible = max
 }
 
 // DispatchMessage allows setting a message to be displayed in the command line for a specified duration.
@@ -852,7 +872,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Manual completion trigger: Ctrl+Space in Insert mode
 		if keyEvent.Key == core.KeySpace && keyEvent.Modifiers&core.ModCtrl != 0 {
 			if m.editor.IsInsertMode() {
-				m.editor.TriggerCompletion(core.CompletionTriggerManual, "")
+				m.completionContext = m.editor.TriggerCompletion(core.CompletionTriggerManual, "")
 				return m, tea.Batch(cmds...)
 			}
 		}
@@ -860,20 +880,41 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// Completion menu navigation
 		if m.completionMenuVisible {
 			switch keyEvent.Key {
-			case core.KeyEscape:
+			case core.KeyEscape, core.KeyCtrlE:
+				// Record the current word prefix so auto-trigger is suppressed
+				// until the user types a new character that changes the prefix.
+				m.completionDismissedWord = m.completionContext.TextBeforeCursor
 				m.completionMenuVisible = false
+				m.completions = nil
+				m.selectedCompletionIdx = 0
+				m.completionWindowStart = 0
 				skipNormalKeyHandling = true
-			case core.KeyEnter, core.KeyTab:
+			case core.KeyEnter, core.KeyTab, core.KeyCtrlY:
 				cmds = append(cmds, m.insertCompletion())
 				skipNormalKeyHandling = true
-			case core.KeyUp:
+			case core.KeyUp, core.KeyCtrlP:
+				last := len(m.completions) - 1
 				if m.selectedCompletionIdx > 0 {
 					m.selectedCompletionIdx--
+				} else {
+					// wrap to bottom
+					m.selectedCompletionIdx = last
+					m.completionWindowStart = max(0, last-m.completionMenuMaxVisible+1)
+				}
+				if m.selectedCompletionIdx < m.completionWindowStart {
+					m.completionWindowStart--
 				}
 				skipNormalKeyHandling = true
-			case core.KeyDown:
+			case core.KeyDown, core.KeyCtrlN:
 				if m.selectedCompletionIdx < len(m.completions)-1 {
 					m.selectedCompletionIdx++
+				} else {
+					// wrap to top
+					m.selectedCompletionIdx = 0
+					m.completionWindowStart = 0
+				}
+				if m.selectedCompletionIdx >= m.completionWindowStart+m.completionMenuMaxVisible {
+					m.completionWindowStart++
 				}
 				skipNormalKeyHandling = true
 			}
@@ -889,9 +930,29 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			})
 		}
 
-		// Auto-trigger handling
-		if m.autoTriggerEnabled && m.editor.IsInsertMode() && !m.completionMenuVisible && !skipNormalKeyHandling {
+		// Auto-trigger handling — runs even when the menu is already visible so
+		// that results stay in sync with what the user is typing and the menu
+		// closes automatically when nothing matches anymore.
+		if m.autoTriggerEnabled && m.editor.IsInsertMode() && !skipNormalKeyHandling {
+			shouldTrigger := false
+
 			if keyEvent.Rune >= 32 && keyEvent.Rune < 127 {
+				// Approximate the new TextBeforeCursor to compare against the
+				// dismissed-word guard set when the user pressed Escape.
+				newPrefix := m.completionContext.TextBeforeCursor + string(keyEvent.Rune)
+				if newPrefix != m.completionDismissedWord {
+					m.completionDismissedWord = ""
+					shouldTrigger = true
+				}
+				// else: same prefix the user dismissed — skip but don't break.
+			} else if keyEvent.Key == core.KeyBackspace {
+				// Deleting always changes the prefix, so clear the dismissed guard
+				// and re-trigger so the menu updates or closes when empty.
+				m.completionDismissedWord = ""
+				shouldTrigger = true
+			}
+
+			if shouldTrigger {
 				triggerChar := string(keyEvent.Rune)
 				timestamp := time.Now()
 				m.lastCompletionRequest = timestamp
@@ -989,24 +1050,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case CompletionDebounceMsg:
 		// Only trigger if this is the latest request (no newer typing)
 		if msg.Timestamp.Equal(m.lastCompletionRequest) && m.editor.IsInsertMode() {
-			m.editor.TriggerCompletion(core.CompletionTriggerAuto, msg.TriggerChar)
+			m.completionContext = m.editor.TriggerCompletion(core.CompletionTriggerAuto, msg.TriggerChar)
 		}
 
 	case CompletionRequestMsg:
-		m.completionContext = msg.Context
-		// Forward to parent application
-		cmds = append(cmds, func() tea.Msg { return msg })
+		// Nothing to do here: m.completionContext is set at the TriggerCompletion
+		// call sites (CompletionDebounceMsg / manual Ctrl+Space), so RequestID is
+		// already recorded before the outer model ever sees this message.
+		// The outer model is free to return early without calling editor.Update.
 
 	case CompletionResponseMsg:
-		// Update completions
+		// Discard responses that don't match the most-recent request so that
+		// rapid typing never surfaces completions for an earlier cursor position.
+		if msg.Context.RequestID != m.completionContext.RequestID {
+			break
+		}
 		m.completions = msg.Completions
 		m.selectedCompletionIdx = 0
-
-		if len(m.completions) > 0 {
-			m.completionMenuVisible = true
-		} else {
-			m.completionMenuVisible = false
-		}
+		m.completionWindowStart = 0
+		m.completionMenuVisible = len(m.completions) > 0
 	}
 
 	cmds = append(cmds, m.listenForEditorUpdate())
@@ -1266,6 +1328,14 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 				result.Key = core.KeyCtrlD
 			case 'u':
 				result.Key = core.KeyCtrlU
+			case 'n':
+				result.Key = core.KeyCtrlN
+			case 'p':
+				result.Key = core.KeyCtrlP
+			case 'y':
+				result.Key = core.KeyCtrlY
+			case 'e':
+				result.Key = core.KeyCtrlE
 			}
 		}
 	}
@@ -1319,13 +1389,18 @@ func (m *Model) insertCompletion() tea.Cmd {
 
 	if err := m.editor.InsertCompletion(completion); err != nil {
 		m.completionMenuVisible = false
+		m.completions = nil
+		m.selectedCompletionIdx = 0
+		m.completionWindowStart = 0
 		return func() tea.Msg {
 			return ErrorMsg{ID: core.ErrInvalidPositionId, Error: err}
 		}
 	}
 
-	// Hide completion menu
 	m.completionMenuVisible = false
+	m.completions = nil
+	m.selectedCompletionIdx = 0
+	m.completionWindowStart = 0
 
 	return nil
 }
