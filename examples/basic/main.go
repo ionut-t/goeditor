@@ -12,7 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor"
-	"github.com/ionut-t/goeditor/core"
 )
 
 const messageDuration = 3 * time.Second
@@ -121,11 +120,10 @@ func main() {
 	textEditor.SetCursorMode(editor.CursorBlink)
 	isDark := lipgloss.HasDarkBackground(os.Stdout, os.Stderr)
 	textEditor.SetLanguage(lang, languageTheme(isDark))
-	textEditor.WithSearchOptions(core.SearchOptions{
+	textEditor.WithSearchOptions(editor.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
 		Wrap:       true,
-		Backwards:  false,
 	})
 	textEditor.SetExtraWordChars('-')
 

@@ -123,6 +123,9 @@ func applyVisualMotion(
 	case key.Rune == '/':
 		editor.SetSearchMode()
 		earlyReturn = true
+	case key.Rune == '?':
+		editor.SetBackwardSearchMode()
+		earlyReturn = true
 	case key.Rune == 'n':
 		*cursor = editor.NextSearchResult()
 		movementAttempted = true

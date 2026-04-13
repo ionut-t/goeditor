@@ -89,7 +89,9 @@ func (e ErrorSignal) Value() (id ErrorId, err error) {
 
 type EnterCommandModeSignal struct{}
 
-type EnterSearchModeSignal struct{}
+type EnterSearchModeSignal struct {
+	Backwards bool // true when entering with '?', false for '/'
+}
 
 type ExitSearchModeSignal struct{}
 

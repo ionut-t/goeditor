@@ -6,7 +6,7 @@ func NewSearchMode() EditorMode  { return &searchMode{} }
 func (m *searchMode) Name() Mode { return SearchMode }
 
 func (m *searchMode) Enter(editor Editor, buffer Buffer) {
-	editor.DispatchSignal(EnterSearchModeSignal{})
+	editor.DispatchSignal(EnterSearchModeSignal{Backwards: editor.GetState().SearchOptions.Backwards})
 	editor.UpdateCommand("")
 }
 

@@ -300,6 +300,16 @@ func (e *editor) SetSearchMode() {
 		return
 	}
 
+	e.state.SearchOptions.Backwards = false
+	e.setMode(SearchMode)
+}
+
+func (e *editor) SetBackwardSearchMode() {
+	if !e.state.WithSearchMode {
+		return
+	}
+
+	e.state.SearchOptions.Backwards = true
 	e.setMode(SearchMode)
 }
 
@@ -672,7 +682,7 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	pos, found := e.buffer.Find(query, e.buffer.GetCursor().Position, e.state.SearchOptions)
 
 	if !found && e.state.SearchOptions.Wrap {
-		pos, found = e.buffer.Find(query, Position{Row: 0, Col: 0}, e.state.SearchOptions)
+		pos, found = e.wrapFind(query, e.state.SearchOptions)
 	}
 
 	if found {
@@ -686,7 +696,11 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 		e.state.SearchResultIndex = -1
 	}
 
-	e.UpdateCommand("/" + e.state.SearchQuery.Pattern)
+	prefix := "/"
+	if e.state.SearchOptions.Backwards {
+		prefix = "?"
+	}
+	e.UpdateCommand(prefix + e.state.SearchQuery.Pattern)
 	e.setMode(e.state.PreviousMode)
 	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
 }
@@ -697,20 +711,31 @@ func (e *editor) CancelSearch() {
 	e.setMode(e.state.PreviousMode)
 }
 
+// wrapFind searches from the appropriate boundary depending on direction:
+// forward searches wrap to the start of the buffer, backward searches wrap to the end.
+func (e *editor) wrapFind(term string, options SearchOptions) (Position, bool) {
+	if options.Backwards {
+		lastLine := e.buffer.LineCount() - 1
+		lastLineLen := e.buffer.LineRuneCount(lastLine)
+		return e.buffer.Find(term, Position{Row: lastLine, Col: lastLineLen}, options)
+	}
+	// Col: -1 so that Find's "start after position" increment lands on col 0.
+	return e.buffer.Find(term, Position{Row: 0, Col: -1}, options)
+}
+
+// NextSearchResult repeats the search in the same direction as the original search (vim 'n').
 func (e *editor) NextSearchResult() Cursor {
 	if len(e.state.SearchResults) == 0 {
 		return e.buffer.GetCursor()
 	}
 
-	options := e.state.SearchOptions
-	options.Backwards = false
+	options := e.state.SearchOptions // preserve original direction
 
 	currentPos := e.buffer.GetCursor().Position
 	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, options)
 
-	// If not found and wrap is enabled, search from beginning
 	if !found && options.Wrap {
-		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: 0, Col: 0}, options)
+		pos, found = e.wrapFind(e.state.SearchQuery.Term, options)
 	}
 
 	if found {
@@ -723,23 +748,20 @@ func (e *editor) NextSearchResult() Cursor {
 	return e.buffer.GetCursor()
 }
 
+// PreviousSearchResult repeats the search in the opposite direction of the original search (vim 'N').
 func (e *editor) PreviousSearchResult() Cursor {
 	if len(e.state.SearchResults) == 0 {
 		return e.buffer.GetCursor()
 	}
 
-	// Create backward search options
 	options := e.state.SearchOptions
-	options.Backwards = true
+	options.Backwards = !options.Backwards // flip direction
 
 	currentPos := e.buffer.GetCursor().Position
 	pos, found := e.buffer.Find(e.state.SearchQuery.Term, currentPos, options)
 
-	// If not found and wrap is enabled, search from end
-	if !found && e.state.SearchOptions.Wrap && e.buffer.LineCount() > 0 {
-		lastLine := e.buffer.LineCount() - 1
-		lastLineLen := e.buffer.LineRuneCount(lastLine)
-		pos, found = e.buffer.Find(e.state.SearchQuery.Term, Position{Row: lastLine, Col: lastLineLen}, options)
+	if !found && options.Wrap {
+		pos, found = e.wrapFind(e.state.SearchQuery.Term, options)
 	}
 
 	if found {

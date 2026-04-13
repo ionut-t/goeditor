@@ -19,6 +19,13 @@ import (
 	"github.com/ionut-t/goeditor/highlighter"
 )
 
+// SearchOptions represents options for search operations
+type SearchOptions struct {
+	IgnoreCase bool // Case insensitive search
+	SmartCase  bool // ...unless search contains uppercase
+	Wrap       bool // Whether to wrap around the buffer
+}
+
 type Theme struct {
 	NormalModeStyle        lipgloss.Style
 	InsertModeStyle        lipgloss.Style
@@ -277,7 +284,7 @@ type clearMsg struct{}
 
 type commandMsg struct{}
 
-type enterSearchMode struct{}
+type enterSearchMode struct{ backwards bool }
 
 type exitSearchMode struct{}
 
@@ -511,9 +518,13 @@ func (m *Model) WithTheme(theme Theme) {
 	m.precomputedCompletionStyles = setupCompletionStyles(theme)
 }
 
-// WithSearchOptions allows setting custom search options for the core.
-func (m *Model) WithSearchOptions(options core.SearchOptions) {
-	m.searchOptions = options
+// WithSearchOptions allows setting custom search options.
+func (m *Model) WithSearchOptions(options SearchOptions) {
+	m.searchOptions = core.SearchOptions{
+		IgnoreCase: options.IgnoreCase,
+		SmartCase:  options.SmartCase,
+		Wrap:       options.Wrap,
+	}
 }
 
 // WithSearchInputCursorMode allows setting the cursor mode for the search input.
@@ -1024,6 +1035,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case enterSearchMode:
+		m.searchOptions.Backwards = msg.backwards
+		if msg.backwards {
+			m.searchInput.Prompt = "?"
+		} else {
+			m.searchInput.Prompt = "/"
+		}
 		m.searchInput.Focus()
 
 		if m.clearMsgCancel != nil {
@@ -1253,7 +1270,7 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 			return RedoMsg{ContentBefore: signal.Value()}
 
 		case core.EnterSearchModeSignal:
-			return enterSearchMode{}
+			return enterSearchMode{backwards: signal.Backwards}
 
 		case core.ExitSearchModeSignal:
 			return exitSearchMode{}
