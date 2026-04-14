@@ -664,6 +664,12 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == 'N': // Go to previous search result
 		cursor = editor.PreviousSearchResult()
 
+	case key.Rune == '*': // Search word under cursor forward
+		cursor = editor.SearchWordUnderCursor(false)
+
+	case key.Rune == '#': // Search word under cursor backward
+		cursor = editor.SearchWordUnderCursor(true)
+
 	// Character search motions
 	case key.Rune == 'f': // Find character forward
 		m.charSearch.searchType = 'f'

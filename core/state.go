@@ -676,6 +676,8 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 		SmartCase:  smartCase,
 		Backwards:  searchOptions.Backwards,
 		Wrap:       searchOptions.Wrap,
+		WholeWord:  searchOptions.WholeWord,
+		IsWordChar: searchOptions.IsWordChar,
 	}
 
 	// Find the first result
@@ -696,12 +698,14 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 		e.state.SearchResultIndex = -1
 	}
 
-	prefix := "/"
-	if e.state.SearchOptions.Backwards {
-		prefix = "?"
+	if e.state.Mode == SearchMode {
+		prefix := "/"
+		if e.state.SearchOptions.Backwards {
+			prefix = "?"
+		}
+		e.UpdateCommand(prefix + e.state.SearchQuery.Pattern)
+		e.setMode(e.state.PreviousMode)
 	}
-	e.UpdateCommand(prefix + e.state.SearchQuery.Pattern)
-	e.setMode(e.state.PreviousMode)
 	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
 }
 
@@ -776,6 +780,36 @@ func (e *editor) PreviousSearchResult() Cursor {
 
 func (e *editor) SearchResults() []Position {
 	return e.state.SearchResults
+}
+
+// SearchWordUnderCursor implements vim's * (forward) and # (backward):
+// it extracts the word under the cursor and searches for it as a whole word.
+func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
+	cursor := e.buffer.GetCursor()
+	pos := cursor.Position
+	lineRunes := e.buffer.GetLineRunes(pos.Row)
+
+	if len(lineRunes) == 0 || pos.Col >= len(lineRunes) || !e.IsWordChar(lineRunes[pos.Col]) {
+		return cursor
+	}
+
+	// 'i' selects the inner word (without surrounding whitespace).
+	startCol, endCol, found := wordTextObjectRange(e.buffer, pos, 'i', e.IsWordChar)
+	if !found {
+		return cursor
+	}
+
+	word := string(lineRunes[startCol : endCol+1])
+
+	e.ExecuteSearch(word, SearchOptions{
+		Backwards:  backwards,
+		Wrap:       true,
+		WholeWord:  true,
+		IsWordChar: e.IsWordChar,
+	})
+	e.ScrollViewport()
+
+	return e.buffer.GetCursor()
 }
 
 func (e *editor) onSearchResultFound(pos Position) {

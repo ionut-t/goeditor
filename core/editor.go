@@ -91,6 +91,7 @@ type Editor interface {
 	SearchResults() []Position
 	NextSearchResult() Cursor
 	PreviousSearchResult() Cursor
+	SearchWordUnderCursor(backwards bool) Cursor
 
 	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
 

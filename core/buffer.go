@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Buffer represents the text content being edited (Using Runes)
@@ -37,10 +38,28 @@ type Buffer interface {
 
 // SearchOptions represents options for search operations
 type SearchOptions struct {
-	IgnoreCase bool // Case insensitive search
-	SmartCase  bool // ...unless search contains uppercase
-	Backwards  bool // Whether to search backwards
-	Wrap       bool // Whether to wrap around the buffer
+	IgnoreCase bool            // Case insensitive search
+	SmartCase  bool            // ...unless search contains uppercase
+	Backwards  bool            // Whether to search backwards
+	Wrap       bool            // Whether to wrap around the buffer
+	WholeWord  bool            // Only match whole words (vim * / # behaviour)
+	IsWordChar func(rune) bool // Classifier used with WholeWord; nil falls back to letter|digit|_
+}
+
+// isWholeWordMatch reports whether the match at [col, col+matchLen) on lineRunes is
+// surrounded by non-word characters (i.e. it is a whole-word match).
+// lineRunes must be the original (non-lowercased) line so boundary chars are classified correctly.
+func isWholeWordMatch(lineRunes []rune, col, matchLen int, isWordChar func(rune) bool) bool {
+	if isWordChar == nil {
+		isWordChar = func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+	}
+	if col > 0 && isWordChar(lineRunes[col-1]) {
+		return false
+	}
+	if col+matchLen < len(lineRunes) && isWordChar(lineRunes[col+matchLen]) {
+		return false
+	}
+	return true
 }
 
 // textBuffer implementation using runes for better unicode handling
@@ -381,7 +400,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 						break
 					}
 				}
-				if match {
+				if match && (!options.WholeWord || isWholeWordMatch(lineRunes, c, searchLen, options.IsWordChar)) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
@@ -403,13 +422,23 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 				startSearchCol = currentCol
 			}
 
-			// Use strings.Index on the relevant part of the line
+			// Scan forward through all occurrences on this line segment.
+			// With WholeWord we may need to skip non-boundary matches.
 			if startSearchCol < len(lineContent) {
-				lineSuffix := string(lineContent[startSearchCol:])
+				// Convert once; use index arithmetic to avoid repeated allocations.
+				lineStr := string(lineContent)
 				searchStr := string(searchRunes)
-				idx := strings.Index(lineSuffix, searchStr)
-				if idx != -1 {
-					return Position{Row: r, Col: startSearchCol + idx}, true
+				from := startSearchCol
+				for from < len(lineStr) {
+					idx := strings.Index(lineStr[from:], searchStr)
+					if idx == -1 {
+						break
+					}
+					col := from + idx
+					if !options.WholeWord || isWholeWordMatch(lineRunes, col, searchLen, options.IsWordChar) {
+						return Position{Row: r, Col: col}, true
+					}
+					from = col + 1
 				}
 			}
 

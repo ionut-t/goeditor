@@ -284,3 +284,69 @@ func TestCancelSearch(t *testing.T) {
 		assert.Equal(t, initialPos, cursorPos(e))
 	})
 }
+
+// TestSearchWordUnderCursor tests '*' (forward) and '#' (backward) — whole-word search.
+func TestSearchWordUnderCursor(t *testing.T) {
+	t.Run("* finds next whole-word match forward", func(t *testing.T) {
+		// "foo foobar foo": whole-word "foo" at col 0 and col 11; "foobar" at col 4 is NOT a match.
+		e := newTestEditor("foo foobar foo")
+		e.SearchWordUnderCursor(false) // cursor on "foo" at col 0 → next whole-word match → col 11
+		assert.Equal(t, Position{0, 11}, cursorPos(e))
+	})
+
+	t.Run("* on 'foobar' wraps back to itself (only one occurrence)", func(t *testing.T) {
+		e := newTestEditor("foobar foo")
+		// cursor on "foobar" at col 0 — * searches for "foobar" (the word under cursor), not "foo"
+		e.SearchWordUnderCursor(false)
+		// "foobar" only appears once; wraps and stays at col 0
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("# finds previous whole-word match backward", func(t *testing.T) {
+		e := newTestEditor("foo foobar foo")
+		// move cursor to last "foo" at col 11
+		keys(e, '$')
+		keys(e, 'b') // move back to start of last "foo"
+		e.SearchWordUnderCursor(true) // backward from col 11 → col 0
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("* wraps around when no match after cursor", func(t *testing.T) {
+		e := newTestEditor("foo bar foo")
+		wrapSearch(e, "foo") // move to col 8
+		e.SearchWordUnderCursor(false) // * on "foo" at col 8 → wraps → col 0
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("* works across lines", func(t *testing.T) {
+		e := newTestEditor("foo\nbar\nfoo")
+		e.SearchWordUnderCursor(false) // * on "foo" at {0,0} → {2,0}
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("* on non-word character does nothing", func(t *testing.T) {
+		e := newTestEditor("foo bar")
+		keys(e, 'w') // move to "bar" at col 4
+		keys(e, 'e') // move to end of "bar" → col 6
+		keys(e, 'l') // move right to space? Actually 'l' from end of word stays. Let's go to space via '$' then 'F' ' '
+		// simpler: position on the space between words
+		e2 := newTestEditor("foo bar")
+		keys(e2, 'f', ' ') // jump to space at col 3
+		initialPos := cursorPos(e2)
+		e2.SearchWordUnderCursor(false)
+		assert.Equal(t, initialPos, cursorPos(e2))
+	})
+
+	t.Run("n after * continues as whole-word search", func(t *testing.T) {
+		// "foo foobar foo bar foo": whole-word "foo" at col 0, 11, 19
+		e := newTestEditor("foo foobar foo bar foo")
+		e.SearchWordUnderCursor(false) // * from col 0 → col 11 (skipping "foobar" at col 4? no)
+		// Wait: "foo foobar foo bar foo"
+		//        0123456789012345678901
+		// "foo" at col 0, col 11, col 19. "foobar" at col 4.
+		// * from col 0 → next whole-word "foo" after col 0 → col 11
+		assert.Equal(t, Position{0, 11}, cursorPos(e))
+		e.NextSearchResult() // n → col 19
+		assert.Equal(t, Position{0, 19}, cursorPos(e))
+	})
+}

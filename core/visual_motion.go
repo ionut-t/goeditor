@@ -132,6 +132,12 @@ func applyVisualMotion(
 	case key.Rune == 'N':
 		*cursor = editor.PreviousSearchResult()
 		movementAttempted = true
+	case key.Rune == '*':
+		*cursor = editor.SearchWordUnderCursor(false)
+		movementAttempted = true
+	case key.Rune == '#':
+		*cursor = editor.SearchWordUnderCursor(true)
+		movementAttempted = true
 	}
 	return
 }
