@@ -670,14 +670,30 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 		query = strings.TrimRight(pattern, "\\C")
 	}
 
+	// Parse \< (word-start) and \> (word-end) boundary anchors.
+	wordBoundaryStart := searchOptions.WordBoundaryStart
+	wordBoundaryEnd := searchOptions.WordBoundaryEnd
+	if after, ok := strings.CutPrefix(query, `\<`); ok {
+		query = after
+		wordBoundaryStart = true
+	}
+	if before, ok := strings.CutSuffix(query, `\>`); ok {
+		query = before
+		wordBoundaryEnd = true
+	}
+
 	e.state.SearchQuery.Term = query
+	// Inline modifiers (\c, \C, \<, \>) take precedence and override the input searchOptions.
+	// Other fields (Backwards, Wrap, WholeWord, IsWordChar) are taken directly from searchOptions.
 	e.state.SearchOptions = SearchOptions{
-		IgnoreCase: ignoreCase,
-		SmartCase:  smartCase,
-		Backwards:  searchOptions.Backwards,
-		Wrap:       searchOptions.Wrap,
-		WholeWord:  searchOptions.WholeWord,
-		IsWordChar: searchOptions.IsWordChar,
+		IgnoreCase:        ignoreCase,
+		SmartCase:         smartCase,
+		Backwards:         searchOptions.Backwards,
+		Wrap:              searchOptions.Wrap,
+		WholeWord:         searchOptions.WholeWord,
+		WordBoundaryStart: wordBoundaryStart,
+		WordBoundaryEnd:   wordBoundaryEnd,
+		IsWordChar:        searchOptions.IsWordChar,
 	}
 
 	// Find the first result

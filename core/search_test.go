@@ -108,12 +108,43 @@ func TestSearchCaseInsensitive(t *testing.T) {
 	})
 }
 
-// TestSearchInlineModifiers tests the \c and \C inline modifiers.
+// TestSearchInlineModifiers tests the \c, \C, \<, and \> inline modifiers.
 func TestSearchInlineModifiers(t *testing.T) {
 	t.Run(`\c forces case-insensitive search`, func(t *testing.T) {
 		e := newTestEditor("Hello World")
 		e.ExecuteSearch(`hello\c`, SearchOptions{})
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run(`\<word\> matches whole word, skips partial`, func(t *testing.T) {
+		// "foo foobar foo": whole-word "foo" at col 0 and col 11; "foobar" at col 4 is not a match.
+		e := newTestEditor("foo foobar foo")
+		defaultSearch(e, `\<foo\>`)
+		assert.Equal(t, Position{0, 11}, cursorPos(e))
+	})
+
+	t.Run(`\< alone matches word-start boundary only`, func(t *testing.T) {
+		// "foo foobar": \<foo matches "foo" at col 0 and "foobar" at col 4 (both start at word boundary).
+		// Cursor at col 0, search after it → finds col 4 ("foobar" starts a word).
+		e := newTestEditor("foo foobar")
+		defaultSearch(e, `\<foo`)
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run(`\> alone matches word-end boundary only`, func(t *testing.T) {
+		// "foobar foo": foo\> matches "foo" ending at a word boundary.
+		// "foobar" contains "foo" but is followed by 'b' (word char) → not a match.
+		// "foo" at col 7 is followed by end-of-line → matches.
+		e := newTestEditor("foobar foo")
+		defaultSearch(e, `foo\>`)
+		assert.Equal(t, Position{0, 7}, cursorPos(e))
+	})
+
+	t.Run(`\<word\> combined with \c is case-insensitive whole-word`, func(t *testing.T) {
+		e := newTestEditor("foo Foobar FOO")
+		e.ExecuteSearch(`\<foo\>\c`, SearchOptions{Wrap: true})
+		// "foo" at col 0 → search after col 0 → wraps → "FOO" at col 11
+		assert.Equal(t, Position{0, 11}, cursorPos(e))
 	})
 }
 
@@ -306,14 +337,14 @@ func TestSearchWordUnderCursor(t *testing.T) {
 		e := newTestEditor("foo foobar foo")
 		// move cursor to last "foo" at col 11
 		keys(e, '$')
-		keys(e, 'b') // move back to start of last "foo"
+		keys(e, 'b')                  // move back to start of last "foo"
 		e.SearchWordUnderCursor(true) // backward from col 11 → col 0
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
 	t.Run("* wraps around when no match after cursor", func(t *testing.T) {
 		e := newTestEditor("foo bar foo")
-		wrapSearch(e, "foo") // move to col 8
+		wrapSearch(e, "foo")           // move to col 8
 		e.SearchWordUnderCursor(false) // * on "foo" at col 8 → wraps → col 0
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})

@@ -38,28 +38,42 @@ type Buffer interface {
 
 // SearchOptions represents options for search operations
 type SearchOptions struct {
-	IgnoreCase bool            // Case insensitive search
-	SmartCase  bool            // ...unless search contains uppercase
-	Backwards  bool            // Whether to search backwards
-	Wrap       bool            // Whether to wrap around the buffer
-	WholeWord  bool            // Only match whole words (vim * / # behaviour)
-	IsWordChar func(rune) bool // Classifier used with WholeWord; nil falls back to letter|digit|_
+	IgnoreCase        bool            // Case insensitive search
+	SmartCase         bool            // ...unless search contains uppercase
+	Backwards         bool            // Whether to search backwards
+	Wrap              bool            // Whether to wrap around the buffer
+	WholeWord         bool            // Only match whole words — used by * and #
+	WordBoundaryStart bool            // \< anchor: match must start at a word boundary
+	WordBoundaryEnd   bool            // \> anchor: match must end at a word boundary
+	IsWordChar        func(rune) bool // Classifier for boundary checks; nil falls back to letter|digit|_
 }
 
-// isWholeWordMatch reports whether the match at [col, col+matchLen) on lineRunes is
-// surrounded by non-word characters (i.e. it is a whole-word match).
+// defaultWordCharClassifier is the fallback word-character classifier used when
+// SearchOptions.IsWordChar is nil.
+var defaultWordCharClassifier = func(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// checkWordBoundaries reports whether the match at [col, col+matchLen) on lineRunes
+// satisfies the word-boundary constraints in opts.
 // lineRunes must be the original (non-lowercased) line so boundary chars are classified correctly.
-func isWholeWordMatch(lineRunes []rune, col, matchLen int, isWordChar func(rune) bool) bool {
+func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions) bool {
+	isWordChar := opts.IsWordChar
 	if isWordChar == nil {
-		isWordChar = func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+		isWordChar = defaultWordCharClassifier
 	}
-	if col > 0 && isWordChar(lineRunes[col-1]) {
+	if (opts.WholeWord || opts.WordBoundaryStart) && col > 0 && isWordChar(lineRunes[col-1]) {
 		return false
 	}
-	if col+matchLen < len(lineRunes) && isWordChar(lineRunes[col+matchLen]) {
+	if (opts.WholeWord || opts.WordBoundaryEnd) && col+matchLen < len(lineRunes) && isWordChar(lineRunes[col+matchLen]) {
 		return false
 	}
 	return true
+}
+
+// needsBoundaryCheck reports whether any word-boundary option is active.
+func needsBoundaryCheck(opts SearchOptions) bool {
+	return opts.WholeWord || opts.WordBoundaryStart || opts.WordBoundaryEnd
 }
 
 // textBuffer implementation using runes for better unicode handling
@@ -394,13 +408,13 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 					continue
 				}
 				match := true
-				for i := 0; i < searchLen; i++ {
+				for i := range searchLen {
 					if lineContent[c+i] != searchRunes[i] {
 						match = false
 						break
 					}
 				}
-				if match && (!options.WholeWord || isWholeWordMatch(lineRunes, c, searchLen, options.IsWordChar)) {
+				if match && (!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, searchLen, options)) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
@@ -435,7 +449,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 						break
 					}
 					col := from + idx
-					if !options.WholeWord || isWholeWordMatch(lineRunes, col, searchLen, options.IsWordChar) {
+					if !needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, col, searchLen, options) {
 						return Position{Row: r, Col: col}, true
 					}
 					from = col + 1
