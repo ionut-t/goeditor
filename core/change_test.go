@@ -276,3 +276,56 @@ func TestChangeToBufferStart(t *testing.T) {
 		assertInsertMode(t, e)
 	})
 }
+
+// TestChangeInsideQuotes tests ci"/ca", ci'/ca', ci`/ca` — change inside/around quotes.
+func TestChangeInsideQuotes(t *testing.T) {
+	t.Run(`ci" clears content and enters insert mode`, func(t *testing.T) {
+		e := newTestEditor(`"hello"`)
+		keys(e, 'l', 'l')
+		keys(e, 'c', 'i', '"')
+		assert.Equal(t, `""`, content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run(`ca" removes quotes and enters insert mode`, func(t *testing.T) {
+		e := newTestEditor(`"hi"`)
+		keys(e, 'l')
+		keys(e, 'c', 'a', '"')
+		assert.Equal(t, ``, content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+}
+
+// TestChangeInsideBrackets tests cib/cab, ciB/caB and caq — change inside/around brackets and quotes.
+func TestChangeInsideBrackets(t *testing.T) {
+	t.Run("cib clears parens content and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("func(arg)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'c', 'i', 'b')
+		assert.Equal(t, "func()", content(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("cab removes parens and content, enters insert mode", func(t *testing.T) {
+		e := newTestEditor("func(arg)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'c', 'a', 'b')
+		assert.Equal(t, "func", content(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("caq clears any-quote content and enters insert mode", func(t *testing.T) {
+		e := newTestEditor(`"hello"`)
+		keys(e, 'l', 'l')
+		keys(e, 'c', 'a', 'q')
+		assert.Equal(t, "", content(e))
+		assertInsertMode(t, e)
+	})
+}

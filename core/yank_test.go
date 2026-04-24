@@ -234,3 +234,49 @@ func TestYankToEndOfBuffer(t *testing.T) {
 		assert.Equal(t, Position{2, 0}, cursorPos(e))
 	})
 }
+
+// TestYankInsideBrackets tests yi(/ya(, yib/yaB, yi"/ya" and related aliases.
+func TestYankInsideBrackets(t *testing.T) {
+	t.Run("yi( yanks content inside parens into register", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("(hello)")
+		keys(e, 'l', 'l')
+		keys(e, 'y', 'i', '(')
+		assert.Equal(t, "hello", cb.content)
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+
+	t.Run("ya( yanks including parens", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("(hi)")
+		keys(e, 'l')
+		keys(e, 'y', 'a', '(')
+		assert.Equal(t, "(hi)", cb.content)
+	})
+
+	t.Run(`yi" yanks content inside double quotes`, func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard(`"world"`)
+		keys(e, 'l', 'l')
+		keys(e, 'y', 'i', '"')
+		assert.Equal(t, "world", cb.content)
+	})
+
+	t.Run("yib is alias for yi(", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("(test)")
+		keys(e, 'l')
+		keys(e, 'y', 'i', 'b')
+		assert.Equal(t, "test", cb.content)
+	})
+
+	t.Run("yiB yanks inside curly braces", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("{data}")
+		keys(e, 'l', 'l')
+		keys(e, 'y', 'i', 'B')
+		assert.Equal(t, "data", cb.content)
+	})
+
+	t.Run("yi( across multiple lines", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("(\n  hello\n)")
+		keys(e, 'j', 'l', 'l')
+		keys(e, 'y', 'i', '(')
+		assert.Equal(t, "  hello", cb.content)
+	})
+}

@@ -311,6 +311,27 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 			err = changeParagraphTextObject(editor, buffer, modifier)
 			actionTaken = true
 		}
+	case '"', '\'', '`': // i"/a", i'/a', i`/a` = inside/around quote
+		err = applyQuoteOp(editor, buffer, modifier, key.Rune, op)
+		actionTaken = true
+	case 'q': // iq/aq = inside/around any quote (", ', `)
+		err = applyAnyQuoteOp(editor, buffer, modifier, op)
+		actionTaken = true
+	case '(', ')': // i(/a(, i)/a) = inside/around parentheses
+		err = applyBracketOp(editor, buffer, modifier, '(', ')', op)
+		actionTaken = true
+	case 'b': // ib/ab = inside/around nearest bracket of any type (()/[]/{}/)
+		err = applyAnyBracketOp(editor, buffer, modifier, op)
+		actionTaken = true
+	case '[', ']': // i[/a[, i]/a] = inside/around square brackets
+		err = applyBracketOp(editor, buffer, modifier, '[', ']', op)
+		actionTaken = true
+	case '{', '}', 'B': // i{/a{, i}/a}, iB/aB = inside/around curly braces
+		err = applyBracketOp(editor, buffer, modifier, '{', '}', op)
+		actionTaken = true
+	case '<', '>': // i</a<, i>/a> = inside/around angle brackets
+		err = applyBracketOp(editor, buffer, modifier, '<', '>', op)
+		actionTaken = true
 	default:
 		editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid text object '%c' after '%c'", key.Rune, modifier))
 		actionTaken = true

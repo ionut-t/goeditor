@@ -93,7 +93,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	return m.handleMovement(editor, buffer, key, count)
 }
 
-// handleTextObject applies a text object (viw, vaw, vip, vap) after an 'i'/'a' modifier.
+// handleTextObject applies a text object (viw, vaw, vip, vap, vi"/va", vi(/va(, …) after an 'i'/'a' modifier.
 func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor) *EditorError {
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
@@ -118,6 +118,86 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 			// Now move cursor to endRow to define the selection end.
 			cursor = buffer.GetCursor()
 			cursor.Position.Row = endRow
+			buffer.SetCursor(cursor)
+		}
+	case '"', '\'', '`': // vi"/va", vi'/va', vi`/va` — select inside/around quote
+		startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, key.Rune)
+		if found {
+			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position.Col = endCol
+			buffer.SetCursor(cursor)
+		}
+	case 'q': // viq/vaq — select inside/around any quote
+		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
+		if found {
+			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position.Col = endCol
+			buffer.SetCursor(cursor)
+		}
+	case '(', ')': // vi(/va(, vi)/va) — select inside/around parentheses
+		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '(', ')')
+		if found {
+			m.startPos = startPos
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position = endPos
+			buffer.SetCursor(cursor)
+		}
+	case 'b': // vib/vab — select inside/around nearest bracket of any type (()/[]/{}/)
+		openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor.Position)
+		if found {
+			startPos, endPos := openPos, closePos
+			if modifier == 'i' {
+				if s, e, ok := bracketInnerRange(buffer, openPos, closePos); ok {
+					startPos, endPos = s, e
+				} else {
+					found = false
+				}
+			}
+			if found {
+				m.startPos = startPos
+				state := editor.GetState()
+				state.VisualStart = m.startPos
+				editor.SetState(state)
+				cursor.Position = endPos
+				buffer.SetCursor(cursor)
+			}
+		}
+	case '[', ']': // vi[/va[, vi]/va] — select inside/around square brackets
+		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '[', ']')
+		if found {
+			m.startPos = startPos
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position = endPos
+			buffer.SetCursor(cursor)
+		}
+	case '{', '}', 'B': // vi{/va{, vi}/va}, viB/vaB — select inside/around curly braces
+		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '{', '}')
+		if found {
+			m.startPos = startPos
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position = endPos
+			buffer.SetCursor(cursor)
+		}
+	case '<', '>': // vi</va<, vi>/va> — select inside/around angle brackets
+		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '<', '>')
+		if found {
+			m.startPos = startPos
+			state := editor.GetState()
+			state.VisualStart = m.startPos
+			editor.SetState(state)
+			cursor.Position = endPos
 			buffer.SetCursor(cursor)
 		}
 	}

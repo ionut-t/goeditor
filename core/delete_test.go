@@ -383,3 +383,255 @@ func TestUndoDeleteLine(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
+
+// TestDeleteInsideQuotes tests di"/da", di'/da', di`/da` — delete inside/around quotes.
+func TestDeleteInsideQuotes(t *testing.T) {
+	t.Run(`di" deletes content between double quotes`, func(t *testing.T) {
+		e := newTestEditor(`say "hello" world`)
+		keys(e, 'w', 'w') // cursor on 'h' inside the quotes (col 5)
+		keys(e, 'd', 'i', '"')
+		assert.Equal(t, `say "" world`, content(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e))
+	})
+
+	t.Run(`da" deletes including the quote chars`, func(t *testing.T) {
+		e := newTestEditor(`say "hello" world`)
+		keys(e, 'w', 'w')
+		keys(e, 'd', 'a', '"')
+		assert.Equal(t, `say  world`, content(e))
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run(`di' deletes content between single quotes`, func(t *testing.T) {
+		e := newTestEditor(`it 'works' now`)
+		keys(e, 'w', 'l')
+		keys(e, 'd', 'i', '\'')
+		assert.Equal(t, `it '' now`, content(e))
+	})
+
+	t.Run("di` deletes content between backticks", func(t *testing.T) {
+		e := newTestEditor("`cmd arg`")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', '`')
+		assert.Equal(t, "``", content(e))
+	})
+
+	t.Run("cursor before quotes selects next pair", func(t *testing.T) {
+		e := newTestEditor(`x "foo" y`)
+		keys(e, 'd', 'i', '"')
+		assert.Equal(t, `x "" y`, content(e))
+	})
+}
+
+// TestDeleteInsideAnyQuote tests diq/daq — delete inside/around any quote type.
+func TestDeleteInsideAnyQuote(t *testing.T) {
+	t.Run("diq on double-quoted string", func(t *testing.T) {
+		e := newTestEditor(`"hello"`)
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', 'q')
+		assert.Equal(t, `""`, content(e))
+	})
+
+	t.Run("diq picks innermost quote", func(t *testing.T) {
+		// outer " at 0,14; inner ' at 5,9; cursor inside 'bar' at col 7
+		e := newTestEditor(`"foo 'bar' baz"`)
+		for range 7 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', 'q')
+		assert.Equal(t, `"foo '' baz"`, content(e))
+	})
+
+	t.Run("daq removes the quote chars", func(t *testing.T) {
+		e := newTestEditor(`'hi'`)
+		keys(e, 'l')
+		keys(e, 'd', 'a', 'q')
+		assert.Equal(t, ``, content(e))
+	})
+}
+
+// TestDeleteInsideBrackets tests di(/da(, dib/dab and related bracket aliases.
+func TestDeleteInsideBrackets(t *testing.T) {
+	t.Run("di( deletes content inside parens", func(t *testing.T) {
+		e := newTestEditor("foo(bar, baz)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "foo()", content(e))
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run("dib inside parens", func(t *testing.T) {
+		e := newTestEditor("foo(bar)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', 'b')
+		assert.Equal(t, "foo()", content(e))
+	})
+
+	t.Run("dib inside square brackets", func(t *testing.T) {
+		e := newTestEditor("[1, 2]")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', 'b')
+		assert.Equal(t, "[]", content(e))
+	})
+
+	t.Run("dib inside curly braces", func(t *testing.T) {
+		e := newTestEditor("{key: val}")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', 'b')
+		assert.Equal(t, "{}", content(e))
+	})
+
+	t.Run("dib picks innermost when bracket types are nested", func(t *testing.T) {
+		// cursor inside [], which is inside ()
+		e := newTestEditor("([1, 2])")
+		for range 3 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', 'b')
+		assert.Equal(t, "([])", content(e))
+	})
+
+	t.Run("da( deletes including the parens", func(t *testing.T) {
+		e := newTestEditor("foo(bar)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'a', '(')
+		assert.Equal(t, "foo", content(e))
+	})
+
+	t.Run("dab inside parens", func(t *testing.T) {
+		e := newTestEditor("foo(bar)")
+		for range 5 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'a', 'b')
+		assert.Equal(t, "foo", content(e))
+	})
+
+	t.Run("dab inside square brackets", func(t *testing.T) {
+		e := newTestEditor("x[1]y")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'a', 'b')
+		assert.Equal(t, "xy", content(e))
+	})
+
+	t.Run("dab inside curly braces", func(t *testing.T) {
+		e := newTestEditor("x{a}y")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'a', 'b')
+		assert.Equal(t, "xy", content(e))
+	})
+
+	t.Run("cursor on closing paren", func(t *testing.T) {
+		e := newTestEditor("(hello)")
+		keys(e, '$')
+		keys(e, 'd', 'i', ')')
+		assert.Equal(t, "()", content(e))
+	})
+
+	t.Run("nested parens – deletes innermost from inside inner", func(t *testing.T) {
+		e := newTestEditor("(a(b)c)")
+		for range 3 {
+			keys(e, 'l')
+		}
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "(a()c)", content(e))
+	})
+
+	t.Run("di{ and diB delete inside curly braces", func(t *testing.T) {
+		e := newTestEditor("{hello}")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', '{')
+		assert.Equal(t, "{}", content(e))
+	})
+
+	t.Run("diB is alias for di{", func(t *testing.T) {
+		e := newTestEditor("{world}")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', 'B')
+		assert.Equal(t, "{}", content(e))
+	})
+
+	t.Run("da{ deletes including the braces", func(t *testing.T) {
+		e := newTestEditor("{ok}")
+		keys(e, 'l')
+		keys(e, 'd', 'a', '{')
+		assert.Equal(t, "", content(e))
+	})
+
+	t.Run("di[ deletes content inside square brackets", func(t *testing.T) {
+		e := newTestEditor("[1, 2, 3]")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', '[')
+		assert.Equal(t, "[]", content(e))
+	})
+
+	t.Run("da] deletes including the square brackets", func(t *testing.T) {
+		e := newTestEditor("[abc]")
+		keys(e, 'l')
+		keys(e, 'd', 'a', ']')
+		assert.Equal(t, "", content(e))
+	})
+
+	t.Run("di< deletes content inside angle brackets", func(t *testing.T) {
+		e := newTestEditor("<div>")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', '<')
+		assert.Equal(t, "<>", content(e))
+	})
+
+	t.Run("da> deletes including the angle brackets", func(t *testing.T) {
+		e := newTestEditor("<T>")
+		keys(e, 'l')
+		keys(e, 'd', 'a', '>')
+		assert.Equal(t, "", content(e))
+	})
+
+	t.Run("di( across multiple lines keeps bracket lines", func(t *testing.T) {
+		e := newTestEditor("(\n  foo\n  bar\n)")
+		keys(e, 'j', 'l', 'l')
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "(\n)", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("da( across multiple lines removes brackets too", func(t *testing.T) {
+		e := newTestEditor("(\n  foo\n)")
+		keys(e, 'j', 'l', 'l')
+		keys(e, 'd', 'a', '(')
+		assert.Equal(t, "", content(e))
+	})
+
+	t.Run("no brackets – does nothing", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "hello world", content(e))
+	})
+
+	t.Run("no quotes – does nothing", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', 'i', '"')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("unmatched bracket – does nothing", func(t *testing.T) {
+		e := newTestEditor("(hello")
+		keys(e, 'l', 'l')
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "(hello", content(e))
+	})
+
+	t.Run("cursor outside all brackets – does nothing", func(t *testing.T) {
+		e := newTestEditor("(x) y")
+		keys(e, '$')
+		keys(e, 'd', 'i', '(')
+		assert.Equal(t, "(x) y", content(e))
+	})
+}
