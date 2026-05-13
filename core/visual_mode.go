@@ -242,7 +242,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		editor.ResetPendingCount()
 		return true, err
 
-	case 'p':
+	case 'p', 'P':
 		if !state.WithInsertMode {
 			return true, nil
 		}
@@ -254,13 +254,18 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
-		content, pasteErr := editor.Paste()
+		content, pasteErr := editor.PasteBefore()
 		if pasteErr != nil {
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
 			}
 		} else {
+			runes := []rune(content)
+			if runeLen := len(runes); runeLen > 0 && runes[runeLen-1] != '\n' {
+				cursor.Position.Col = finalPos.Col + runeLen - 1
+				buffer.SetCursor(cursor)
+			}
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
 		editor.ResetPendingCount()

@@ -955,7 +955,7 @@ func (e *editor) Redo() (string, error) {
 	return currentContent, nil
 }
 
-func (e *editor) Paste() (string, error) {
+func (e *editor) PasteAfter() (string, error) {
 	content, err := e.clipboard.Read()
 	if err != nil {
 		return "", fmt.Errorf("failed to read clipboard: %w", err)

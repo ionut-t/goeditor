@@ -66,7 +66,7 @@ type Editor interface {
 	SaveHistory() // Indicate a state should be saved for undo
 	Undo() (string, error)
 	Redo() (string, error)
-	Paste() (string, error)       // Paste from clipboard after/below cursor
+	PasteAfter() (string, error)  // Paste from clipboard after/below cursor
 	PasteBefore() (string, error) // Paste from clipboard before/above cursor
 	Copy(op copyType) error       // Copy to clipboard
 

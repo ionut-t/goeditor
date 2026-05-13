@@ -118,7 +118,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		}
 		return true, err
 
-	case 'p':
+	case 'p', 'P':
 		if !state.WithInsertMode {
 			return true, nil
 		}
@@ -131,14 +131,33 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
-		content, pasteErr := editor.Paste()
+		var pastedContent string
+		var pasteErr error
+		if startRow < buffer.LineCount() {
+			// Lines still exist at startRow — insert clipboard before that line so
+			// the pasted content lands exactly where the selection was.
+			pastedContent, pasteErr = editor.PasteBefore()
+			if pasteErr == nil {
+				cur := buffer.GetCursor()
+				cur.Position.Row = startRow
+				cur.Position.Col = 0
+				buffer.SetCursor(cur)
+			}
+		} else {
+			// The selection included the last line(s); append below the new last line.
+			cur := buffer.GetCursor()
+			cur.Position.Row = buffer.LineCount() - 1
+			cur.Position.Col = 0
+			buffer.SetCursor(cur)
+			pastedContent, pasteErr = editor.PasteAfter()
+		}
 		if pasteErr != nil {
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
 			}
 		} else {
-			editor.DispatchSignal(PasteSignal{content: content})
+			editor.DispatchSignal(PasteSignal{content: pastedContent})
 		}
 		editor.ResetPendingCount()
 		return true, err

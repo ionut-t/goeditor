@@ -818,18 +818,18 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 
-		content, pasteErr := editor.Paste()
+		content, pasteErr := editor.PasteAfter()
 
 		if strings.HasSuffix(content, "\n") {
-			// Linewise paste: Paste() already inserted below and set cursor to (row+1, 0).
+			// Linewise paste: PasteAfter() already inserted below and set cursor to (row+1, 0).
 			// Repeat for any additional count (e.g. 3p pastes 3 lines).
 			for i := 1; i < count; i++ {
-				if _, loopErr := editor.Paste(); loopErr != nil {
+				if _, loopErr := editor.PasteAfter(); loopErr != nil {
 					pasteErr = loopErr
 					break
 				}
 			}
-			// Cursor was set inside Paste(); refresh and skip the normal MoveRight.
+			// Cursor was set inside PasteAfter(); refresh and skip the normal MoveRight.
 			cursor = buffer.GetCursor()
 			skipCursorUpdate = true
 		} else {

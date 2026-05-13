@@ -167,3 +167,88 @@ func TestPasteLinewiseBefore(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
+
+// TestPasteOverSelection tests 'p' in visual character mode (v).
+// The selected text is deleted and the clipboard is pasted in its place.
+func TestPasteOverSelection(t *testing.T) {
+	t.Run("p over character-wise selection replaces it", func(t *testing.T) {
+		e, cp := newTestEditorWithClipboard("hello world")
+		cp.content = "bye"
+		keys(e, 'v', 'e')
+		keys(e, 'p')
+		assert.Equal(t, "bye world", content(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("p over mid-line selection replaces selected word", func(t *testing.T) {
+		e, cp := newTestEditorWithClipboard("hello world")
+		cp.content = "bye"
+		keys(e, 'w', 'v', 'e') // move to "world", select it
+		keys(e, 'p')
+		assert.Equal(t, "hello bye", content(e))
+		assert.Equal(t, Position{0, 8}, cursorPos(e))
+	})
+
+	t.Run("p over single char at end of line", func(t *testing.T) {
+		e, cp := newTestEditorWithClipboard("hello world")
+		cp.content = "bye"
+		keys(e, '$', 'v', 'p') // select last char 'd', paste
+		assert.Equal(t, "hello worlbye", content(e))
+		assert.Equal(t, Position{0, 12}, cursorPos(e))
+	})
+}
+
+// TestPasteBeforeOverSelection tests 'P' in visual modes — identical behaviour to 'p'.
+func TestPasteBeforeOverSelection(t *testing.T) {
+	t.Run("P over character-wise selection replaces it", func(t *testing.T) {
+		e, cp := newTestEditorWithClipboard("hello world")
+		cp.content = "bye"
+		keys(e, 'v', 'e', 'P')
+		assert.Equal(t, "bye world", content(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("VP replaces line with yanked line", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello\nworld")
+		keys(e, 'j', 'y', 'y') // yank "world\n" from row 1
+		keys(e, 'k', 'V', 'P') // select row 0, paste
+		assert.Equal(t, "world\nworld", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+}
+
+// TestPasteLinewiseOverSelection tests 'p' in visual line mode (V).
+// The selected lines are deleted and the clipboard is pasted in their place.
+func TestPasteLinewiseOverSelection(t *testing.T) {
+	t.Run("Vp replaces last line with yanked line", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello\nworld")
+		keys(e, 'y', 'y')      // yank "hello\n" from row 0
+		keys(e, 'j', 'V', 'p') // select row 1, paste
+		assert.Equal(t, "hello\nhello", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("Vp replaces first line with yanked line", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello\nworld")
+		keys(e, 'j', 'y', 'y') // yank "world\n" from row 1
+		keys(e, 'k', 'V', 'p') // select row 0, paste
+		assert.Equal(t, "world\nworld", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e)) // cursor on the pasted line
+	})
+
+	t.Run("Vp puts pasted content at the selected row, not below it", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("first\nsecond\nthird")
+		keys(e, 'j', 'j', 'y', 'y') // yank "third\n" from row 2
+		keys(e, 'k', 'k', 'V', 'p') // select row 0, paste
+		assert.Equal(t, "third\nsecond\nthird", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("Vjp replaces multi-line selection with yanked line", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'y', 'y')           // yank "one\n" from row 0
+		keys(e, 'j', 'V', 'j', 'p') // select rows 1+2, paste
+		assert.Equal(t, "one\none", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
