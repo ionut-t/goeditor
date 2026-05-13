@@ -110,28 +110,28 @@ func TestRepeatCharSearch(t *testing.T) {
 	t.Run("; repeats last f search forward", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'f', 'o') // → col 4
-		keys(e, ';')       // repeat: next 'o' from col 4 → col 7
+		keys(e, ';')      // repeat: next 'o' from col 4 → col 7
 		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 
 	t.Run(", reverses last f search to F", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, '$', 'F', 'o') // → col 7
-		keys(e, ',')            // reverse F→f: next 'o' forward from col 7 → not found, stays
+		keys(e, ',')           // reverse F→f: next 'o' forward from col 7 → not found, stays
 		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 
 	t.Run("; after F repeats backward", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, '$', 'F', 'o') // → col 7
-		keys(e, ';')            // repeat F: previous 'o' from col 7 → col 4
+		keys(e, ';')           // repeat F: previous 'o' from col 7 → col 4
 		assert.Equal(t, Position{0, 4}, cursorPos(e))
 	})
 
 	t.Run(", after F reverses to f", func(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, '$', 'F', 'o') // → col 7
-		keys(e, ',')            // reversed F→f: next 'o' forward from col 7 → not found
+		keys(e, ',')           // reversed F→f: next 'o' forward from col 7 → not found
 		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 

@@ -1,6 +1,5 @@
 package core
 
-
 // CompletionTriggerKind defines how completion was triggered
 type CompletionTriggerKind int
 

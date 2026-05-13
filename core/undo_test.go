@@ -108,7 +108,7 @@ func TestRedoBasic(t *testing.T) {
 	t.Run("redo restores cursor to post-change position", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
 		keys(e, 'j', 'd', 'd') // delete "second", cursor goes to row 0
-		keys(e, 'u')            // undo: "second" restored, cursor at row 1
+		keys(e, 'u')           // undo: "second" restored, cursor at row 1
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
 		keys(e, 'U') // redo: "second" deleted again, cursor at row 0
 		assert.Equal(t, "first", content(e))
@@ -121,9 +121,9 @@ func TestUndoTruncatesRedo(t *testing.T) {
 	t.Run("new edit after undo prevents redo", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, 'd', 'd') // delete "one" → "two\nthree"
-		keys(e, 'u')       // undo → "one\ntwo\nthree"
-		keys(e, 'x')       // new edit → "ne\ntwo\nthree"
-		keys(e, 'U')       // redo should not restore "two\nthree"
+		keys(e, 'u')      // undo → "one\ntwo\nthree"
+		keys(e, 'x')      // new edit → "ne\ntwo\nthree"
+		keys(e, 'U')      // redo should not restore "two\nthree"
 		assert.Equal(t, "ne\ntwo\nthree", content(e))
 	})
 }

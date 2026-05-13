@@ -621,7 +621,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 		_ = cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
-		buffer.SetCursor(cursor)                    // Update buffer's cursor
+		buffer.SetCursor(cursor)                        // Update buffer's cursor
 		editor.SetInsertMode()
 
 	case key.Rune == 'A': // Insert at end of line
@@ -640,7 +640,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		buffer.SetCursor(cursor)
 		_ = buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
 		_ = cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)                           // Go to start of new line
+		cursor.MoveToFirstNonBlank(buffer, availableWidth)                               // Go to start of new line
 		buffer.SetCursor(cursor)
 		editor.SaveHistory()
 		editor.SetInsertMode()
@@ -649,7 +649,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if !state.WithInsertMode {
 			return nil
 		}
-		cursor.MoveToLineStart()                                   // Go to start of current linavailableWidthe
+		cursor.MoveToLineStart()                                       // Go to start of current linavailableWidthe
 		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line

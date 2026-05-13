@@ -431,4 +431,3 @@ func TestGPrefix(t *testing.T) {
 		assert.True(t, e.IsNormalMode())
 	})
 }
-
