@@ -969,7 +969,7 @@ func (e *editor) Paste() (string, error) {
 		// Detected via trailing newline, which all line-wise yanks (yy, Vy) append.
 		lineText := before
 		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
-		e.buffer.InsertRunesAt(cursor.Position.Row, lineLen, []rune("\n"+lineText))
+		_ = e.buffer.InsertRunesAt(cursor.Position.Row, lineLen, []rune("\n"+lineText))
 
 		// Place cursor at the start of the newly inserted line.
 		cursor.Position.Row++
@@ -980,7 +980,7 @@ func (e *editor) Paste() (string, error) {
 		// On an empty line Col+1 would exceed the line length, so clamp to lineLen.
 		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
 		insertCol := min(cursor.Position.Col+1, lineLen)
-		e.buffer.InsertRunesAt(cursor.Position.Row, insertCol, []rune(content))
+		_ = e.buffer.InsertRunesAt(cursor.Position.Row, insertCol, []rune(content))
 	}
 
 	e.SaveHistory()
@@ -999,12 +999,12 @@ func (e *editor) PasteBefore() (string, error) {
 	if before, ok := strings.CutSuffix(content, "\n"); ok {
 		// Linewise paste above: insert the yanked line before the current line.
 		// Inserting lineText+"\n" at (row, 0) pushes the current line down; cursor stays at row.
-		e.buffer.InsertRunesAt(cursor.Position.Row, 0, []rune(before+"\n"))
+		_ = e.buffer.InsertRunesAt(cursor.Position.Row, 0, []rune(before+"\n"))
 		cursor.Position.Col = 0
 		e.buffer.SetCursor(cursor)
 	} else {
 		// Character-wise paste before: insert at the current cursor position (same as 'p' for chars).
-		e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(content))
+		_ = e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(content))
 	}
 
 	e.SaveHistory()

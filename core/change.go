@@ -11,7 +11,7 @@ func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 
 	// In 'cw', we delete INCLUDING the character at the end of the word.
 	// But deleteRange is exclusive of endPos, so we move one right.
-	tempCursor.MoveRight(buffer, 1, availableWidth)
+	_ = tempCursor.MoveRight(buffer, 1, availableWidth)
 	exclusiveEndPos := tempCursor.Position
 
 	if startPos != exclusiveEndPos {

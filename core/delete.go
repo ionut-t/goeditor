@@ -183,7 +183,7 @@ func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
 	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
 	// MoveWordToEnd lands on the last char of the word (inclusive), so move one right
 	// to get the exclusive end for deleteRange.
-	tempCursor.MoveRight(buffer, 1, availableWidth)
+	_ = tempCursor.MoveRight(buffer, 1, availableWidth)
 	exclusiveEndPos := tempCursor.Position
 
 	if startPos != exclusiveEndPos {

@@ -620,7 +620,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if !state.WithInsertMode {
 			return nil
 		}
-		cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
+		_ = cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
 		buffer.SetCursor(cursor)                    // Update buffer's cursor
 		editor.SetInsertMode()
 
@@ -638,8 +638,8 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
 		buffer.SetCursor(cursor)
-		buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
-		cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
+		_ = buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
+		_ = cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)                           // Go to start of new line
 		buffer.SetCursor(cursor)
 		editor.SaveHistory()
@@ -650,7 +650,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 		cursor.MoveToLineStart()                                   // Go to start of current linavailableWidthe
-		buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
+		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
 		buffer.SetCursor(cursor)
@@ -665,7 +665,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	case key.Key == KeyEscape:
 		// If pending count or op, clear them
-		pendingCount = nil
 		m.pendingKey = KeyEvent{Key: KeyUnknown}
 		editor.UpdateCommand("") // Clear count display
 		editor.SetNormalMode()
@@ -754,7 +753,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if cursor.Position.Col > 0 {
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
 			if err == nil {
-				cursor.MoveLeft(buffer, count, availableWidth) // Move cursor back
+				_ = cursor.MoveLeft(buffer, count, availableWidth) // Move cursor back
 				buffer.SetCursor(cursor)
 				editor.SaveHistory()
 			}
@@ -835,7 +834,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			skipCursorUpdate = true
 		} else {
 			count = len(content)
-			cursor.MoveRight(buffer, count, availableWidth)
+			_ = cursor.MoveRight(buffer, count, availableWidth)
 		}
 
 		if pasteErr != nil {
@@ -867,7 +866,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			skipCursorUpdate = true
 		} else {
 			count = len(content)
-			cursor.MoveRight(buffer, count, availableWidth)
+			_ = cursor.MoveRight(buffer, count, availableWidth)
 		}
 
 		if pasteErr != nil {

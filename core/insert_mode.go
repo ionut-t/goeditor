@@ -36,7 +36,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			// Delete character before cursor
 			err = buffer.DeleteRunesAt(row, col-1, 1)
 			if err == nil {
-				cursor.MoveLeft(buffer, 1, availableWidth) // Move cursor back
+				_ = cursor.MoveLeft(buffer, 1, availableWidth) // Move cursor back
 				buffer.SetCursor(cursor)
 				editor.SaveHistory() // Save after modification
 			}
@@ -85,7 +85,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// For simplicity, insert literal tab rune
 		insertErr := buffer.InsertRunesAt(row, col, []rune{'\t'})
 		if insertErr == nil {
-			cursor.MoveRight(buffer, 1, availableWidth) // Tab counts as one "character" position for movement
+			_ = cursor.MoveRight(buffer, 1, availableWidth) // Tab counts as one "character" position for movement
 			buffer.SetCursor(cursor)
 			editor.SaveHistory()
 		} else {
@@ -102,20 +102,20 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// Let's ignore them for now.
 
 	case KeyLeft:
-		cursor.MoveLeftOrUp(buffer, 1, col)
+		_ = cursor.MoveLeftOrUp(buffer, 1, col)
 		buffer.SetCursor(cursor)
 		editor.SaveHistory() // Save after modification
 		return nil
 
 	case KeyRight:
-		cursor.MoveRightOrDown(buffer, 1, col)
+		_ = cursor.MoveRightOrDown(buffer, 1, col)
 		buffer.SetCursor(cursor)
 		editor.SaveHistory() // Save after modification
 		return nil
 
 	case KeyUp:
 		if row > 0 {
-			cursor.MoveUp(buffer, 1, availableWidth) // Move cursor up
+			_ = cursor.MoveUp(buffer, 1, availableWidth) // Move cursor up
 			buffer.SetCursor(cursor)
 			editor.SaveHistory() // Save after modification
 		}
@@ -123,7 +123,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	case KeyDown:
 		if row < buffer.LineCount()-1 {
-			cursor.MoveDown(buffer, 1, availableWidth) // Move cursor down
+			_ = cursor.MoveDown(buffer, 1, availableWidth) // Move cursor down
 			buffer.SetCursor(cursor)
 			editor.SaveHistory() // Save after modification
 		}
@@ -133,7 +133,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if key.Rune != 0 {
 			insertErr := buffer.InsertRunesAt(row, col, []rune{key.Rune})
 			if insertErr == nil {
-				cursor.MoveRight(buffer, 1, availableWidth) // Move cursor forward
+				_ = cursor.MoveRight(buffer, 1, availableWidth) // Move cursor forward
 				buffer.SetCursor(cursor)
 				editor.SaveHistory() // Save after modification
 			} else {

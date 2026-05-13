@@ -193,7 +193,7 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 
 	switch key.Key {
 	case KeyDown:
-		cursor.MoveDown(buffer, moveCount, availableWidth)
+		_ = cursor.MoveDown(buffer, moveCount, availableWidth)
 		movementAttempted = true
 	case KeyUp:
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
@@ -231,7 +231,7 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 			return nil
 		default:
 			var earlyReturn bool
-			moveErr, movementAttempted, earlyReturn = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
+			movementAttempted, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
 			if earlyReturn {
 				return nil
 			}

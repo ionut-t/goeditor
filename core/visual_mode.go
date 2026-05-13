@@ -324,7 +324,7 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 		return nil
 	default:
 		var movementAttempted, earlyReturn bool
-		moveErr, movementAttempted, earlyReturn = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
+		movementAttempted, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
 		if earlyReturn {
 			return nil
 		}

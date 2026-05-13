@@ -739,7 +739,7 @@ func (m *Model) renderVisibleSliceDefault() {
 				baseCharStyle = baseCharStyle.Background(currentLineBackground)
 			}
 
-			charsToAdvance := 1
+			var charsToAdvance int
 
 			bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
 			bestMatchLen := bestMatch.length
@@ -1128,8 +1128,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		extraHighlightedContextLines := int(m.extraHighlightedContextLines)
 
 		// Pre-tokenise all visible logical lines, with context
-		startLogicalLine := -1
-		endLogicalLine := -1
+		var startLogicalLine, endLogicalLine int
 		if len(m.visualLayoutCache) > 0 && m.fullVisualLayoutHeight > 0 {
 			// Convert absolute visual rows to cache indices
 			startCacheIdx := max(0, startRenderVisualRow-m.visualLayoutCacheStartVisualRow)
@@ -1372,7 +1371,7 @@ func (m *Model) renderSegment(
 		}
 
 		// Check for highlighted words (this takes precedence over syntax highlighting)
-		charsToAdvance := 1
+		var charsToAdvance int
 		bestMatch := m.findHighlightedWordMatch(segmentRunes, charIdx)
 		bestMatchLen := bestMatch.length
 		bestMatchStyle := bestMatch.style

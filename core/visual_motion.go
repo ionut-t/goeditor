@@ -31,7 +31,7 @@ func handleVisualGKey(waitingForG *bool, editor Editor, buffer Buffer, key KeyEv
 //   - g              — handled by each mode's waitingForG state before reaching here
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
 //
-// Returns (moveErr, movementAttempted, earlyReturn).
+// Returns (movementAttempted, earlyReturn, moveErr).
 // earlyReturn=true signals the caller must return nil immediately (charSearch initiated).
 func applyVisualMotion(
 	cs *charSearchState,
@@ -40,7 +40,7 @@ func applyVisualMotion(
 	cursor *Cursor,
 	key KeyEvent,
 	count int,
-) (moveErr error, movementAttempted bool, earlyReturn bool) {
+) (movementAttempted bool, earlyReturn bool, moveErr error) {
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
 	viewportHeight := state.ViewportHeight
