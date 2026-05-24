@@ -391,8 +391,21 @@ func (c *clipboardImpl) Read() (string, error) {
 	return clipboard.ReadAll()
 }
 
-func New(width, height int) Model {
-	texteditor := core.New(&clipboardImpl{})
+// Option configures a Model.
+type Option func(*modelConfig)
+
+type modelConfig struct {
+	clipboard core.Clipboard
+}
+
+func New(width, height int, opts ...Option) Model {
+	cfg := &modelConfig{
+		clipboard: &clipboardImpl{},
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	texteditor := core.New(cfg.clipboard)
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height-2))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
@@ -436,6 +449,15 @@ func New(width, height int) Model {
 	m.SetSize(width, height)
 
 	return m
+}
+
+// WithClipboard sets a custom clipboard implementation on the editor.
+// By default the system clipboard is used via github.com/atotto/clipboard.
+// Use this to supply an OSC 52 implementation for headless/SSH environments.
+func WithClipboard(cb core.Clipboard) Option {
+	return func(c *modelConfig) {
+		c.clipboard = cb
+	}
 }
 
 func (m *Model) SetSize(width, height int) {
