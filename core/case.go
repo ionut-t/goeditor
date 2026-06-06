@@ -55,8 +55,8 @@ func caseTransformForOp(op rune) func(rune) rune {
 		return unicode.ToLower
 	default: // '~'
 		return func(r rune) rune {
-			if unicode.IsUpper(r) {
-				return unicode.ToLower(r)
+			if lower := unicode.ToLower(r); lower != r {
+				return lower
 			}
 			return unicode.ToUpper(r)
 		}
