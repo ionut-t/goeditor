@@ -12,6 +12,10 @@ type normalMode struct {
 	charSearch        charSearchState // Character search state (f/F/t/T)
 	waitingForReplace bool            // True when waiting for character input after 'r'
 	waitingForG       bool            // True after 'g' is pressed, waiting for second key (gg, ge)
+
+	pendingCaseOp       rune // Set after gu/gU/g~ while waiting for a motion key ('u','U','~', or 0)
+	pendingCaseModifier rune // Set after gu/gU/g~ + i/a while waiting for the text object key
+	pendingCaseG        bool // Set after gu/gU/g~ + g, waiting for second key (g=buffer-start, op=current-line)
 }
 
 func NewNormalMode() EditorMode {
@@ -19,6 +23,10 @@ func NewNormalMode() EditorMode {
 		pendingKey:      KeyEvent{Key: KeyUnknown},
 		pendingModifier: 0,
 		charSearch:      charSearchState{},
+
+		pendingCaseOp:       0,
+		pendingCaseModifier: 0,
+		pendingCaseG:        false,
 	}
 }
 
@@ -34,6 +42,9 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.pendingCaseOp = 0
+	m.pendingCaseModifier = 0
+	m.pendingCaseG = false
 	editor.ResetPendingCount()
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
@@ -48,6 +59,9 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.pendingCaseOp = 0
+	m.pendingCaseModifier = 0
+	m.pendingCaseG = false
 }
 
 // HandleKey dispatches each incoming key to the appropriate handler.
@@ -60,6 +74,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	}
 	if m.waitingForG {
 		return m.handleGKey(editor, buffer, key)
+	}
+	if m.pendingCaseOp != 0 {
+		return m.handleCaseMotionKey(editor, buffer, key)
 	}
 	if m.hasPendingOperator() {
 		return m.handlePendingOperator(editor, buffer, key)
@@ -131,10 +148,10 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 	return replaceCharUnderCursor(editor, buffer, key.Rune)
 }
 
-// handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg).
+// handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg,
+// and the case-op prefixes gu, gU, g~).
 func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	m.waitingForG = false
-	editor.UpdateCommand("")
 
 	state := editor.GetState()
 	pendingCount := state.PendingCount
@@ -144,14 +161,25 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	if key.Key == KeyEscape {
 		m.pendingKey = KeyEvent{Key: KeyUnknown}
 		editor.ResetPendingCount()
+		editor.UpdateCommand("")
 		return nil
 	}
 
 	// Operator + gg: dgg, ygg, cgg
 	if (m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0) && key.Rune == 'g' {
+		editor.UpdateCommand("")
 		return m.handleOperatorGG(editor, buffer, cursor, state)
 	}
 
+	// Case operations: gu / gU / g~ — record the op and wait for the motion key.
+	// The pending count is intentionally preserved so it can be used by the motion.
+	if key.Rune == 'u' || key.Rune == 'U' || key.Rune == '~' {
+		m.pendingCaseOp = key.Rune
+		editor.UpdateCommand(fmt.Sprintf("g%c", key.Rune))
+		return nil
+	}
+
+	editor.UpdateCommand("")
 	gCount := 1
 	if pendingCount != nil {
 		gCount = *pendingCount
@@ -176,6 +204,146 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 			buffer.SetCursor(cursor)
 		}
 	}
+	return nil
+}
+
+// handleCaseMotionKey handles the motion key after gu / gU / g~, and also the
+// text object key after gu{i,a} / gU{i,a} / g~{i,a}.
+func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	op := m.pendingCaseOp
+
+	// ── Step 3: after gu/gU/g~ + g; waiting for second key ──
+	// 'g' → gugg/gUgg/g~gg (buffer start); op → gugu/gUgU/g~g~ (current line)
+	if m.pendingCaseG {
+		m.pendingCaseOp = 0
+		m.pendingCaseG = false
+		editor.UpdateCommand("")
+
+		if key.Key == KeyEscape {
+			editor.ResetPendingCount()
+			return nil
+		}
+		state := editor.GetState()
+		if !state.WithInsertMode {
+			editor.ResetPendingCount()
+			return nil
+		}
+		count := 1
+		if state.PendingCount != nil {
+			count = *state.PendingCount
+			editor.ResetPendingCount()
+		}
+		switch key.Rune {
+		case 'g':
+			return applyCaseToBufferStart(editor, buffer, op)
+		case op: // gugu / gUgU / g~g~ — same as guu/gUU/g~~
+			return applyCaseToLines(editor, buffer, op, count)
+		}
+		return nil
+	}
+
+	// ── Step 2: we already have the i/a modifier; this key is the text object ──
+	if m.pendingCaseModifier != 0 {
+		modifier := m.pendingCaseModifier
+		m.pendingCaseOp = 0
+		m.pendingCaseModifier = 0
+		editor.UpdateCommand("")
+
+		if key.Key == KeyEscape {
+			editor.ResetPendingCount()
+			return nil
+		}
+		state := editor.GetState()
+		if !state.WithInsertMode {
+			editor.ResetPendingCount()
+			return nil
+		}
+		editor.ResetPendingCount()
+		return applyCaseToTextObject(editor, buffer, op, modifier, key.Rune)
+	}
+
+	// ── Step 1: waiting for the motion or i/a modifier ──
+
+	// Digit keys accumulate a count for the upcoming motion (e.g., 5 in gu5G).
+	// Must be checked before clearing pendingCaseOp so we stay in this handler.
+	state := editor.GetState()
+	if key.Rune >= '1' && key.Rune <= '9' {
+		digit := int(key.Rune - '0')
+		if state.PendingCount == nil {
+			state.PendingCount = &digit
+		} else {
+			newCount := *state.PendingCount*10 + digit
+			state.PendingCount = &newCount
+		}
+		editor.SetState(state)
+		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *state.PendingCount))
+		return nil
+	}
+	if key.Rune == '0' && state.PendingCount != nil {
+		newCount := *state.PendingCount * 10
+		state.PendingCount = &newCount
+		editor.SetState(state)
+		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *state.PendingCount))
+		return nil
+	}
+
+	m.pendingCaseOp = 0
+
+	if key.Key == KeyEscape {
+		editor.UpdateCommand("")
+		editor.ResetPendingCount()
+		return nil
+	}
+
+	if !state.WithInsertMode {
+		editor.UpdateCommand("")
+		editor.ResetPendingCount()
+		return nil
+	}
+
+	// i/a modifier: gUiw, g~aw, gui(, … — record modifier and wait for object key.
+	if key.Rune == 'i' || key.Rune == 'a' {
+		m.pendingCaseOp = op
+		m.pendingCaseModifier = key.Rune
+		editor.UpdateCommand(fmt.Sprintf("g%c%c", op, key.Rune))
+		return nil
+	}
+
+	editor.UpdateCommand("")
+	hasPendingCount := state.PendingCount != nil
+	count := 1
+	if state.PendingCount != nil {
+		count = *state.PendingCount
+	}
+	editor.ResetPendingCount()
+
+	switch key.Rune {
+	case op: // guu / gUU / g~~ — apply to current line (and count more lines)
+		return applyCaseToLines(editor, buffer, op, count)
+	case 'w':
+		return applyCaseWord(editor, buffer, op, count)
+	case 'e':
+		return applyCaseWordEnd(editor, buffer, op, count)
+	case 'b':
+		return applyCaseWordBackward(editor, buffer, op, count)
+	case '0':
+		return applyCaseToLineStart(editor, buffer, op)
+	case '^':
+		return applyCaseToFirstNonBlank(editor, buffer, op)
+	case '$':
+		return applyCaseToEndOfLine(editor, buffer, op)
+	case 'g': // gugg / gugu — wait for the second key
+		m.pendingCaseOp = op
+		m.pendingCaseG = true
+		editor.UpdateCommand(fmt.Sprintf("g%cg", op))
+		return nil
+	case 'G':
+		if hasPendingCount {
+			return applyCaseToTargetLine(editor, buffer, op, count-1) // 1-indexed → 0-indexed
+		}
+		return applyCaseToBufferEnd(editor, buffer, op)
+	}
+
 	return nil
 }
 
@@ -782,6 +950,13 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.UpdateCommand("r")
 		return nil
 
+	case key.Rune == '~': // Toggle case of count characters under/after cursor
+		if !state.WithInsertMode {
+			return nil
+		}
+		err = toggleCaseChar(editor, buffer, count)
+		skipCursorUpdate = true
+
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
 		if !state.WithInsertMode {
 			return nil
@@ -966,5 +1141,8 @@ func (m *normalMode) clearPendingState(editor Editor) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.pendingCaseOp = 0
+	m.pendingCaseModifier = 0
+	m.pendingCaseG = false
 	editor.ResetPendingCount()
 }

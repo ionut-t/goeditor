@@ -180,6 +180,21 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		editor.ResetPendingCount()
 		return true, err
 
+	case 'u', 'U', '~': // Lowercase / uppercase / toggle case of line selection
+		if !state.WithInsertMode {
+			return true, nil
+		}
+		startRow, endRow := m.selectionRows(cursor.Position.Row)
+		err = applyCaseToVisualLineSelection(editor, buffer, key.Rune, startRow, endRow)
+		if err == nil {
+			cur := buffer.GetCursor()
+			cur.Position.Row = startRow
+			cur.Position.Col = 0
+			buffer.SetCursor(cur)
+			editor.SetNormalMode()
+		}
+		return true, err
+
 	case 'v': // Switch to character-wise visual mode
 		editor.SetVisualMode()
 		return true, nil
