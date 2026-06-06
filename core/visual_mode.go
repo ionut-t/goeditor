@@ -287,6 +287,20 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		editor.ResetPendingCount()
 		return true, err
 
+	case 'u', 'U', '~': // Lowercase / uppercase / toggle case of selection
+		if !state.WithInsertMode {
+			return true, nil
+		}
+		err = applyCaseToVisualSelection(editor, buffer, key.Rune, m.startPos, cursor.Position)
+		if err == nil {
+			startSel, _ := NormalizeSelection(m.startPos, cursor.Position)
+			cursor.Position = startSel
+			buffer.SetCursor(cursor)
+			editor.SetNormalMode()
+		}
+		editor.ResetPendingCount()
+		return true, err
+
 	case 'i', 'a': // Text object modifier — wait for the object key (w, p, …)
 		m.pendingModifier = key.Rune
 		return true, nil
