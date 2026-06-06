@@ -1,0 +1,38 @@
+name: Bark
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: ionut-t/bark/.github/actions/bark-review@main
+        with:
+          bark-version: latest
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          model: ${{ vars.BARK_MODEL }}
+          reviewer: ${{ vars.BARK_REVIEWER }}
+          max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  pr-description:
+    name: Generate PR Description
+    runs-on: ubuntu-latest
+    if: "github.event.action == 'opened' || (github.event.action == 'labeled' && github.event.label.name == 'bark: describe')"
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: ionut-t/bark/.github/actions/bark-pr-description@main
+        with:
+          bark-version: latest
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          model: ${{ vars.BARK_MODEL }}
+          max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
