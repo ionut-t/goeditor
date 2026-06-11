@@ -15,7 +15,8 @@ jobs:
       - uses: ionut-t/bark/.github/actions/bark-review@main
         with:
           bark-version: latest
-          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          provider: ${{ vars.BARK_PROVIDER }}
+          api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
@@ -32,7 +33,8 @@ jobs:
       - uses: ionut-t/bark/.github/actions/bark-pr-description@main
         with:
           bark-version: latest
-          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          provider: ${{ vars.BARK_PROVIDER }}
+          api-key: ${{ secrets.BARK_API_KEY }}
           model: ${{ vars.BARK_MODEL }}
           max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
