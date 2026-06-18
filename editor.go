@@ -195,6 +195,13 @@ const (
 	cursorActivityResetDelay = 250 * time.Millisecond
 )
 
+type StatusLineContext struct {
+	State  core.State
+	Cursor core.Cursor
+	Width  int
+	Theme  Theme
+}
+
 type Model struct {
 	editor   core.Editor
 	viewport viewport.Model
@@ -207,7 +214,7 @@ type Model struct {
 	showStatusLine     bool
 
 	theme          Theme
-	StatusLineFunc func() string
+	StatusLineFunc func(ctx StatusLineContext) string
 
 	err     error
 	message string
@@ -1194,11 +1201,17 @@ func (m *Model) getStatusLine() string {
 		return ""
 	}
 
-	if m.StatusLineFunc != nil {
-		return m.StatusLineFunc()
-	}
-
 	state := m.editor.GetState()
+	cursor := m.editor.GetBuffer().GetCursor()
+
+	if m.StatusLineFunc != nil {
+		return m.StatusLineFunc(StatusLineContext{
+			State:  state,
+			Cursor: cursor,
+			Width:  m.width,
+			Theme:  m.theme,
+		})
+	}
 
 	var statusLine string
 	switch state.Mode {
@@ -1215,8 +1228,6 @@ func (m *Model) getStatusLine() string {
 	case core.SearchMode:
 		statusLine = m.theme.SearchModeStyle.Render(" SEARCH ")
 	}
-
-	cursor := m.editor.GetBuffer().GetCursor()
 
 	cursorInfo := fmt.Sprintf("%d/%d ", cursor.Position.Row+1, cursor.Position.Col+1)
 
