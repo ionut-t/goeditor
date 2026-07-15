@@ -363,7 +363,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 
 	switch objectKey {
 	case 'w':
-		startCol, endCol, ok := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
+		startCol, endCol, ok := wordTextObjectRange(buffer, cursor.Position, modifier, 1, editor.IsWordChar)
 		if !ok {
 			return nil
 		}

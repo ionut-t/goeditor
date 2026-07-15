@@ -431,3 +431,63 @@ func TestGPrefix(t *testing.T) {
 		assert.True(t, e.IsNormalMode())
 	})
 }
+
+// TestWORDMotions tests 'W', 'E', 'B' — whitespace-delimited WORD motions.
+func TestWORDMotions(t *testing.T) {
+	t.Run("W skips punctuation to next WORD", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'W')
+		assert.Equal(t, Position{0, 8}, cursorPos(e))
+	})
+
+	t.Run("E moves to end of WORD", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'E')
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("B moves back to start of WORD", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'W', 'B')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("gE moves to end of previous WORD", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'W', 'g', 'E')
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+}
+
+// TestMatchingBracketMotion tests '%' — jump to the matching bracket.
+func TestMatchingBracketMotion(t *testing.T) {
+	t.Run("from open to close bracket", func(t *testing.T) {
+		e := newTestEditor("(foo [bar])")
+		keys(e, '%')
+		assert.Equal(t, Position{0, 10}, cursorPos(e))
+	})
+
+	t.Run("from close back to open bracket", func(t *testing.T) {
+		e := newTestEditor("(foo [bar])")
+		keys(e, '%', '%')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("finds first bracket after cursor on the line", func(t *testing.T) {
+		e := newTestEditor("a (b) c")
+		keys(e, '%')
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run("across lines", func(t *testing.T) {
+		e := newTestEditor("func {\n\tbody\n}")
+		keys(e, '%')
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run("no bracket on line is a no-op", func(t *testing.T) {
+		e := newTestEditor("plain text")
+		keys(e, '%')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+}

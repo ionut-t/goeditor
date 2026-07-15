@@ -810,7 +810,7 @@ func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 	}
 
 	// 'i' selects the inner word (without surrounding whitespace).
-	startCol, endCol, found := wordTextObjectRange(e.buffer, pos, 'i', e.IsWordChar)
+	startCol, endCol, found := wordTextObjectRange(e.buffer, pos, 'i', 1, e.IsWordChar)
 	if !found {
 		return cursor
 	}

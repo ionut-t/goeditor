@@ -635,3 +635,308 @@ func TestDeleteInsideBrackets(t *testing.T) {
 		assert.Equal(t, "(x) y", content(e))
 	})
 }
+
+// TestDeleteCharsLeft tests 'dh' — delete count characters left of the cursor.
+func TestDeleteCharsLeft(t *testing.T) {
+	t.Run("single char left", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'l', 'l', 'd', 'h')
+		assert.Equal(t, "hllo", content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+
+	t.Run("count: 2dh", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'l', 'l', 'l', '2', 'd', 'h')
+		assert.Equal(t, "hlo", content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+
+	t.Run("at start of line is a no-op", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', 'h')
+		assert.Equal(t, "hello", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+}
+
+// TestDeleteCharsRight tests 'dl' — delete count characters under/after the cursor.
+func TestDeleteCharsRight(t *testing.T) {
+	t.Run("single char under cursor", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', 'l')
+		assert.Equal(t, "ello", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("count clamps at end of line", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'l', 'l', 'l', '9', 'd', 'l')
+		assert.Equal(t, "hel", content(e))
+	})
+
+	t.Run("count after operator: d2l", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', '2', 'l')
+		assert.Equal(t, "llo", content(e))
+	})
+}
+
+// TestDeleteToLineStart tests 'd0' — delete back to the start of the line.
+func TestDeleteToLineStart(t *testing.T) {
+	t.Run("from end of line", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', 'd', '0')
+		assert.Equal(t, "o", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("at start of line is a no-op", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', '0')
+		assert.Equal(t, "hello", content(e))
+	})
+}
+
+// TestDeleteToFirstNonBlank tests 'd^' — delete back to the first non-blank character.
+func TestDeleteToFirstNonBlank(t *testing.T) {
+	t.Run("from end of line keeps leading whitespace", func(t *testing.T) {
+		e := newTestEditor("  hello")
+		keys(e, '$', 'd', '^')
+		assert.Equal(t, "  o", content(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+}
+
+// TestDeleteLinesDown tests 'dj' — delete current line and count lines below (line-wise).
+func TestDeleteLinesDown(t *testing.T) {
+	t.Run("current and next line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'd', 'j')
+		assert.Equal(t, "three", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("count: 2dj", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\nfour")
+		keys(e, '2', 'd', 'j')
+		assert.Equal(t, "four", content(e))
+	})
+
+	t.Run("on last line is a no-op", func(t *testing.T) {
+		e := newTestEditor("one\ntwo")
+		keys(e, 'j', 'd', 'j')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+}
+
+// TestDeleteLinesUp tests 'dk' — delete current line and count lines above (line-wise).
+func TestDeleteLinesUp(t *testing.T) {
+	t.Run("current and previous line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'j', 'd', 'k')
+		assert.Equal(t, "three", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("on first line is a no-op", func(t *testing.T) {
+		e := newTestEditor("one\ntwo")
+		keys(e, 'd', 'k')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+}
+
+// TestDeleteParagraphMotion tests 'd}' and 'd{' — delete to next/previous paragraph boundary.
+func TestDeleteParagraphMotion(t *testing.T) {
+	t.Run("d} deletes to next blank line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\n\nthree")
+		keys(e, 'd', '}')
+		assert.Equal(t, "\nthree", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("d{ deletes back to previous blank line", func(t *testing.T) {
+		e := newTestEditor("one\n\ntwo")
+		keys(e, 'G', 'd', '{')
+		assert.Equal(t, "one\ntwo", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
+
+// TestDeleteToEndOfPrevWord tests 'dge' — delete back to end of previous word (inclusive).
+func TestDeleteToEndOfPrevWord(t *testing.T) {
+	t.Run("from start of second word", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'w', 'd', 'g', 'e')
+		assert.Equal(t, "hellorld", content(e))
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+}
+
+// TestOperatorCountAfterOperator tests that counts typed after the operator apply
+// to the motion (e.g. d2w) and that escape cancels a pending operator.
+func TestOperatorCountAfterOperator(t *testing.T) {
+	t.Run("d2w deletes two words", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'd', '2', 'w')
+		assert.Equal(t, "three", content(e))
+	})
+
+	t.Run("2dfx deletes through second occurrence", func(t *testing.T) {
+		e := newTestEditor("axbxc")
+		keys(e, '2', 'd', 'f', 'x')
+		assert.Equal(t, "c", content(e))
+	})
+
+	t.Run("escape cancels pending operator", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd')
+		escape(e)
+		keys(e, 'x')
+		assert.Equal(t, "ello", content(e))
+	})
+}
+
+// TestDeleteWORDMotions tests 'dW', 'dE', 'dB' — WORD variants of the word operators.
+func TestDeleteWORDMotions(t *testing.T) {
+	t.Run("dW deletes WORD including punctuation", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'd', 'W')
+		assert.Equal(t, "baz", content(e))
+	})
+
+	t.Run("dE deletes to end of WORD inclusive", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'd', 'E')
+		assert.Equal(t, " baz", content(e))
+	})
+
+	t.Run("dB deletes WORD backward", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'W', 'd', 'B')
+		assert.Equal(t, "baz", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("dgE deletes back to end of previous WORD inclusive", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'W', 'd', 'g', 'E')
+		assert.Equal(t, "foo-baaz", content(e))
+	})
+}
+
+// TestDeleteMatchingBracket tests 'd%' — delete through the matching bracket.
+func TestDeleteMatchingBracket(t *testing.T) {
+	t.Run("from open bracket", func(t *testing.T) {
+		e := newTestEditor("(foo) bar")
+		keys(e, 'd', '%')
+		assert.Equal(t, " bar", content(e))
+	})
+
+	t.Run("from before the bracket deletes from cursor through match", func(t *testing.T) {
+		e := newTestEditor("a (b) c")
+		keys(e, 'd', '%')
+		assert.Equal(t, " c", content(e))
+	})
+
+	t.Run("no bracket is a no-op", func(t *testing.T) {
+		e := newTestEditor("plain")
+		keys(e, 'd', '%')
+		assert.Equal(t, "plain", content(e))
+	})
+}
+
+// TestDeleteRepeatCharSearch tests 'd;' and 'd,' — repeat char search as operator motion.
+func TestDeleteRepeatCharSearch(t *testing.T) {
+	t.Run("d; repeats last f search", func(t *testing.T) {
+		e := newTestEditor("a,b,c,d")
+		keys(e, 'd', 'f', ',') // delete "a," → "b,c,d"
+		assert.Equal(t, "b,c,d", content(e))
+		keys(e, 'd', ';') // repeat → delete "b," → "c,d"
+		assert.Equal(t, "c,d", content(e))
+	})
+
+	t.Run("d, repeats in opposite direction", func(t *testing.T) {
+		e := newTestEditor("a,b,c")
+		keys(e, 'f', ',', ';') // cursor on second comma (col 3)
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+		// Reverses to F, — deletes back to the first comma, including the cursor
+		// char (this editor's dF behaviour includes the char under the cursor).
+		keys(e, 'd', ',')
+		assert.Equal(t, "ac", content(e))
+	})
+
+	t.Run("d; without previous search is a no-op", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'd', ';')
+		assert.Equal(t, "hello", content(e))
+	})
+}
+
+// TestDeleteTextObjectCount tests counts applied to word text objects (d2aw, d3iw).
+func TestDeleteTextObjectCount(t *testing.T) {
+	t.Run("d2aw deletes two words with trailing space", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'd', '2', 'a', 'w')
+		assert.Equal(t, "three", content(e))
+	})
+
+	t.Run("2daw deletes two words with trailing space", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, '2', 'd', 'a', 'w')
+		assert.Equal(t, "three", content(e))
+	})
+
+	t.Run("d3iw deletes word, space, word", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'd', '3', 'i', 'w')
+		assert.Equal(t, " three", content(e))
+	})
+}
+
+// TestJoinLines tests 'J' — join lines with a single space.
+func TestJoinLines(t *testing.T) {
+	t.Run("joins two lines with a space", func(t *testing.T) {
+		e := newTestEditor("hello\nworld")
+		keys(e, 'J')
+		assert.Equal(t, "hello world", content(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e)) // cursor on the space
+	})
+
+	t.Run("strips leading whitespace of joined line", func(t *testing.T) {
+		e := newTestEditor("foo\n   bar")
+		keys(e, 'J')
+		assert.Equal(t, "foo bar", content(e))
+	})
+
+	t.Run("no extra space when line ends in whitespace", func(t *testing.T) {
+		e := newTestEditor("foo \nbar")
+		keys(e, 'J')
+		assert.Equal(t, "foo bar", content(e))
+	})
+
+	t.Run("no space before )", func(t *testing.T) {
+		e := newTestEditor("foo(\n)")
+		keys(e, 'J')
+		assert.Equal(t, "foo()", content(e))
+	})
+
+	t.Run("count: 3J joins three lines", func(t *testing.T) {
+		e := newTestEditor("a\nb\nc")
+		keys(e, '3', 'J')
+		assert.Equal(t, "a b c", content(e))
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+
+	t.Run("empty first line", func(t *testing.T) {
+		e := newTestEditor("\nfoo")
+		keys(e, 'J')
+		assert.Equal(t, "foo", content(e))
+	})
+
+	t.Run("on last line is a no-op", func(t *testing.T) {
+		e := newTestEditor("one\ntwo")
+		keys(e, 'j', 'J')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+}

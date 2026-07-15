@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // charSearchState holds state for character search motions (f/F/t/T)
 type charSearchState struct {
@@ -91,14 +94,25 @@ func performCharSearch(buffer Buffer, cs *charSearchState, char rune, count int)
 
 // handleCharSearchOperator handles operator + character search motion combinations
 // like df, (delete until comma), yt; (yank till semicolon), etc.
-func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int) *EditorError {
+// skipAdjacent starts a t/T search one character further along, so a repeated
+// till-search (d;) doesn't re-match the character the cursor already sits next to.
+func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int, skipAdjacent bool) *EditorError {
 	cursor := buffer.GetCursor()
-	state := editor.GetState()
 	startPos := cursor.Position
 	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
 
+	searchCol := startPos.Col
+	if skipAdjacent {
+		switch searchType {
+		case 't':
+			searchCol++
+		case 'T':
+			searchCol--
+		}
+	}
+
 	// Find the target position
-	targetCol := findCharOnLine(lineRunes, cursor.Position.Col, char, searchType, count)
+	targetCol := findCharOnLine(lineRunes, searchCol, char, searchType, count)
 
 	if targetCol == -1 {
 		// Character not found
@@ -139,61 +153,36 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 		endCol = len(lineRunes)
 	}
 
-	deleteCount := endCol - startCol
+	return applyOperatorToRange(editor, buffer, op,
+		Position{Row: startPos.Row, Col: startCol},
+		Position{Row: startPos.Row, Col: endCol})
+}
 
-	switch op {
-	case "delete":
-		if deleteCount > 0 {
-			err := buffer.DeleteRunesAt(startPos.Row, startCol, deleteCount)
-			if err != nil {
-				return err
-			}
-			editor.SaveHistory()
-
-			// Update cursor position after delete
-			cursor.Position.Col = startCol
-			buffer.SetCursor(cursor)
-		}
-
-	case "yank":
-		if deleteCount > 0 {
-			// Set up visual selection for yank
-			state.VisualStart = Position{Row: startPos.Row, Col: endCol - 1}
-			state.YankSelection = SelectionCharacter
-			editor.SetState(state)
-
-			// Move cursor to start of selection
-			cursor.Position.Col = startCol
-			buffer.SetCursor(cursor)
-
-			// Perform yank
-			if err := editor.Copy(yankType); err != nil {
-				state.VisualStart = Position{-1, -1}
-				state.YankSelection = SelectionNone
-				editor.SetState(state)
-				return &EditorError{
-					id:  ErrFailedToYankId,
-					err: err,
-				}
-			}
-		}
-
-	case "change":
-		if deleteCount > 0 {
-			err := buffer.DeleteRunesAt(startPos.Row, startCol, deleteCount)
-			if err != nil {
-				return err
-			}
-			editor.SaveHistory()
-
-			// Update cursor position and enter insert mode
-			cursor.Position.Col = startCol
-			buffer.SetCursor(cursor)
-			editor.SetInsertMode()
+// repeatCharSearchOperator implements d;/y;/c; and d,/y,/c, — apply an operator
+// over a repeat of the last f/F/t/T search (reversed for ',').
+func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer, op string, count int, reverse bool) *EditorError {
+	if cs.searchType == 0 || cs.lastChar == 0 {
+		return &EditorError{
+			id:  ErrInvalidMotionId,
+			err: errors.New("no previous character search to repeat"),
 		}
 	}
 
-	return nil
+	searchType := cs.searchType
+	if reverse {
+		switch cs.searchType {
+		case 'f':
+			searchType = 'F'
+		case 'F':
+			searchType = 'f'
+		case 't':
+			searchType = 'T'
+		case 'T':
+			searchType = 't'
+		}
+	}
+
+	return handleCharSearchOperator(editor, buffer, op, searchType, cs.lastChar, count, true)
 }
 
 // handleVisualCharSearchInput encapsulates the repeated waitingForChar block used
