@@ -97,13 +97,15 @@ m.WithTheme(theme)
 ### Normal Mode
 
 - **Movement**: `h`, `j`, `k`, `l` or arrow keys
-- **Word movement**: `w` (forward), `b` (backward), `e` (end of word)
+- **Word movement**: `w`, `b`, `e`, `ge` and WORD variants `W`, `B`, `E`, `gE`
 - **Line movement**: `0` (start), `$` (end), `^` (first non-blank)
-- **Document movement**: `g` (first line), `G` (last line)
-- **Editing**: `x` (delete char), `dd` (delete line), `D` (delete to end of line)
-- **Mode switching**: `i` (insert), `v` (visual), `V` (visual line), `:` (command)
+- **Document movement**: `gg` (first line), `G` (last line), `{` / `}` (paragraph), `%` (matching bracket)
+- **Character search**: `f`, `F`, `t`, `T`, repeated with `;` / `,`
+- **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `ip`, `i(`, `i"`, …)
+- **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
+- **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
 - **Undo/Redo**: `u` (undo), `U` (redo)
-- **Copy/Paste**: `y` (yank), `p` (paste)
+- **Copy/Paste**: `y` (yank), `p` / `P` (paste)
 
 ### Insert Mode
 

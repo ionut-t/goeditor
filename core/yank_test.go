@@ -280,3 +280,81 @@ func TestYankInsideBrackets(t *testing.T) {
 		assert.Equal(t, "  hello", cb.content)
 	})
 }
+
+// TestYankOperatorMotions tests the yank variants of the h/l/0/j/k/ge motions.
+func TestYankOperatorMotions(t *testing.T) {
+	t.Run("yl yanks char under cursor", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello")
+		keys(e, 'y', 'l')
+		assert.Equal(t, "h", cb.content)
+		assert.Equal(t, "hello", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("y0 yanks back to line start", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello")
+		keys(e, '$', 'y', '0')
+		assert.Equal(t, "hell", cb.content)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("yj yanks current and next line", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'y', 'j')
+		assert.Equal(t, "one\ntwo\n", cb.content)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("yk yanks current and previous line, cursor moves up", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'j', 'y', 'k')
+		assert.Equal(t, "one\ntwo\n", cb.content)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("yge yanks back to end of previous word inclusive", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello world")
+		keys(e, 'w', 'y', 'g', 'e')
+		assert.Equal(t, "o w", cb.content)
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run("count after operator: y2j", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'y', '2', 'j')
+		assert.Equal(t, "one\ntwo\nthree\n", cb.content)
+	})
+}
+
+// TestYankWORDMotions tests 'yW', 'yE', 'yB', 'y%' — WORD and bracket yank motions.
+func TestYankWORDMotions(t *testing.T) {
+	t.Run("yW yanks WORD including punctuation and trailing space", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("foo-bar baz")
+		keys(e, 'y', 'W')
+		assert.Equal(t, "foo-bar ", cb.content)
+	})
+
+	t.Run("yE yanks to end of WORD inclusive", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("foo-bar baz")
+		keys(e, 'y', 'E')
+		assert.Equal(t, "foo-bar", cb.content)
+	})
+
+	t.Run("yB yanks WORD backward", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("foo-bar baz")
+		keys(e, 'W', 'y', 'B')
+		assert.Equal(t, "foo-bar ", cb.content)
+	})
+
+	t.Run("y% yanks through matching bracket", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("(foo) bar")
+		keys(e, 'y', '%')
+		assert.Equal(t, "(foo)", cb.content)
+	})
+
+	t.Run("y2aw yanks two words", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one two three")
+		keys(e, 'y', '2', 'a', 'w')
+		assert.Equal(t, "one two ", cb.content)
+	})
+}

@@ -1,7 +1,5 @@
 package core
 
-import "fmt"
-
 // wordTextObjectRange handles text object yanks like 'yiw' (yank inside word) and 'yaw' (yank around word).
 //
 // Text objects in Vim have two forms:
@@ -21,8 +19,9 @@ import "fmt"
 //   - 'iw': Selects just the character
 //   - 'aw': Selects the character plus surrounding whitespace
 //
-// wordTextObjectRange returns the start and end column (inclusive) for a word text object.
-func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, isWordChar func(rune) bool) (startCol int, endCol int, found bool) {
+// wordTextObjectRange returns the start and end column (inclusive) for a word text
+// object. A count > 1 extends the range over additional objects (e.g. d2aw).
+func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, isWordChar func(rune) bool) (startCol int, endCol int, found bool) {
 	lineRunes := buffer.GetLineRunes(pos.Row)
 	if len(lineRunes) == 0 {
 		return 0, 0, false
@@ -91,98 +90,67 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, isWordChar 
 		}
 	}
 
+	// Extend the range over count-1 additional objects (e.g. d2aw, 3yiw).
+	for n := 1; n < count; n++ {
+		next := endCol + 1
+		if next >= len(lineRunes) {
+			break
+		}
+		if modifier == 'a' {
+			// Another word (or punctuation run) plus its surrounding whitespace.
+			for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
+				next++
+			}
+			if next < len(lineRunes) {
+				if isWordChar(lineRunes[next]) {
+					for next < len(lineRunes) && isWordChar(lineRunes[next]) {
+						next++
+					}
+				} else {
+					for next < len(lineRunes) && !isWordChar(lineRunes[next]) && !isWhiteSpace(lineRunes[next]) {
+						next++
+					}
+				}
+			}
+			for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
+				next++
+			}
+		} else {
+			// 'i': one chunk of the same character class (word, whitespace, or punctuation).
+			switch r := lineRunes[next]; {
+			case isWhiteSpace(r):
+				for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
+					next++
+				}
+			case isWordChar(r):
+				for next < len(lineRunes) && isWordChar(lineRunes[next]) {
+					next++
+				}
+			default:
+				for next < len(lineRunes) && !isWordChar(lineRunes[next]) && !isWhiteSpace(lineRunes[next]) {
+					next++
+				}
+			}
+		}
+		endCol = next - 1
+	}
+
 	return startCol, endCol, true
 }
 
-func yankTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
+// applyWordTextObject applies a delete/yank/change operator to the iw/aw text
+// object under the cursor (diw, y2aw, caw, ...).
+func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	state := editor.GetState()
 
-	if textObject != 'w' {
-		return &EditorError{
-			id:  ErrInvalidMotionId,
-			err: fmt.Errorf("unsupported text object: %c", textObject),
-		}
-	}
-
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, editor.IsWordChar)
 	if !found {
 		return nil
 	}
 
-	// Set up character-wise selection for yank highlight
-	state.VisualStart = Position{Row: cursor.Position.Row, Col: endCol}
-	state.YankSelection = SelectionCharacter
-	editor.SetState(state)
-
-	cursor.Position.Col = startCol
-	buffer.SetCursor(cursor)
-
-	if err := editor.Copy(yankType); err != nil {
-		state.VisualStart = Position{-1, -1}
-		state.YankSelection = SelectionNone
-		editor.SetState(state)
-		return &EditorError{id: ErrFailedToYankId, err: err}
-	}
-
-	return nil
-}
-
-func deleteTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
-	cursor := buffer.GetCursor()
-
-	if textObject != 'w' {
-		return &EditorError{
-			id:  ErrInvalidMotionId,
-			err: fmt.Errorf("unsupported text object: %c", textObject),
-		}
-	}
-
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
-	if !found {
-		return nil
-	}
-
-	startPos := Position{Row: cursor.Position.Row, Col: startCol}
-	endPos := Position{Row: cursor.Position.Row, Col: endCol + 1} // deleteRange is exclusive
-
-	err := deleteRange(buffer, startPos, endPos)
-	if err == nil {
-		editor.SaveHistory()
-		cursor.Position = startPos
-		buffer.SetCursor(cursor)
-	}
-
-	return err
-}
-
-func changeTextObject(editor Editor, buffer Buffer, modifier rune, textObject rune) *EditorError {
-	cursor := buffer.GetCursor()
-
-	if textObject != 'w' {
-		return &EditorError{
-			id:  ErrInvalidMotionId,
-			err: fmt.Errorf("unsupported text object: %c", textObject),
-		}
-	}
-
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
-	if !found {
-		return nil
-	}
-
-	startPos := Position{Row: cursor.Position.Row, Col: startCol}
-	endPos := Position{Row: cursor.Position.Row, Col: endCol + 1} // deleteRange is exclusive
-
-	err := deleteRange(buffer, startPos, endPos)
-	if err == nil {
-		editor.SaveHistory()
-		cursor.Position = startPos
-		buffer.SetCursor(cursor)
-		editor.SetInsertMode()
-	}
-
-	return err
+	return applyOperatorToRange(editor, buffer, op,
+		Position{Row: cursor.Position.Row, Col: startCol},
+		Position{Row: cursor.Position.Row, Col: endCol + 1})
 }
 
 // paragraphRows returns the inclusive [startRow, endRow] of the paragraph block under pos.
@@ -495,6 +463,32 @@ func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune) (startC
 // If the cursor sits on openChar it is used directly. If it sits on closeChar, the backward scan
 // starts from col-1 with depth 0 so the matching open is found correctly. Otherwise a backward
 // depth-counting scan finds the enclosing open, and a forward scan finds the close.
+// findMatchingBracket implements the '%' motion: find the first bracket on the
+// current line at or after pos and return the position of its matching pair.
+func findMatchingBracket(buffer Buffer, pos Position) (Position, bool) {
+	lineRunes := buffer.GetLineRunes(pos.Row)
+	pairs := [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}}
+
+	for col := pos.Col; col < len(lineRunes); col++ {
+		for _, pair := range pairs {
+			openChar, closeChar := pair[0], pair[1]
+			if lineRunes[col] != openChar && lineRunes[col] != closeChar {
+				continue
+			}
+			openPos, closePos, found := findBracketBounds(buffer, Position{Row: pos.Row, Col: col}, openChar, closeChar)
+			if !found {
+				return Position{}, false
+			}
+			if lineRunes[col] == openChar {
+				return closePos, true
+			}
+			return openPos, true
+		}
+	}
+
+	return Position{}, false
+}
+
 func findBracketBounds(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, found bool) {
 	lineRunes := buffer.GetLineRunes(pos.Row)
 	col := pos.Col

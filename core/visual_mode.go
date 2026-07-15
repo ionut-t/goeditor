@@ -99,7 +99,7 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 	m.pendingModifier = 0
 	switch key.Rune {
 	case 'w': // viw / vaw — adjust selection to cover the word
-		startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, editor.IsWordChar)
+		startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, 1, editor.IsWordChar)
 		if found {
 			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
 			state := editor.GetState()

@@ -329,3 +329,79 @@ func TestChangeInsideBrackets(t *testing.T) {
 		assertInsertMode(t, e)
 	})
 }
+
+// TestChangeOperatorMotions tests the change variants of the h/l/0/j/k/ge motions.
+func TestChangeOperatorMotions(t *testing.T) {
+	t.Run("cl changes char under cursor", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'c', 'l')
+		assert.Equal(t, "ello", content(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("c0 changes back to line start", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', 'c', '0')
+		assert.Equal(t, "o", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("cj changes current and next line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'c', 'j')
+		assert.Equal(t, "three", content(e))
+		assertInsertMode(t, e)
+	})
+}
+
+// TestSubstituteChar tests 's' — substitute character(s), like 'cl'.
+func TestSubstituteChar(t *testing.T) {
+	t.Run("deletes char under cursor and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 's')
+		assert.Equal(t, "ello", content(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("count: 3s", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '3', 's')
+		assert.Equal(t, "lo", content(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("on empty line still enters insert mode", func(t *testing.T) {
+		e := newTestEditor("")
+		keys(e, 's')
+		assert.Equal(t, "", content(e))
+		assertInsertMode(t, e)
+	})
+}
+
+// TestSubstituteLine tests 'S' — substitute line(s), like 'cc'.
+func TestSubstituteLine(t *testing.T) {
+	t.Run("clears current line and enters insert mode", func(t *testing.T) {
+		e := newTestEditor("one\ntwo")
+		keys(e, 'S')
+		assert.Equal(t, "two", content(e))
+		assertInsertMode(t, e)
+	})
+
+	t.Run("count: 2S", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, '2', 'S')
+		assert.Equal(t, "three", content(e))
+		assertInsertMode(t, e)
+	})
+}
+
+// TestChangeWORD tests 'cW' — change to end of WORD (like cE).
+func TestChangeWORD(t *testing.T) {
+	t.Run("changes WORD including punctuation", func(t *testing.T) {
+		e := newTestEditor("foo-bar baz")
+		keys(e, 'c', 'W')
+		assert.Equal(t, " baz", content(e))
+		assertInsertMode(t, e)
+	})
+}

@@ -301,6 +301,12 @@ func isWhiteSpace(r rune) bool {
 	return r == ' ' || r == '\t'
 }
 
+// isBigWordChar treats any non-whitespace rune as a word character, giving the
+// WORD semantics of the W/E/B/gE motions.
+func isBigWordChar(r rune) bool {
+	return !isWhiteSpace(r)
+}
+
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
 func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
 	if availableWidth <= 0 {

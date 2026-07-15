@@ -197,6 +197,66 @@ func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
 	return nil
 }
 
+// joinLines implements 'J': join the current line with the line(s) below,
+// replacing the newline and the next line's leading whitespace with a single
+// space. A count of 1 or 2 joins two lines; larger counts join count lines.
+func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
+	cursor := buffer.GetCursor()
+	row := cursor.Position.Row
+	joins := max(count-1, 1)
+	joined := false
+
+	for range joins {
+		if row >= buffer.LineCount()-1 {
+			break
+		}
+		lineLen := buffer.LineRuneCount(row)
+		nextRunes := buffer.GetLineRunes(row + 1)
+
+		lead := 0
+		for lead < len(nextRunes) && isWhiteSpace(nextRunes[lead]) {
+			lead++
+		}
+
+		// Remove the newline, then the joined line's leading whitespace.
+		if err := buffer.DeleteRunesAt(row, lineLen, 1); err != nil {
+			return err
+		}
+		if lead > 0 {
+			if err := buffer.DeleteRunesAt(row, lineLen, lead); err != nil {
+				return err
+			}
+		}
+
+		// Insert a single space unless the first half is empty or already ends
+		// in whitespace, the joined part is empty, or it starts with ')'.
+		merged := buffer.GetLineRunes(row)
+		needSpace := lineLen > 0 && lineLen < len(merged) &&
+			!isWhiteSpace(merged[lineLen-1]) && merged[lineLen] != ')'
+		if needSpace {
+			if err := buffer.InsertRunesAt(row, lineLen, []rune{' '}); err != nil {
+				return &EditorError{id: ErrInvalidPositionId, err: err}
+			}
+		}
+
+		// Cursor lands on the join point (the inserted space, or the first
+		// character of the joined part).
+		cursor.Position = Position{Row: row, Col: lineLen}
+		joined = true
+	}
+
+	if joined {
+		lineLen := buffer.LineRuneCount(row)
+		if cursor.Position.Col >= lineLen && lineLen > 0 {
+			cursor.Position.Col = lineLen - 1
+		}
+		buffer.SetCursor(cursor)
+		editor.SaveHistory()
+	}
+
+	return nil
+}
+
 func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
