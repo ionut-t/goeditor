@@ -52,6 +52,15 @@ func (r RedoSignal) Value() string {
 	return r.contentBefore
 }
 
+// UndoLineSignal is dispatched when 'U' restores the last-changed line.
+type UndoLineSignal struct {
+	contentBefore string
+}
+
+func (u UndoLineSignal) Value() string {
+	return u.contentBefore
+}
+
 type RenameSignal struct {
 	fileName string
 }

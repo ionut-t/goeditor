@@ -17,6 +17,12 @@ func NewVisualMode() EditorMode {
 }
 func (m *visualMode) Name() Mode { return VisualMode }
 
+// AwaitingLiteral reports whether the next key is the character argument of a
+// character search (f/F/t/T), which mappings must not rewrite.
+func (m *visualMode) AwaitingLiteral() bool { return m.charSearch.waitingForChar }
+
+func (m *visualMode) OperatorPending() bool { return false }
+
 func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- VISUAL --")
 	editor.UpdateCommand("")
@@ -210,6 +216,12 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	var err *EditorError
+
+	// Ctrl-modified keys carry their letter in Rune after normalisation; none of
+	// them are actions, so let them fall through to the motion handler.
+	if key.Modifiers&ModCtrl != 0 {
+		return false, nil
+	}
 
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected text

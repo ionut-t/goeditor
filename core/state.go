@@ -158,8 +158,22 @@ type editor struct {
 	maxHistory      uint32   // Max number of history entries
 	preChangeCursor Cursor   // Cursor position captured at the start of each key event
 
+	// Line-undo ('U') tracking. Vim's U restores the line where the latest
+	// changes were made, undoing *all* of them at once. A "run" is the trailing
+	// sequence of history entries whose changes all happened on the same row;
+	// undoLineStart is the history index immediately before that run began.
+	// undoLineRow is -1 when no run is active.
+	undoLineRow   int
+	undoLineStart int
+
 	clipboard    Clipboard // Clipboard interface for copy/paste
 	updateSignal chan Signal
+
+	// Key mappings (:map and friends).
+	mappings       *mappingTable
+	mapLeader      string
+	pendingMapKeys []KeyEvent // keys held while a longer mapping might still match
+	mapDepth       int        // expansion depth, guarding against recursive mappings
 }
 
 // New creates a new editor instance
@@ -174,6 +188,9 @@ func New(clipboard Clipboard) Editor {
 		maxHistory:    1000,           // Default history size
 		clipboard:     clipboard,
 		updateSignal:  make(chan Signal, 100), // Buffered channel for updates
+		undoLineRow:   -1,
+		mappings:      newMappingTable(),
+		mapLeader:     DefaultMapLeader,
 	}
 
 	// Register modes (pass editor instance if modes need it during init)
@@ -323,6 +340,7 @@ func (e *editor) SetBuffer(buffer Buffer) {
 	e.history = []string{}
 	e.cursorHistory = []Cursor{}
 	e.historyPos = -1
+	e.undoLineRow = -1
 	e.SaveHistory()                                       // Save the new buffer's initial state
 	e.UpdateStatus(fmt.Sprintf("-- %s --", e.state.Mode)) // Update status
 	e.ScrollViewport()                                    // Adjust viewport for new buffer
@@ -348,16 +366,11 @@ func (e *editor) HandleKey(key KeyEvent) *EditorError {
 		}
 	}
 
-	// Snapshot cursor before any change so SaveHistory can record the pre-change position.
-	e.preChangeCursor = e.buffer.GetCursor()
-
-	// Let the current mode handle the key
-	err := e.currentMode.HandleKey(e, e.buffer, key)
-
-	// Update derived state AFTER handling key
-	e.ScrollViewport() // Ensure cursor is visible after potential movement
-
-	return err
+	// Resolve key mappings before the mode sees anything. Mappings substitute
+	// key sequences and re-feed the result through this same path, so they
+	// compose with operators and motions without the mapping layer needing to
+	// know anything about them.
+	return e.handleKeyMapped(normalizeKey(key), true)
 }
 
 // TriggerCompletion requests completions at the current cursor position.
@@ -512,6 +525,14 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
 		return nil
+	}
+
+	// The :map family must be handled before the Fields split below, which
+	// collapses whitespace — mappings need their arguments kept verbatim.
+	if name, rest, ok := splitCommandWord(cmd); ok {
+		if handled, err := e.executeMapCommand(name, rest); handled {
+			return err
+		}
 	}
 
 	parts := strings.Fields(cmd)
@@ -886,6 +907,10 @@ func (e *editor) SaveHistory() {
 		e.cursorHistory[e.historyPos] = e.preChangeCursor
 	}
 
+	// Extend or restart the line-undo run before the history index moves, so
+	// undoLineStart records the state as it was before the run's first change.
+	e.trackUndoLineRun()
+
 	// Add the new state
 	e.history = append(e.history, currentState)
 	e.cursorHistory = append(e.cursorHistory, currentCursor)
@@ -896,10 +921,47 @@ func (e *editor) SaveHistory() {
 	// Limit history size
 	if len(e.history) > maxHistory {
 		// Remove the oldest entry
-		e.history = e.history[len(e.history)-maxHistory:]
-		e.cursorHistory = e.cursorHistory[len(e.cursorHistory)-maxHistory:]
+		dropped := len(e.history) - maxHistory
+		e.history = e.history[dropped:]
+		e.cursorHistory = e.cursorHistory[dropped:]
 		e.historyPos = len(e.history) - 1
+
+		// Shift the line-undo anchor to match; if the run's starting state has
+		// aged out of the history there is nothing left to restore.
+		if e.undoLineRow >= 0 {
+			e.undoLineStart -= dropped
+			if e.undoLineStart < 0 {
+				e.undoLineRow = -1
+			}
+		}
 	}
+}
+
+// trackUndoLineRun maintains the line-undo run used by 'U'. A change on a
+// different row than the current run starts a fresh run anchored at the state
+// preceding it; further changes to the same row extend the run, so a single 'U'
+// undoes all of them at once — Vim's behaviour.
+func (e *editor) trackUndoLineRun() {
+	// historyPos < 0 means this is the baseline snapshot for a new buffer, which
+	// is not a change and has no state preceding it to restore.
+	if e.historyPos < 0 {
+		e.undoLineRow = -1
+		return
+	}
+
+	preRow := e.preChangeCursor.Position.Row
+	postRow := e.buffer.GetCursor().Position.Row
+
+	// The run continues while changes keep landing on the same line. Both the
+	// pre- and post-change rows count, because operations like 'o' create the
+	// line they then edit: the keystroke starts on one row and the change lands
+	// on the next, and Vim treats that as a single run.
+	if e.undoLineRow >= 0 && (preRow == e.undoLineRow || postRow == e.undoLineRow) {
+		return
+	}
+
+	e.undoLineRow = postRow
+	e.undoLineStart = e.historyPos
 }
 
 func (e *editor) Undo() (string, error) {
@@ -908,6 +970,10 @@ func (e *editor) Undo() (string, error) {
 	}
 
 	currentStateContent := e.buffer.GetCurrentContent()
+
+	// Moving through history invalidates the current line-undo run: its anchor
+	// no longer describes a trailing sequence of changes.
+	e.undoLineRow = -1
 
 	e.historyPos--
 	prevStateContent := e.history[e.historyPos]
@@ -943,12 +1009,62 @@ func (e *editor) Redo() (string, error) {
 
 	currentContent := e.buffer.GetCurrentContent()
 
+	e.undoLineRow = -1
+
 	e.historyPos++
 	nextStateContent := e.history[e.historyPos]
 	nextCursor := e.cursorHistory[e.historyPos]
 
 	e.buffer.SetContent([]byte(nextStateContent))
 	e.buffer.SetCursor(nextCursor)
+
+	e.ScrollViewport()
+
+	return currentContent, nil
+}
+
+// UndoLine implements Vim's 'U': undo all the latest changes made to a single
+// line — the line where the most recent change happened.
+//
+// The restore is applied as a *new* change rather than by rewinding the history
+// index, which gives two Vim behaviours for free: 'u' undoes a 'U', and a second
+// 'U' toggles back to the changed version, because the run is re-anchored at the
+// state that preceded this restore.
+func (e *editor) UndoLine() (string, error) {
+	if e.undoLineRow < 0 || e.undoLineStart < 0 || e.undoLineStart >= len(e.history) {
+		return "", ErrNoLineToRestore
+	}
+
+	target := e.history[e.undoLineStart]
+	currentContent := e.buffer.GetCurrentContent()
+	if target == currentContent {
+		return "", ErrNoLineToRestore
+	}
+
+	row := e.undoLineRow
+	// The state to return to when 'U' is pressed a second time.
+	restorePoint := e.historyPos
+
+	if target == "" {
+		target = "\n"
+	}
+
+	e.preChangeCursor = e.buffer.GetCursor()
+	e.buffer.SetContent([]byte(target))
+
+	// Park the cursor on the restored line, clamped to the restored content.
+	cursor := e.buffer.GetCursor()
+	cursor.Position.Row = min(row, max(0, e.buffer.LineCount()-1))
+	cursor.Position.Col = 0
+	cursor.Preferred = 0
+	e.buffer.SetCursor(cursor)
+
+	e.SaveHistory()
+
+	// SaveHistory re-derives the run from preChangeCursor; override it so the
+	// next 'U' targets the state from just before this one.
+	e.undoLineRow = row
+	e.undoLineStart = restorePoint
 
 	e.ScrollViewport()
 

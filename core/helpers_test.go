@@ -51,6 +51,9 @@ func setWidth(e Editor, width int) {
 	e.SetState(s)
 }
 
+// ctrlKey sends Ctrl+<r>, e.g. ctrlKey(e, 'r') for redo.
+func ctrlKey(e Editor, r rune) { e.HandleKey(Ctrl(r)) }
+
 func escape(e Editor)    { e.HandleKey(KeyEvent{Key: KeyEscape}) }
 func backspace(e Editor) { e.HandleKey(KeyEvent{Key: KeyBackspace}) }
 func enter(e Editor)     { e.HandleKey(KeyEvent{Key: KeyEnter}) }

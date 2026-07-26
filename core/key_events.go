@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // --- KeyCode, KeyModifiers, Key ---
@@ -34,7 +35,12 @@ const (
 	KeyDelete
 	KeyInsert
 
-	// Ctrl+letter shortcuts
+	// Ctrl+letter shortcuts.
+	//
+	// Deprecated: Ctrl+<letter> is now represented canonically as
+	// KeyEvent{Rune: <letter>, Modifiers: ModCtrl}. These constants are still
+	// accepted on input — normalizeKey converts them — but new code should use
+	// the canonical form so that every Ctrl combination is representable.
 	KeyCtrlD
 	KeyCtrlU
 	KeyCtrlN
@@ -42,6 +48,48 @@ const (
 	KeyCtrlY
 	KeyCtrlE
 )
+
+// legacyCtrlKeys maps the deprecated Ctrl+<letter> key codes to their letter.
+var legacyCtrlKeys = map[KeyCode]rune{
+	KeyCtrlD: 'd',
+	KeyCtrlU: 'u',
+	KeyCtrlN: 'n',
+	KeyCtrlP: 'p',
+	KeyCtrlY: 'y',
+	KeyCtrlE: 'e',
+}
+
+// Ctrl builds the canonical KeyEvent for Ctrl+<letter>.
+func Ctrl(r rune) KeyEvent {
+	return KeyEvent{Rune: unicode.ToLower(r), Modifiers: ModCtrl}
+}
+
+// IsCtrl reports whether k is Ctrl+r in canonical form.
+func (k KeyEvent) IsCtrl(r rune) bool {
+	return k.Modifiers&ModCtrl != 0 && k.Rune == unicode.ToLower(r)
+}
+
+// normalizeKey rewrites a KeyEvent into its canonical form so that events
+// originating from different sources (the Bubble Tea bridge, the key-notation
+// parser, consumer code using the deprecated KeyCtrl* constants) compare equal.
+//
+// Ctrl+<letter> canonicalises to {Rune: <lowercase letter>, Modifiers: ModCtrl}
+// with Key cleared, which is what makes KeyEvent usable as a map/slice key in
+// the mapping table.
+func normalizeKey(key KeyEvent) KeyEvent {
+	if r, ok := legacyCtrlKeys[key.Key]; ok {
+		return KeyEvent{Rune: r, Modifiers: key.Modifiers | ModCtrl}
+	}
+
+	// Only Ctrl+<letter> is canonicalised. Combinations like Ctrl+Space carry a
+	// meaningful KeyCode that must survive.
+	if key.Modifiers&ModCtrl != 0 && unicode.IsLetter(key.Rune) {
+		key.Rune = unicode.ToLower(key.Rune)
+		key.Key = KeyUnknown
+	}
+
+	return key
+}
 
 // KeyModifiers represents modifier keys held during a keystroke
 type KeyModifiers uint8

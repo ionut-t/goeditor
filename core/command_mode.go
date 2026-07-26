@@ -1,6 +1,7 @@
 package core
 
 type commandMode struct {
+	baseMode
 	commandBuffer string
 }
 
@@ -51,6 +52,12 @@ func (m *commandMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	// Add history navigation (Up/Down arrows) here later
 
 	default:
+		// Ctrl+<letter> carries the letter in Rune after normalisation; it must
+		// not be typed into the command line.
+		if key.Modifiers&ModCtrl != 0 {
+			return nil
+		}
+
 		if key.Rune != 0 {
 			// Append character to command buffer
 			m.commandBuffer += string(key.Rune)

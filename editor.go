@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/textinput"
@@ -330,6 +331,10 @@ type UndoMsg struct {
 }
 
 type RedoMsg struct {
+	ContentBefore string
+}
+
+type UndoLineMsg struct {
 	ContentBefore string
 }
 
@@ -706,6 +711,42 @@ func (m *Model) HasChanges() bool {
 	return m.editor.GetBuffer().IsModified()
 }
 
+// Map installs a key mapping, the programmatic equivalent of Vim's :map family.
+// Both sides use Vim key notation, so a Ctrl combination is written "<C-r>", the
+// Escape key "<Esc>", and "<Nop>" disables a key entirely.
+//
+// Pass noremap to keep the right-hand side from being re-mapped (:noremap);
+// without it the replacement is itself resolved against the mappings, so one
+// mapping can build on another.
+//
+//	m.Map(core.MapNormal, "U", "<C-r>", true) // U redoes, as in older versions
+//	m.Map(core.MapInsert, "jk", "<Esc>", true)
+//	m.Map(core.MapNormal, "Y", "y$", true)    // the RHS re-enters the parser
+func (m *Model) Map(modes core.MapMode, lhs, rhs string, noremap bool) error {
+	return m.editor.Map(modes, lhs, rhs, noremap)
+}
+
+// Unmap removes the mapping for lhs from the given modes.
+func (m *Model) Unmap(modes core.MapMode, lhs string) error {
+	return m.editor.Unmap(modes, lhs)
+}
+
+// ClearMappings removes every mapping for the given modes.
+func (m *Model) ClearMappings(modes core.MapMode) {
+	m.editor.ClearMappings(modes)
+}
+
+// Mappings returns the mappings registered for a single mode.
+func (m *Model) Mappings(mode core.MapMode) []core.Mapping {
+	return m.editor.Mappings(mode)
+}
+
+// SetMapLeader sets what <leader> expands to in mappings defined from now on.
+// It defaults to a backslash, as in Vim.
+func (m *Model) SetMapLeader(leader string) {
+	m.editor.SetMapLeader(leader)
+}
+
 // GetEditor returns the underlying editor instance
 func (m *Model) GetEditor() core.Editor {
 	return m.editor
@@ -919,8 +960,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 		// Completion menu navigation
 		if m.completionMenuVisible {
-			switch keyEvent.Key {
-			case core.KeyEscape, core.KeyCtrlE:
+			switch {
+			case keyEvent.Key == core.KeyEscape || keyEvent.IsCtrl('e'):
 				// Record the current word prefix so auto-trigger is suppressed
 				// until the user types a new character that changes the prefix.
 				m.completionDismissedWord = m.completionContext.TextBeforeCursor
@@ -929,10 +970,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.selectedCompletionIdx = 0
 				m.completionWindowStart = 0
 				skipNormalKeyHandling = true
-			case core.KeyEnter, core.KeyTab, core.KeyCtrlY:
+			case keyEvent.Key == core.KeyEnter || keyEvent.Key == core.KeyTab || keyEvent.IsCtrl('y'):
 				cmds = append(cmds, m.insertCompletion())
 				skipNormalKeyHandling = true
-			case core.KeyUp, core.KeyCtrlP:
+			case keyEvent.Key == core.KeyUp || keyEvent.IsCtrl('p'):
 				last := len(m.completions) - 1
 				if m.selectedCompletionIdx > 0 {
 					m.selectedCompletionIdx--
@@ -945,7 +986,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 					m.completionWindowStart--
 				}
 				skipNormalKeyHandling = true
-			case core.KeyDown, core.KeyCtrlN:
+			case keyEvent.Key == core.KeyDown || keyEvent.IsCtrl('n'):
 				if m.selectedCompletionIdx < len(m.completions)-1 {
 					m.selectedCompletionIdx++
 				} else {
@@ -1302,6 +1343,9 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 		case core.RedoSignal:
 			return RedoMsg{ContentBefore: signal.Value()}
 
+		case core.UndoLineSignal:
+			return UndoLineMsg{ContentBefore: signal.Value()}
+
 		case core.EnterSearchModeSignal:
 			return enterSearchMode{backwards: signal.Backwards}
 
@@ -1372,21 +1416,12 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 	case tea.KeyPgDown:
 		result.Key = core.KeyPageDown
 	default:
-		if k.Mod&tea.ModCtrl != 0 {
-			switch k.Code {
-			case 'd':
-				result.Key = core.KeyCtrlD
-			case 'u':
-				result.Key = core.KeyCtrlU
-			case 'n':
-				result.Key = core.KeyCtrlN
-			case 'p':
-				result.Key = core.KeyCtrlP
-			case 'y':
-				result.Key = core.KeyCtrlY
-			case 'e':
-				result.Key = core.KeyCtrlE
-			}
+		// Ctrl+<letter> arrives with an empty Text, so Rune is still unset here.
+		// Record the letter itself rather than mapping a fixed handful of
+		// combinations onto dedicated key codes — that kept Ctrl+R (and every
+		// other combination) unrepresentable.
+		if k.Mod&tea.ModCtrl != 0 && unicode.IsLetter(rune(k.Code)) {
+			result.Rune = unicode.ToLower(rune(k.Code))
 		}
 	}
 

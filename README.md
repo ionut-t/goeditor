@@ -7,7 +7,8 @@ A feature-rich, Vim-inspired text editor library for Go, built on [Bubble Tea](h
 - **Multiple editing modes**: Normal, Insert, Visual, Visual Line, and Command modes
 - **Vim-style keybindings**: Navigate and edit text efficiently with familiar Vim commands
 - **Unicode support**: Full support for international characters and emojis
-- **Undo/Redo**: Navigate through your editing history
+- **Undo/Redo**: Navigate through your editing history, including Vim's line-wise `U`
+- **Key mapping**: Vim-compatible `:map` family plus a Go API for remapping any key
 - **Search functionality**: Find text within your document
 - **Clipboard integration**: Copy, cut, and paste with system clipboard support
 - **Line wrapping**: Automatic word-wrap for long lines
@@ -104,7 +105,7 @@ m.WithTheme(theme)
 - **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `ip`, `i(`, `i"`, …)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
 - **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
-- **Undo/Redo**: `u` (undo), `U` (redo)
+- **Undo/Redo**: `u` (undo), `Ctrl+R` (redo), `U` (undo all recent changes on the last-changed line)
 - **Copy/Paste**: `y` (yank), `p` / `P` (paste)
 
 ### Insert Mode
@@ -133,6 +134,63 @@ m.WithTheme(theme)
 - `:q!` - Force quit without saving
 - `:set rnu` - Enable relative line numbers
 - `:set nornu` - Disable relative line numbers
+- `:map`, `:nmap`, `:vmap`, `:imap`, `:omap` and their `noremap` / `unmap` / `mapclear` variants - see [Key Mapping](#key-mapping)
+
+## Key Mapping
+
+Keys are remapped the way Vim does it: a key sequence is replaced by another key
+sequence, which is then re-fed through the editor. That means the right-hand side
+can be any command, not just a single action — `:nmap Y y$` works because `y$`
+re-enters the parser as if typed.
+
+```
+:nmap U <C-r>        " restore U as redo (it is undo-line by default)
+:imap jk <Esc>       " leave insert mode with jk
+:nnoremap Y y$       " yank to end of line
+:nnoremap <Space> dw " map a named key
+:nnoremap x <Nop>    " disable a key
+:nunmap x            " put x back
+:nmapclear           " drop every normal-mode mapping
+```
+
+The same table is available programmatically, which is usually how a library
+consumer configures it:
+
+```go
+m := goeditor.New(80, 24)
+
+m.Map(core.MapNormal, "U", "<C-r>", true)
+m.Map(core.MapInsert, "jk", "<Esc>", true)
+m.Map(core.MapNormal, "<leader>d", "dd", true)
+
+m.SetMapLeader(",")                 // <leader> is "\" by default
+m.Unmap(core.MapNormal, "U")
+m.Mappings(core.MapNormal)          // inspect what is registered
+```
+
+**Modes** are selected with `core.MapNormal`, `core.MapVisual` (both visual and
+visual-line mode), `core.MapInsert`, `core.MapOperatorPending` (while `d`/`y`/`c`
+waits for a motion), or `core.MapAll`. As in Vim, `core.MapAll` and an unprefixed
+`:map` cover normal, visual and operator-pending — but not insert.
+
+**Recursion** follows Vim: `:map` re-resolves the replacement against the other
+mappings, `:noremap` (and `noremap: true`) delivers it verbatim. Mutually
+recursive mappings are stopped rather than hanging.
+
+**Notation** accepts `<C-x>`, `<A-x>` / `<M-x>`, `<S-x>` (combinable as
+`<C-A-x>`), `<Esc>`, `<CR>` / `<Enter>`, `<Tab>`, `<Space>`, `<BS>`, `<Del>`,
+`<Insert>`, the arrow keys, `<Home>` / `<End>`, `<PageUp>` / `<PageDown>`,
+`<leader>`, `<lt>` for a literal `<`, and `<Nop>` to disable a key.
+
+Two limitations to be aware of:
+
+- **No `timeoutlen` yet.** When the keys typed so far are both a complete mapping
+  and the prefix of a longer one, Vim commits the shorter one after a timeout.
+  Here it waits for the next key instead of timing out.
+- **No `:cmap`.** Command-line and search input are not mapped.
+
+Mappings never rewrite the character argument of `r`, `f`, `F`, `t` or `T` — that
+is data, not a command, exactly as in Vim.
 
 ## API Reference
 
@@ -164,6 +222,13 @@ HideStatusLine(hide bool)
 SetCursorPosition(row, col int) error
 SetCursorPositionEnd() error
 SetCursorMode(mode CursorMode)
+
+// Key Mapping
+Map(modes core.MapMode, lhs, rhs string, noremap bool) error
+Unmap(modes core.MapMode, lhs string) error
+ClearMappings(modes core.MapMode)
+Mappings(mode core.MapMode) []core.Mapping
+SetMapLeader(leader string)
 
 // Styling
 WithTheme(theme Theme)

@@ -1,6 +1,6 @@
 package core
 
-type insertMode struct{} // Can hold state if needed (e.g., for abbreviations)
+type insertMode struct{ baseMode }
 
 func NewInsertMode() EditorMode { return &insertMode{} }
 
@@ -130,6 +130,12 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil
 
 	default: // Handle regular character runes
+		// Ctrl+<letter> carries the letter in Rune after normalisation. Insert
+		// mode binds no Ctrl keys, so these must be ignored rather than typed.
+		if key.Modifiers&ModCtrl != 0 {
+			return nil
+		}
+
 		if key.Rune != 0 {
 			insertErr := buffer.InsertRunesAt(row, col, []rune{key.Rune})
 			if insertErr == nil {

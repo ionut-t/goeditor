@@ -48,6 +48,16 @@ type Editor interface {
 
 	// Event handling
 	HandleKey(key KeyEvent) *EditorError // Process a key press
+
+	// Key mappings (:map and friends)
+	Map(modes MapMode, lhs, rhs string, noremap bool) error
+	Unmap(modes MapMode, lhs string) error
+	ClearMappings(modes MapMode)
+	Mappings(mode MapMode) []Mapping
+	SetMapLeader(leader string)
+	MapLeader() string
+	FlushPendingMapping() *EditorError // Commit keys held while resolving a mapping
+
 	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext
 	InsertCompletion(completion Completion) error
 
@@ -66,6 +76,7 @@ type Editor interface {
 	SaveHistory() // Indicate a state should be saved for undo
 	Undo() (string, error)
 	Redo() (string, error)
+	UndoLine() (string, error)    // Vim's 'U' — undo all recent changes on one line
 	PasteAfter() (string, error)  // Paste from clipboard after/below cursor
 	PasteBefore() (string, error) // Paste from clipboard before/above cursor
 	Copy(op copyType) error       // Copy to clipboard
