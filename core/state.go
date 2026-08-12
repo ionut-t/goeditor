@@ -605,24 +605,8 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 		// Add more commands: e, edit, r, read, s, substitute etc.
 		// case "s": return e.executeSubstitute(args)
 
-	case "set": // Handle basic set commands
-		if len(args) == 1 {
-			switch args[0] {
-			case "relativenumber", "rnu":
-				e.state.RelativeNumbers = true
-				e.DispatchSignal(RelativeNumbersSignal{enabled: true})
-				return nil
-			case "norelativenumber", "nornu":
-				e.state.RelativeNumbers = false
-				e.DispatchSignal(RelativeNumbersSignal{enabled: false})
-				return nil
-				// Add 'number'/'nonu' later if needed
-			}
-		}
-		return &EditorError{
-			id:  ErrInvalidCommandId,
-			err: ErrInvalidCommand,
-		}
+	case "set":
+		return e.executeSet(args)
 
 	case "rename":
 		if len(args) != 1 {

@@ -134,6 +134,7 @@ m.WithTheme(theme)
 - `:q!` - Force quit without saving
 - `:set rnu` - Enable relative line numbers
 - `:set nornu` - Disable relative line numbers
+- `:set mapleader=,` - Set the `<leader>` key used by mappings
 - `:map`, `:nmap`, `:vmap`, `:imap`, `:omap` and their `noremap` / `unmap` / `mapclear` variants - see [Key Mapping](#key-mapping)
 
 ## Key Mapping
@@ -144,13 +145,16 @@ can be any command, not just a single action — `:nmap Y y$` works because `y$`
 re-enters the parser as if typed.
 
 ```
-:nmap U <C-r>        " restore U as redo (it is undo-line by default)
+:nmap U <C-r>        " map U as redo (it is undo-line by default)
 :imap jk <Esc>       " leave insert mode with jk
 :nnoremap Y y$       " yank to end of line
 :nnoremap <Space> dw " map a named key
 :nnoremap x <Nop>    " disable a key
 :nunmap x            " put x back
 :nmapclear           " drop every normal-mode mapping
+
+:set mapleader=,     " set <leader> before the mappings that use it
+:nnoremap <leader>d dd
 ```
 
 The same table is available programmatically, which is usually how a library
@@ -181,6 +185,12 @@ recursive mappings are stopped rather than hanging.
 `<C-A-x>`), `<Esc>`, `<CR>` / `<Enter>`, `<Tab>`, `<Space>`, `<BS>`, `<Del>`,
 `<Insert>`, the arrow keys, `<Home>` / `<End>`, `<PageUp>` / `<PageDown>`,
 `<leader>`, `<lt>` for a literal `<`, and `<Nop>` to disable a key.
+
+**`<leader>`** defaults to `\` and is changed with `:set mapleader=,` or
+`SetMapLeader(",")`. It may expand to a multi-key sequence, so `SetMapLeader("gs")`
+makes `<leader>x` mean `gsx`. As in Vim, `<leader>` is substituted when the
+mapping is _defined_, not when it is pressed — so set it before the mappings that
+use it, and changing it later leaves existing mappings alone.
 
 Two limitations to be aware of:
 
