@@ -192,12 +192,29 @@ makes `<leader>x` mean `gsx`. As in Vim, `<leader>` is substituted when the
 mapping is _defined_, not when it is pressed — so set it before the mappings that
 use it, and changing it later leaves existing mappings alone.
 
-Two limitations to be aware of:
+**Ambiguous mappings** are resolved by `'timeoutlen'`, as in Vim. With both
+`,d` and `,dd` mapped, typing `,d` waits one second for the key that would make
+it `,dd`, then runs `,d` on its own:
 
-- **No `timeoutlen` yet.** When the keys typed so far are both a complete mapping
-  and the prefix of a longer one, Vim commits the shorter one after a timeout.
-  Here it waits for the next key instead of timing out.
-- **No `:cmap`.** Command-line and search input are not mapped.
+```vim
+:set timeoutlen=500  " milliseconds; 0 resolves immediately
+:set notimeout       " or wait indefinitely for the deciding key
+```
+
+```go
+m.SetMapTimeoutLen(500 * time.Millisecond)
+m.SetMapTimeout(false)
+```
+
+The timer is driven by the Bubble Tea model, so it works out of the box in
+`goeditor.Model`. Consumers driving `core.Editor` directly need to run it
+themselves: after each `HandleKey`, call `PendingMapTimeout()` and, when it
+reports a timer is due, pass the token it returned to `TimeoutPendingMapping`
+once the timer fires. Stale tokens are ignored, so a timer that fires after the
+keys were resolved does nothing.
+
+One limitation to be aware of: there is **no `:cmap`** — command-line and search
+input are not mapped.
 
 Mappings never rewrite the character argument of `r`, `f`, `F`, `t` or `T` — that
 is data, not a command, exactly as in Vim.

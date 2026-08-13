@@ -174,6 +174,12 @@ type editor struct {
 	mapLeader      string
 	pendingMapKeys []KeyEvent // keys held while a longer mapping might still match
 	mapDepth       int        // expansion depth, guarding against recursive mappings
+
+	// 'timeout' and 'timeoutlen'. mapPendingGen identifies the current run of
+	// held keys so a timer that fires after the run is over can be discarded.
+	mapTimeout    bool
+	mapTimeoutLen time.Duration
+	mapPendingGen uint64
 }
 
 // New creates a new editor instance
@@ -191,6 +197,8 @@ func New(clipboard Clipboard) Editor {
 		undoLineRow:   -1,
 		mappings:      newMappingTable(),
 		mapLeader:     DefaultMapLeader,
+		mapTimeout:    true,
+		mapTimeoutLen: DefaultMapTimeoutLen,
 	}
 
 	// Register modes (pass editor instance if modes need it during init)

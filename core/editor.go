@@ -1,5 +1,7 @@
 package core
 
+import "time"
+
 // Position represents a specific location in the text buffer
 type Position struct {
 	Row int // Zero-indexed row (line number)
@@ -56,7 +58,17 @@ type Editor interface {
 	Mappings(mode MapMode) []Mapping
 	SetMapLeader(leader string)
 	MapLeader() string
-	FlushPendingMapping() *EditorError // Commit keys held while resolving a mapping
+	FlushPendingMapping() *EditorError // Deliver keys held while resolving a mapping, unmapped
+
+	// Mapping timeout ('timeout' and 'timeoutlen'). The core has no timers, so
+	// the UI layer drives this: after each key, PendingMapTimeout says whether
+	// one should be running, and TimeoutPendingMapping resolves it when it fires.
+	PendingMapTimeout() (d time.Duration, token uint64, ok bool)
+	TimeoutPendingMapping(token uint64) *EditorError
+	SetMapTimeout(enabled bool)
+	MapTimeoutEnabled() bool
+	SetMapTimeoutLen(d time.Duration)
+	MapTimeoutLen() time.Duration
 
 	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext
 	InsertCompletion(completion Completion) error

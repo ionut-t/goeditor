@@ -2,12 +2,17 @@ package core
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Editor options set with ':set'. Two forms are supported, matching Vim:
 // boolean options toggled by name ("rnu" / "nornu") and valued options written
 // as name=value ("mapleader=,").
+
+// DefaultMapTimeoutLen is the default 'timeoutlen', matching Vim.
+const DefaultMapTimeoutLen = time.Second
 
 // executeSet applies a ':set' command. Vim accepts any number of options on one
 // line and applies them left to right, stopping at the first bad one — options
@@ -44,6 +49,14 @@ func (e *editor) setOne(arg string) *EditorError {
 		e.DispatchSignal(RelativeNumbersSignal{enabled: false})
 		return nil
 		// Add 'number'/'nonu' later if needed
+
+	case "timeout", "to":
+		e.SetMapTimeout(true)
+		return nil
+
+	case "notimeout", "noto":
+		e.SetMapTimeout(false)
+		return nil
 	}
 
 	if name, value, ok := strings.Cut(arg, "="); ok {
@@ -76,10 +89,47 @@ func (e *editor) setValueOption(name, value string) *EditorError {
 
 		e.SetMapLeader(value)
 		return nil
+
+	case "timeoutlen", "tm":
+		ms, err := strconv.Atoi(value)
+		if err != nil || ms < 0 {
+			return &EditorError{
+				id:  ErrInvalidCommandId,
+				err: fmt.Errorf("%w: timeoutlen takes milliseconds, e.g. :set timeoutlen=500", ErrInvalidCommand),
+			}
+		}
+		e.SetMapTimeoutLen(time.Duration(ms) * time.Millisecond)
+		return nil
 	}
 
 	return unknownOptionError(name)
 }
+
+// SetMapTimeout sets 'timeout': whether keys held to disambiguate a mapping are
+// committed once 'timeoutlen' expires. With it off they wait indefinitely for
+// the key that decides them.
+func (e *editor) SetMapTimeout(enabled bool) {
+	e.mapTimeout = enabled
+	if !enabled {
+		// Any timer already scheduled must not fire against the keys it was
+		// started for, now that they are meant to wait.
+		e.mapPendingGen++
+	}
+}
+
+// MapTimeoutEnabled reports the 'timeout' setting.
+func (e *editor) MapTimeoutEnabled() bool { return e.mapTimeout }
+
+// SetMapTimeoutLen sets 'timeoutlen', how long an ambiguous mapping waits.
+func (e *editor) SetMapTimeoutLen(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	e.mapTimeoutLen = d
+}
+
+// MapTimeoutLen reports the 'timeoutlen' setting.
+func (e *editor) MapTimeoutLen() time.Duration { return e.mapTimeoutLen }
 
 func unknownOptionError(name string) *EditorError {
 	return &EditorError{

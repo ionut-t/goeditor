@@ -356,6 +356,14 @@ type CompletionDebounceMsg struct {
 	Timestamp   time.Time
 }
 
+// mapTimeoutMsg fires when 'timeoutlen' expires for keys the editor is holding
+// to see whether they complete a longer mapping. The token identifies the run
+// of held keys, so a message that arrives after they were resolved by a further
+// keypress is discarded rather than acting on whatever is pending by then.
+type mapTimeoutMsg struct {
+	token uint64
+}
+
 func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
 	if m.clearMsgCancel != nil {
 		m.clearMsgCancel()
@@ -747,6 +755,33 @@ func (m *Model) SetMapLeader(leader string) {
 	m.editor.SetMapLeader(leader)
 }
 
+// SetMapTimeoutLen sets 'timeoutlen': how long a key sequence that both
+// completes one mapping and starts a longer one waits for the next key before
+// the shorter mapping runs. It defaults to one second, as in Vim.
+func (m *Model) SetMapTimeoutLen(d time.Duration) {
+	m.editor.SetMapTimeoutLen(d)
+}
+
+// SetMapTimeout sets 'timeout'. Disabling it makes an ambiguous mapping wait
+// indefinitely for the key that resolves it instead of timing out.
+func (m *Model) SetMapTimeout(enabled bool) {
+	m.editor.SetMapTimeout(enabled)
+}
+
+// mapTimeoutCmd starts the 'timeoutlen' timer when the editor is holding keys
+// that a later key could still turn into a longer mapping. The core has no
+// timers of its own, so nothing else will resolve them.
+func (m Model) mapTimeoutCmd() tea.Cmd {
+	d, token, ok := m.editor.PendingMapTimeout()
+	if !ok {
+		return nil
+	}
+
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return mapTimeoutMsg{token: token}
+	})
+}
+
 // GetEditor returns the underlying editor instance
 func (m *Model) GetEditor() core.Editor {
 	return m.editor
@@ -1004,6 +1039,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		var err *core.EditorError
 		if !skipNormalKeyHandling {
 			err = m.editor.HandleKey(keyEvent)
+
+			// The key may have been held back to see whether it starts a longer
+			// mapping; if so it needs a timer to eventually settle it.
+			if cmd := m.mapTimeoutCmd(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		if err != nil {
 			cmds = append(cmds, func() tea.Msg {
@@ -1132,6 +1173,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.isFocused && m.cursorMode == CursorBlink {
 			m.cursorVisible = true
 			cmds = append(cmds, m.CursorBlink())
+		}
+
+	case mapTimeoutMsg:
+		// Stale tokens are ignored inside the editor, so this is a no-op unless
+		// the held keys are still waiting.
+		if err := m.editor.TimeoutPendingMapping(msg.token); err != nil {
+			cmds = append(cmds, func() tea.Msg {
+				return ErrorMsg{ID: err.ID(), Error: err.Error()}
+			})
 		}
 
 	case CompletionDebounceMsg:

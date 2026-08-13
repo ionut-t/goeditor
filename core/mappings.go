@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // MapMode is a bitmask selecting which modes a mapping applies to. It mirrors
 // Vim's :map prefixes — :nmap is MapNormal, :vmap is MapVisual, and so on.
@@ -158,7 +161,7 @@ func (e *editor) Unmap(modes MapMode, lhs string) error {
 	}
 
 	// Removing a mapping can strand keys that were being held to disambiguate it.
-	e.pendingMapKeys = nil
+	e.clearPendingMapKeys()
 
 	return nil
 }
@@ -170,7 +173,7 @@ func (e *editor) ClearMappings(modes MapMode) {
 			e.mappings.clear(mode)
 		}
 	}
-	e.pendingMapKeys = nil
+	e.clearPendingMapKeys()
 }
 
 // Mappings returns the mappings registered for a single mode.
@@ -234,33 +237,89 @@ func (e *editor) handleKeyMapped(key KeyEvent, remap bool) *EditorError {
 		return e.dispatchKey(key)
 	}
 
-	e.pendingMapKeys = append(e.pendingMapKeys, key)
+	e.holdKey(key)
 
 	exact, hasLonger := e.mappings.match(mode, e.pendingMapKeys)
 
 	// A longer mapping could still match, so hold the keys until the next one
-	// decides it. Without a timeout this waits indefinitely rather than
-	// committing early — see FlushPendingMapping.
+	// decides it — or until 'timeoutlen' expires and TimeoutPendingMapping
+	// settles for what has been typed. With 'notimeout' the wait is indefinite.
 	if hasLonger {
 		return nil
 	}
 
 	if exact != nil {
-		rhs := exact.RHS
-		noremap := exact.NoRemap
-		e.pendingMapKeys = e.pendingMapKeys[:0]
-		return e.feedKeys(rhs, !noremap)
+		return e.applyMapping(exact)
+	}
+
+	return e.FlushPendingMapping()
+}
+
+// applyMapping expands a matched mapping, releasing the keys that produced it.
+func (e *editor) applyMapping(m *Mapping) *EditorError {
+	// Copied before the pending keys are cleared: m points into the table, which
+	// the expansion below is free to modify (an RHS can run :nmap).
+	rhs, noremap := m.RHS, m.NoRemap
+	e.clearPendingMapKeys()
+	return e.feedKeys(rhs, !noremap)
+}
+
+// holdKey adds a key to the run being held while a longer mapping might match.
+func (e *editor) holdKey(key KeyEvent) {
+	e.pendingMapKeys = append(e.pendingMapKeys, key)
+	e.mapPendingGen++
+}
+
+// clearPendingMapKeys ends the current run of held keys, invalidating any
+// 'timeoutlen' timer still outstanding for it.
+func (e *editor) clearPendingMapKeys() {
+	e.pendingMapKeys = e.pendingMapKeys[:0]
+	e.mapPendingGen++
+}
+
+// PendingMapTimeout reports how long to wait before giving up on a longer
+// mapping and committing the keys held so far, along with a token identifying
+// this run of held keys. ok is false when nothing is held or 'timeout' is off,
+// meaning no timer should run.
+//
+// The core cannot start timers, so the UI layer is expected to call this after
+// every key, schedule a one-shot timer when ok, and hand the token back to
+// TimeoutPendingMapping when it fires.
+func (e *editor) PendingMapTimeout() (d time.Duration, token uint64, ok bool) {
+	if len(e.pendingMapKeys) == 0 || !e.mapTimeout {
+		return 0, 0, false
+	}
+	return e.mapTimeoutLen, e.mapPendingGen, true
+}
+
+// TimeoutPendingMapping resolves the held keys the way 'timeoutlen' expiring
+// does in Vim: if they form a complete mapping it runs, otherwise they are
+// delivered unmapped. A token from a run that has already been resolved is
+// ignored, so a timer that fires late is harmless.
+func (e *editor) TimeoutPendingMapping(token uint64) *EditorError {
+	if len(e.pendingMapKeys) == 0 || token != e.mapPendingGen {
+		return nil
+	}
+
+	// The keys were never delivered, so the mode cannot have changed since they
+	// were held — but resolve against the live mode regardless, for the same
+	// reason feedKeys does.
+	if mode := e.activeMapMode(); mode != 0 {
+		if exact, _ := e.mappings.match(mode, e.pendingMapKeys); exact != nil {
+			return e.applyMapping(exact)
+		}
 	}
 
 	return e.FlushPendingMapping()
 }
 
 // FlushPendingMapping delivers keys that are being held while waiting to see
-// whether they complete a longer mapping, giving up on the longer match.
+// whether they complete a longer mapping, giving up on the longer match and on
+// any mapping the held keys already complete.
 //
 // It is called automatically once the held keys can no longer match anything.
-// It is exported for a future 'timeoutlen': a timer in the UI layer can call it
-// to commit a mapping that is also the prefix of a longer one.
+// TimeoutPendingMapping is the one to call from a 'timeoutlen' timer: this one
+// discards a complete match rather than running it.
 func (e *editor) FlushPendingMapping() *EditorError {
 	if len(e.pendingMapKeys) == 0 {
 		return nil
@@ -268,7 +327,7 @@ func (e *editor) FlushPendingMapping() *EditorError {
 
 	pending := make([]KeyEvent, len(e.pendingMapKeys))
 	copy(pending, e.pendingMapKeys)
-	e.pendingMapKeys = e.pendingMapKeys[:0]
+	e.clearPendingMapKeys()
 
 	// The first key has already failed to start a mapping, so deliver it as-is.
 	// The rest re-enter resolution because they may begin a new one.
@@ -287,7 +346,7 @@ func (e *editor) FlushPendingMapping() *EditorError {
 // whose RHS changes mode (":nmap gv V") behaves like the keys being typed.
 func (e *editor) feedKeys(keys []KeyEvent, remap bool) *EditorError {
 	if e.mapDepth >= maxMapDepth {
-		e.pendingMapKeys = e.pendingMapKeys[:0]
+		e.clearPendingMapKeys()
 		e.mapDepth = 0
 		return &EditorError{id: ErrMapRecursionId, err: ErrMapRecursion}
 	}
