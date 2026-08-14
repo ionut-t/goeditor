@@ -361,7 +361,7 @@ type CompletionDebounceMsg struct {
 // of held keys, so a message that arrives after they were resolved by a further
 // keypress is discarded rather than acting on whatever is pending by then.
 type mapTimeoutMsg struct {
-	token uint64
+	token core.MapToken
 }
 
 func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {

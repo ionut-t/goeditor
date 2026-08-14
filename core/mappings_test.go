@@ -219,6 +219,10 @@ func TestMapRemapSemantics(t *testing.T) {
 		err := e.HandleKey(KeyEvent{Rune: 'a'})
 		require.NotNil(t, err)
 		assert.Equal(t, ErrMapRecursionId, err.ID())
+
+		// The message has to name one of the mappings in the cycle, or there is
+		// nothing to go on when it is one of a hundred lines of config.
+		assert.Regexp(t, `^recursive mapping: [ab] expanded past 1000 levels$`, err.Error())
 	})
 }
 

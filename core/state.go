@@ -151,6 +151,18 @@ type editor struct {
 	modes       map[Mode]EditorMode
 	state       State
 
+	// Undo history is a full snapshot of the buffer per change, so it costs
+	// O(buffer) time and memory on *every* edit, not just on undo: SaveHistory
+	// materialises the whole buffer, and up to maxHistory (1000) of those are
+	// retained. Undo, Redo and UndoLine are all a single SetContent of one
+	// snapshot — none is cheaper or dearer than the others, and none is cheaper
+	// than the edit that produced it.
+	//
+	// That is sized for source files. Editing something log-sized allocates a
+	// copy of it per keystroke, which is the thing to fix first if large files
+	// ever matter — and it needs a different history representation (piece table
+	// or diffs), not a cheaper undo path bolted onto snapshots.
+	//
 	// IMPROVEMENT: Use a more efficient history mechanism (diffs, ring buffer)
 	history         []string // Store snapshots of buffer content as strings
 	cursorHistory   []Cursor // Store cursor states corresponding to history
@@ -179,7 +191,7 @@ type editor struct {
 	// held keys so a timer that fires after the run is over can be discarded.
 	mapTimeout    bool
 	mapTimeoutLen time.Duration
-	mapPendingGen uint64
+	mapPendingGen MapToken
 }
 
 // New creates a new editor instance
@@ -536,11 +548,12 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 	}
 
 	// The :map family must be handled before the Fields split below, which
-	// collapses whitespace — mappings need their arguments kept verbatim.
-	if name, rest, ok := splitCommandWord(cmd); ok {
-		if handled, err := e.executeMapCommand(name, rest); handled {
-			return err
-		}
+	// collapses whitespace — mappings need their arguments kept verbatim. Vim
+	// parses these grammars separately too: :map takes literal trailing text,
+	// :set takes whitespace-separated options.
+	name, rest := splitCommandWord(cmd)
+	if handled, err := e.executeMapCommand(name, rest); handled {
+		return err
 	}
 
 	parts := strings.Fields(cmd)

@@ -63,8 +63,8 @@ type Editor interface {
 	// Mapping timeout ('timeout' and 'timeoutlen'). The core has no timers, so
 	// the UI layer drives this: after each key, PendingMapTimeout says whether
 	// one should be running, and TimeoutPendingMapping resolves it when it fires.
-	PendingMapTimeout() (d time.Duration, token uint64, ok bool)
-	TimeoutPendingMapping(token uint64) *EditorError
+	PendingMapTimeout() (d time.Duration, token MapToken, ok bool)
+	TimeoutPendingMapping(token MapToken) *EditorError
 	SetMapTimeout(enabled bool)
 	MapTimeoutEnabled() bool
 	SetMapTimeoutLen(d time.Duration)

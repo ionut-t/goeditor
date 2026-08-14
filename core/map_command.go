@@ -53,13 +53,15 @@ var mapCommands = map[string]mapCommand{
 }
 
 // splitCommandWord separates the leading command word from the rest of the line
-// without disturbing the whitespace inside the remainder.
-func splitCommandWord(cmd string) (word, rest string, ok bool) {
-	idx := strings.IndexFunc(cmd, func(r rune) bool { return r == ' ' || r == '\t' })
+// without disturbing the whitespace inside the remainder — which is why the
+// :map family cannot go through the strings.Fields path the other commands use.
+// An empty rest means the command had no arguments.
+func splitCommandWord(cmd string) (word, rest string) {
+	idx := strings.IndexAny(cmd, " \t")
 	if idx < 0 {
-		return cmd, "", cmd != ""
+		return cmd, ""
 	}
-	return cmd[:idx], strings.TrimLeft(cmd[idx:], " \t"), true
+	return cmd[:idx], strings.TrimLeft(cmd[idx:], " \t")
 }
 
 // executeMapCommand handles the :map family. It reports whether name was one of
@@ -86,8 +88,8 @@ func (e *editor) executeMapCommand(name, args string) (bool, *EditorError) {
 		return true, nil
 
 	case mapActionSet:
-		lhs, rhs, ok := splitCommandWord(args)
-		if !ok || rhs == "" {
+		lhs, rhs := splitCommandWord(args)
+		if lhs == "" || rhs == "" {
 			// Listing existing mappings is not supported: there is no multi-line
 			// display surface. Mappings() serves that need programmatically.
 			return true, mapUsageError("%s requires a key and a replacement, e.g. :%s U <C-r>", name, name)

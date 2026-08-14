@@ -29,6 +29,11 @@ var allMapModes = []MapMode{MapNormal, MapVisual, MapInsert, MapOperatorPending}
 // it means the mappings are mutually recursive.
 const maxMapDepth = 1000
 
+// MapToken identifies one run of keys held while a longer mapping might still
+// match. It is handed out by PendingMapTimeout and given back to
+// TimeoutPendingMapping, which ignores tokens from runs already resolved.
+type MapToken uint64
+
 // Mapping is a single key mapping: press LHS, get RHS. When NoRemap is set the
 // RHS is delivered verbatim instead of being re-resolved (Vim's :noremap).
 type Mapping struct {
@@ -259,9 +264,9 @@ func (e *editor) handleKeyMapped(key KeyEvent, remap bool) *EditorError {
 func (e *editor) applyMapping(m *Mapping) *EditorError {
 	// Copied before the pending keys are cleared: m points into the table, which
 	// the expansion below is free to modify (an RHS can run :nmap).
-	rhs, noremap := m.RHS, m.NoRemap
+	lhs, rhs, noremap := m.LHS, m.RHS, m.NoRemap
 	e.clearPendingMapKeys()
-	return e.feedKeys(rhs, !noremap)
+	return e.feedKeys(lhs, rhs, !noremap)
 }
 
 // holdKey adds a key to the run being held while a longer mapping might match.
@@ -285,7 +290,7 @@ func (e *editor) clearPendingMapKeys() {
 // The core cannot start timers, so the UI layer is expected to call this after
 // every key, schedule a one-shot timer when ok, and hand the token back to
 // TimeoutPendingMapping when it fires.
-func (e *editor) PendingMapTimeout() (d time.Duration, token uint64, ok bool) {
+func (e *editor) PendingMapTimeout() (d time.Duration, token MapToken, ok bool) {
 	if len(e.pendingMapKeys) == 0 || !e.mapTimeout {
 		return 0, 0, false
 	}
@@ -296,7 +301,7 @@ func (e *editor) PendingMapTimeout() (d time.Duration, token uint64, ok bool) {
 // does in Vim: if they form a complete mapping it runs, otherwise they are
 // delivered unmapped. A token from a run that has already been resolved is
 // ignored, so a timer that fires late is harmless.
-func (e *editor) TimeoutPendingMapping(token uint64) *EditorError {
+func (e *editor) TimeoutPendingMapping(token MapToken) *EditorError {
 	if len(e.pendingMapKeys) == 0 || token != e.mapPendingGen {
 		return nil
 	}
@@ -341,14 +346,22 @@ func (e *editor) FlushPendingMapping() *EditorError {
 	return err
 }
 
-// feedKeys delivers an expanded right-hand side one key at a time. Each key is
-// resolved against the mode that is current when it is delivered, so a mapping
-// whose RHS changes mode (":nmap gv V") behaves like the keys being typed.
-func (e *editor) feedKeys(keys []KeyEvent, remap bool) *EditorError {
+// feedKeys delivers the right-hand side of the mapping named by lhs, one key at
+// a time. Each key is resolved against the mode that is current when it is
+// delivered, so a mapping whose RHS changes mode (":nmap gv V") behaves like the
+// keys being typed.
+func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 	if e.mapDepth >= maxMapDepth {
 		e.clearPendingMapKeys()
 		e.mapDepth = 0
-		return &EditorError{id: ErrMapRecursionId, err: ErrMapRecursion}
+		// lhs is the mapping being expanded at the deepest point, so it is one of
+		// the mappings in the cycle — the useful thing to put in front of whoever
+		// has to go and fix their config.
+		return &EditorError{
+			id: ErrMapRecursionId,
+			err: fmt.Errorf("%w: %s expanded past %d levels",
+				ErrMapRecursion, FormatKeys(lhs), maxMapDepth),
+		}
 	}
 
 	e.mapDepth++
