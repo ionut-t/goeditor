@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUndoLineSingleLineEdits covers Vim's 'U' for changes confined to one line:
@@ -178,4 +179,47 @@ func TestUndoLineDispatchesSignal(t *testing.T) {
 	if assert.NotNil(t, got, "expected an UndoLineSignal") {
 		assert.Equal(t, "ello", got.Value(), "signal carries the content before the restore")
 	}
+}
+
+// Does a row-shifting change above the tracked line corrupt the U run?
+func TestUndoLineRowShift(t *testing.T) {
+	t.Run("deleting lines above the tracked row", func(t *testing.T) {
+		e := newTestEditor("aaa\nbbb\nccc\nddd\neee")
+
+		// Edit line 4 (row 3): "ddd" -> "dd"
+		keys(e, 'j', 'j', 'j', 'x')
+		require.Equal(t, "aaa\nbbb\nccc\ndd\neee", content(e))
+
+		// Now delete row 0, which shifts every row below it up by one.
+		keys(e, 'g', 'g', 'd', 'd')
+		require.Equal(t, "bbb\nccc\ndd\neee", content(e))
+
+		// U should act on the line just changed by dd, not resurrect the old run.
+		keys(e, 'U')
+		assert.Equal(t, "aaa\nbbb\nccc\ndd\neee", content(e), "U undoes the dd only")
+	})
+
+	t.Run("repeated dd on the same row", func(t *testing.T) {
+		e := newTestEditor("aaa\nbbb\nccc\nddd")
+		keys(e, 'd', 'd')
+		keys(e, 'd', 'd')
+		require.Equal(t, "ccc\nddd", content(e))
+
+		keys(e, 'U')
+		assert.Equal(t, "aaa\nbbb\nccc\nddd", content(e), "same row, one run")
+	})
+
+	t.Run("edit, shift rows, then edit the shifted line", func(t *testing.T) {
+		e := newTestEditor("aaa\nbbb\nccc")
+		keys(e, 'j', 'j', 'x') // row 2: ccc -> cc
+		keys(e, 'g', 'g', 'd', 'd')
+		require.Equal(t, "bbb\ncc", content(e))
+
+		// The old tracked row (2) no longer exists; edit what is now row 1.
+		keys(e, 'j', 'x')
+		require.Equal(t, "bbb\nc", content(e))
+
+		keys(e, 'U')
+		assert.Equal(t, "bbb\ncc", content(e), "U undoes only the latest line's run")
+	})
 }
