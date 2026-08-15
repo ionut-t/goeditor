@@ -32,6 +32,17 @@ func NewNormalMode() EditorMode {
 
 func (m *normalMode) Name() Mode { return NormalMode }
 
+// AwaitingLiteral reports whether the next key is the character argument of
+// 'r' or of a character search (f/F/t/T), which mappings must not rewrite.
+func (m *normalMode) AwaitingLiteral() bool {
+	return m.waitingForReplace || m.charSearch.waitingForChar
+}
+
+// OperatorPending reports whether d, y or c is waiting for a motion.
+func (m *normalMode) OperatorPending() bool {
+	return m.pendingKey.Key != KeyUnknown || m.pendingKey.Rune != 0 || m.pendingCaseOp != 0
+}
+
 func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- NORMAL --")
 	editor.UpdateCommand("")
@@ -852,6 +863,31 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	var moveErr error
 
 	switch {
+	// Ctrl-modified keys must be matched before the plain-letter commands:
+	// normalisation puts the letter in Rune, so Ctrl+D would otherwise fall into
+	// the 'd' operator, Ctrl+U into undo, Ctrl+R into replace-character, and so on.
+	case key.IsCtrl('d'):
+		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
+
+	case key.IsCtrl('u'):
+		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
+
+	case key.IsCtrl('r'): // Redo
+		if content, redoErr := editor.Redo(); redoErr != nil {
+			err = &EditorError{
+				id:  ErrRedoFailedId,
+				err: redoErr,
+			}
+		} else {
+			editor.DispatchSignal(RedoSignal{contentBefore: content})
+		}
+		skipCursorUpdate = true
+
+	case key.Modifiers&ModCtrl != 0:
+		// Unbound Ctrl combination — swallow it rather than letting it reach the
+		// plain-letter commands below.
+		return nil
+
 	// Movement keys
 	case key.Rune == 'h' || key.Key == KeyLeft:
 		moveErr = cursor.MoveLeftOrUp(buffer, count, col)
@@ -859,10 +895,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		moveErr = cursor.MoveDown(buffer, count, availableWidth)
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
-	case key.Key == KeyCtrlD:
-		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
-	case key.Key == KeyCtrlU:
-		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, col)
 	case key.Rune == '{':
@@ -1236,14 +1268,18 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 		skipCursorUpdate = true
 
-	case key.Rune == 'U': // Redo
-		if content, redoErr := editor.Redo(); redoErr != nil {
+	case key.Rune == 'U': // Undo all recent changes on the last-changed line
+		if !state.WithInsertMode {
+			return nil
+		}
+
+		if content, undoErr := editor.UndoLine(); undoErr != nil {
 			err = &EditorError{
-				id:  ErrRedoFailedId,
-				err: redoErr,
+				id:  ErrUndoLineFailedId,
+				err: undoErr,
 			}
 		} else {
-			editor.DispatchSignal(RedoSignal{contentBefore: content})
+			editor.DispatchSignal(UndoLineSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 

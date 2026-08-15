@@ -87,21 +87,21 @@ func TestUndoMultipleSteps(t *testing.T) {
 	})
 }
 
-// TestRedoBasic tests 'U' — redo the last undone change.
+// TestRedoBasic tests Ctrl+R — redo the last undone change.
 func TestRedoBasic(t *testing.T) {
 	t.Run("redo after undo reapplies dd", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, 'd', 'd')
 		keys(e, 'u')
 		assert.Equal(t, "hello", content(e))
-		keys(e, 'U') // redo
+		ctrlKey(e, 'r') // redo
 		assert.Equal(t, "", content(e))
 	})
 
 	t.Run("redo at newest change does nothing", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, 'd', 'd')
-		keys(e, 'U') // nothing to redo yet
+		ctrlKey(e, 'r') // nothing to redo yet
 		assert.Equal(t, "", content(e))
 	})
 
@@ -110,9 +110,17 @@ func TestRedoBasic(t *testing.T) {
 		keys(e, 'j', 'd', 'd') // delete "second", cursor goes to row 0
 		keys(e, 'u')           // undo: "second" restored, cursor at row 1
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
-		keys(e, 'U') // redo: "second" deleted again, cursor at row 0
+		ctrlKey(e, 'r') // redo: "second" deleted again, cursor at row 0
 		assert.Equal(t, "first", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("deprecated KeyCtrlU constant still scrolls, not redoes", func(t *testing.T) {
+		// normalizeKey maps the legacy constants onto the canonical form, so
+		// consumers constructing them keep working.
+		e := newTestEditor("hello")
+		e.HandleKey(KeyEvent{Key: KeyCtrlU})
+		assert.Equal(t, "hello", content(e))
 	})
 }
 
@@ -123,7 +131,7 @@ func TestUndoTruncatesRedo(t *testing.T) {
 		keys(e, 'd', 'd') // delete "one" → "two\nthree"
 		keys(e, 'u')      // undo → "one\ntwo\nthree"
 		keys(e, 'x')      // new edit → "ne\ntwo\nthree"
-		keys(e, 'U')      // redo should not restore "two\nthree"
+		ctrlKey(e, 'r')   // redo should not restore "two\nthree"
 		assert.Equal(t, "ne\ntwo\nthree", content(e))
 	})
 }

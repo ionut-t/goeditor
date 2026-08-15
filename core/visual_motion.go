@@ -45,17 +45,21 @@ func applyVisualMotion(
 	availableWidth := state.AvailableWidth
 	viewportHeight := state.ViewportHeight
 	switch {
+	// Ctrl-modified keys first: normalisation puts the letter in Rune, so they
+	// would otherwise match the plain-letter motions below.
+	case key.IsCtrl('d'):
+		moveErr = cursor.ScrollDown(buffer, viewportHeight, availableWidth)
+		movementAttempted = true
+	case key.IsCtrl('u'):
+		moveErr = cursor.ScrollUp(buffer, viewportHeight, availableWidth)
+		movementAttempted = true
+	case key.Modifiers&ModCtrl != 0:
+		// Unbound Ctrl combination — ignore rather than fall through.
 	case key.Rune == 'j' || key.Key == KeyDown:
 		moveErr = cursor.MoveDown(buffer, count, availableWidth)
 		movementAttempted = true
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
-		movementAttempted = true
-	case key.Key == KeyCtrlD:
-		moveErr = cursor.ScrollDown(buffer, viewportHeight, availableWidth)
-		movementAttempted = true
-	case key.Key == KeyCtrlU:
-		moveErr = cursor.ScrollUp(buffer, viewportHeight, availableWidth)
 		movementAttempted = true
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)

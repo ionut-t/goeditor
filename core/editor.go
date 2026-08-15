@@ -1,5 +1,7 @@
 package core
 
+import "time"
+
 // Position represents a specific location in the text buffer
 type Position struct {
 	Row int // Zero-indexed row (line number)
@@ -48,6 +50,26 @@ type Editor interface {
 
 	// Event handling
 	HandleKey(key KeyEvent) *EditorError // Process a key press
+
+	// Key mappings (:map and friends)
+	Map(modes MapMode, lhs, rhs string, noremap bool) error
+	Unmap(modes MapMode, lhs string) error
+	ClearMappings(modes MapMode)
+	Mappings(mode MapMode) []Mapping
+	SetMapLeader(leader string)
+	MapLeader() string
+	FlushPendingMapping() *EditorError // Deliver keys held while resolving a mapping, unmapped
+
+	// Mapping timeout ('timeout' and 'timeoutlen'). The core has no timers, so
+	// the UI layer drives this: after each key, PendingMapTimeout says whether
+	// one should be running, and TimeoutPendingMapping resolves it when it fires.
+	PendingMapTimeout() (d time.Duration, token MapToken, ok bool)
+	TimeoutPendingMapping(token MapToken) *EditorError
+	SetMapTimeout(enabled bool)
+	MapTimeoutEnabled() bool
+	SetMapTimeoutLen(d time.Duration)
+	MapTimeoutLen() time.Duration
+
 	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext
 	InsertCompletion(completion Completion) error
 
@@ -66,6 +88,7 @@ type Editor interface {
 	SaveHistory() // Indicate a state should be saved for undo
 	Undo() (string, error)
 	Redo() (string, error)
+	UndoLine() (string, error)    // Vim's 'U' — undo all recent changes on one line
 	PasteAfter() (string, error)  // Paste from clipboard after/below cursor
 	PasteBefore() (string, error) // Paste from clipboard before/above cursor
 	Copy(op copyType) error       // Copy to clipboard

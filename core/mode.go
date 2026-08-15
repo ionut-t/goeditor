@@ -24,7 +24,23 @@ type EditorMode interface {
 	HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError
 	Enter(editor Editor, buffer Buffer) // Called when entering the mode
 	Exit(editor Editor, buffer Buffer)  // Called when exiting the mode
+
+	// AwaitingLiteral reports whether the mode is waiting for a literal
+	// character argument — the character after r, f, F, t or T. Key mappings do
+	// not apply to it, since it is data rather than a command.
+	AwaitingLiteral() bool
+
+	// OperatorPending reports whether an operator (d/y/c) is waiting for a
+	// motion, which selects the operator-pending mapping set.
+	OperatorPending() bool
 }
+
+// baseMode provides the default pending-state answers for modes that have no
+// multi-key sequences of their own.
+type baseMode struct{}
+
+func (baseMode) AwaitingLiteral() bool { return false }
+func (baseMode) OperatorPending() bool { return false }
 
 type VisualModeInterface interface {
 	GetCurrentCount() *int

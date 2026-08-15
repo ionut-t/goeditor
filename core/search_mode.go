@@ -1,6 +1,6 @@
 package core
 
-type searchMode struct{}
+type searchMode struct{ baseMode }
 
 func NewSearchMode() EditorMode  { return &searchMode{} }
 func (m *searchMode) Name() Mode { return SearchMode }

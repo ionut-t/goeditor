@@ -18,6 +18,12 @@ func NewVisualLineMode() EditorMode {
 
 func (m *visualLineMode) Name() Mode { return VisualLineMode }
 
+// AwaitingLiteral reports whether the next key is the character argument of a
+// character search (f/F/t/T), which mappings must not rewrite.
+func (m *visualLineMode) AwaitingLiteral() bool { return m.charSearch.waitingForChar }
+
+func (m *visualLineMode) OperatorPending() bool { return false }
+
 func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- VISUAL LINE --")
 	editor.UpdateCommand("")
@@ -86,6 +92,12 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	var err *EditorError
+
+	// Ctrl-modified keys carry their letter in Rune after normalisation; none of
+	// them are actions, so let them fall through to the motion handler.
+	if key.Modifiers&ModCtrl != 0 {
+		return false, nil
+	}
 
 	switch key.Rune {
 	case 'd', 'x': // Delete/Cut selected lines
@@ -244,15 +256,15 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 		}
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
 		movementAttempted = true
-	case KeyCtrlD:
-		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
-		movementAttempted = true
-	case KeyCtrlU:
-		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
-		movementAttempted = true
 	default:
 		col := cursor.Position.Col
 		switch {
+		case key.IsCtrl('d'):
+			moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
+			movementAttempted = true
+		case key.IsCtrl('u'):
+			moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
+			movementAttempted = true
 		case key.Rune == 'h' || key.Key == KeyLeft:
 			moveErr = cursor.MoveLeftOrUp(buffer, 1, col)
 			movementAttempted = true

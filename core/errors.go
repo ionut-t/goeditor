@@ -17,6 +17,9 @@ var (
 	ErrNoChangesToSave    = errors.New("no changes to save")
 	ErrUnsavedChanges     = errors.New("unsaved changes (use :q! to override)")
 	ErrRenameFailed       = errors.New("rename requires a single argument (rename new_filename)")
+	ErrNoLineToRestore    = errors.New("no line to restore")
+	ErrInvalidMapping     = errors.New("invalid mapping")
+	ErrMapRecursion       = errors.New("recursive mapping")
 )
 
 type ErrorId int
@@ -40,6 +43,9 @@ const (
 	ErrFailedToPasteId
 	ErrUndoFailedId
 	ErrRedoFailedId
+	ErrUndoLineFailedId
+	ErrInvalidMappingId
+	ErrMapRecursionId
 	ErrCopyFailedId
 	ErrRenameFailedId
 )
