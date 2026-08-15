@@ -84,7 +84,10 @@ func (e *editor) setValueOption(name, value string) *EditorError {
 		// Validate now so a bad leader is reported while the user is typing it,
 		// rather than surfacing later on every mapping that uses <leader>.
 		if _, err := ParseKeys(value, DefaultMapLeader); err != nil {
-			return &EditorError{id: ErrInvalidMappingId, err: err}
+			return &EditorError{
+				id:  ErrInvalidMappingId,
+				err: fmt.Errorf("%w in mapleader", err),
+			}
 		}
 
 		e.SetMapLeader(value)

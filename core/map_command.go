@@ -83,7 +83,7 @@ func (e *editor) executeMapCommand(name, args string) (bool, *EditorError) {
 			return true, mapUsageError("%s requires a key to unmap", name)
 		}
 		if err := e.Unmap(cmd.modes, lhs); err != nil {
-			return true, &EditorError{id: ErrInvalidMappingId, err: err}
+			return true, mapCommandError(name, err)
 		}
 		return true, nil
 
@@ -95,12 +95,22 @@ func (e *editor) executeMapCommand(name, args string) (bool, *EditorError) {
 			return true, mapUsageError("%s requires a key and a replacement, e.g. :%s U <C-r>", name, name)
 		}
 		if err := e.Map(cmd.modes, lhs, rhs, cmd.noremap); err != nil {
-			return true, &EditorError{id: ErrInvalidMappingId, err: err}
+			return true, mapCommandError(name, err)
 		}
 		return true, nil
 	}
 
 	return false, nil
+}
+
+// mapCommandError names the command a mapping failure came from. The API-level
+// errors cannot do this themselves — Map is reachable from Go as well, where
+// there is no command to name.
+func mapCommandError(name string, err error) *EditorError {
+	return &EditorError{
+		id:  ErrInvalidMappingId,
+		err: fmt.Errorf("%w of :%s", err, name),
+	}
 }
 
 func mapUsageError(format string, args ...any) *EditorError {

@@ -135,12 +135,16 @@ func TestMapCommandErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		cmd  string
+		msg  string
 	}{
-		{"missing both arguments", "nmap"},
-		{"missing the replacement", "nmap U"},
-		{"unmap without a key", "nunmap"},
-		{"invalid notation on the left", "nmap <Bogus> x"},
-		{"invalid notation on the right", "nmap U <Bogus>"},
+		{"missing both arguments", "nmap", "invalid mapping: nmap requires a key and a replacement, e.g. :nmap U <C-r>"},
+		{"missing the replacement", "nmap U", "invalid mapping: nmap requires a key and a replacement, e.g. :nmap U <C-r>"},
+		{"unmap without a key", "nunmap", "invalid mapping: nunmap requires a key to unmap"},
+		// The two notation failures must be distinguishable: same bad key, but
+		// knowing which side it is on is the whole point of the message.
+		{"invalid notation on the left", "nmap <Bogus> x", "invalid mapping: unknown key <Bogus> in {lhs} of :nmap"},
+		{"invalid notation on the right", "nmap U <Bogus>", "invalid mapping: unknown key <Bogus> in {rhs} of :nmap"},
+		{"invalid notation when unmapping", "nunmap <Bogus>", "invalid mapping: unknown key <Bogus> in {lhs} of :nunmap"},
 	}
 
 	for _, tc := range tests {
@@ -149,8 +153,27 @@ func TestMapCommandErrors(t *testing.T) {
 			err := runCommand(t, e, tc.cmd)
 			require.NotNil(t, err, "expected an error")
 			assert.Equal(t, ErrInvalidMappingId, err.ID())
+			assert.EqualError(t, err.Error(), tc.msg)
 		})
 	}
+}
+
+// TestMapErrorsIdentifySide covers the same messages from the Go API, which has
+// no command name to report but must still say which half is wrong.
+func TestMapErrorsIdentifySide(t *testing.T) {
+	e := newTestEditor("hello")
+
+	err := e.Map(MapNormal, "<Bogus>", "x", true)
+	require.ErrorIs(t, err, ErrInvalidMapping)
+	assert.Equal(t, "invalid mapping: unknown key <Bogus> in {lhs}", err.Error())
+
+	err = e.Map(MapNormal, "U", "<Bogus>", true)
+	require.ErrorIs(t, err, ErrInvalidMapping)
+	assert.Equal(t, "invalid mapping: unknown key <Bogus> in {rhs}", err.Error())
+
+	setErr := runCommand(t, e, "set mapleader=<Bogus>")
+	require.NotNil(t, setErr)
+	assert.EqualError(t, setErr.Error(), "invalid mapping: unknown key <Bogus> in mapleader")
 }
 
 // TestMapCommandDoesNotShadowOtherCommands guards the early-return added to

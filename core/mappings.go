@@ -92,9 +92,13 @@ func (t *mappingTable) clear(mode MapMode) {
 }
 
 // match resolves the keys typed so far. exact is the mapping whose LHS the keys
-// match completely; hasLonger reports that at least one mapping starts with them
-// but needs more keys, meaning the caller must wait before committing.
-func (t *mappingTable) match(mode MapMode, pending []KeyEvent) (exact *Mapping, hasLonger bool) {
+// match completely and found reports whether there was one; hasLonger reports
+// that at least one mapping starts with them but needs more keys, meaning the
+// caller must wait before committing.
+//
+// The mapping is returned by value: expanding one can run :nmap, and a pointer
+// into byMode would then be reading a slice the expansion is free to reallocate.
+func (t *mappingTable) match(mode MapMode, pending []KeyEvent) (exact Mapping, found, hasLonger bool) {
 	candidates := t.byMode[mode]
 	for i := range candidates {
 		lhs := candidates[i].LHS
@@ -102,12 +106,12 @@ func (t *mappingTable) match(mode MapMode, pending []KeyEvent) (exact *Mapping, 
 			continue
 		}
 		if len(lhs) == len(pending) {
-			exact = &candidates[i]
+			exact, found = candidates[i], true
 		} else {
 			hasLonger = true
 		}
 	}
-	return exact, hasLonger
+	return exact, found, hasLonger
 }
 
 func keysEqual(a, b []KeyEvent) bool {
@@ -130,7 +134,7 @@ func keysEqual(a, b []KeyEvent) bool {
 func (e *editor) Map(modes MapMode, lhs, rhs string, noremap bool) error {
 	lhsKeys, err := ParseKeys(lhs, e.mapLeader)
 	if err != nil {
-		return err
+		return mappingSideError("{lhs}", err)
 	}
 	if len(lhsKeys) == 0 {
 		return fmt.Errorf("%w: empty left-hand side", ErrInvalidMapping)
@@ -138,7 +142,7 @@ func (e *editor) Map(modes MapMode, lhs, rhs string, noremap bool) error {
 
 	rhsKeys, err := ParseKeys(rhs, e.mapLeader)
 	if err != nil {
-		return err
+		return mappingSideError("{rhs}", err)
 	}
 
 	for _, mode := range allMapModes {
@@ -156,7 +160,7 @@ func (e *editor) Map(modes MapMode, lhs, rhs string, noremap bool) error {
 func (e *editor) Unmap(modes MapMode, lhs string) error {
 	lhsKeys, err := ParseKeys(lhs, e.mapLeader)
 	if err != nil {
-		return err
+		return mappingSideError("{lhs}", err)
 	}
 
 	for _, mode := range allMapModes {
@@ -203,6 +207,13 @@ func (e *editor) MapLeader() string {
 	return e.mapLeader
 }
 
+// mappingSideError says which half of a mapping failed to parse. Both halves
+// otherwise produce the identical "unknown key" message, leaving no way to tell
+// which one to go and fix.
+func mappingSideError(side string, err error) error {
+	return fmt.Errorf("%w in %s", err, side)
+}
+
 // --- Resolution ---
 
 // activeMapMode reports which mapping set applies to the current editor mode,
@@ -244,7 +255,7 @@ func (e *editor) handleKeyMapped(key KeyEvent, remap bool) *EditorError {
 
 	e.holdKey(key)
 
-	exact, hasLonger := e.mappings.match(mode, e.pendingMapKeys)
+	exact, found, hasLonger := e.mappings.match(mode, e.pendingMapKeys)
 
 	// A longer mapping could still match, so hold the keys until the next one
 	// decides it — or until 'timeoutlen' expires and TimeoutPendingMapping
@@ -253,7 +264,7 @@ func (e *editor) handleKeyMapped(key KeyEvent, remap bool) *EditorError {
 		return nil
 	}
 
-	if exact != nil {
+	if found {
 		return e.applyMapping(exact)
 	}
 
@@ -261,12 +272,9 @@ func (e *editor) handleKeyMapped(key KeyEvent, remap bool) *EditorError {
 }
 
 // applyMapping expands a matched mapping, releasing the keys that produced it.
-func (e *editor) applyMapping(m *Mapping) *EditorError {
-	// Copied before the pending keys are cleared: m points into the table, which
-	// the expansion below is free to modify (an RHS can run :nmap).
-	lhs, rhs, noremap := m.LHS, m.RHS, m.NoRemap
+func (e *editor) applyMapping(m Mapping) *EditorError {
 	e.clearPendingMapKeys()
-	return e.feedKeys(lhs, rhs, !noremap)
+	return e.feedKeys(m.LHS, m.RHS, !m.NoRemap)
 }
 
 // holdKey adds a key to the run being held while a longer mapping might match.
@@ -310,7 +318,7 @@ func (e *editor) TimeoutPendingMapping(token MapToken) *EditorError {
 	// were held — but resolve against the live mode regardless, for the same
 	// reason feedKeys does.
 	if mode := e.activeMapMode(); mode != 0 {
-		if exact, _ := e.mappings.match(mode, e.pendingMapKeys); exact != nil {
+		if exact, found, _ := e.mappings.match(mode, e.pendingMapKeys); found {
 			return e.applyMapping(exact)
 		}
 	}
