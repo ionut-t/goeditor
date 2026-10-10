@@ -595,9 +595,7 @@ func (m *Model) SetLanguage(language string, theme string) {
 	if language == "" {
 		m.highlighter = nil
 		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
-		if !m.editor.GetBuffer().IsEmpty() {
-			m.renderVisibleSlice()
-		}
+		m.renderVisibleSlice()
 		return
 	}
 
@@ -609,9 +607,7 @@ func (m *Model) SetLanguage(language string, theme string) {
 		m.extraHighlightedContextLines = 100
 	}
 
-	if !m.editor.GetBuffer().IsEmpty() {
-		m.renderVisibleSlice()
-	}
+	m.renderVisibleSlice()
 }
 
 // SetExtraWordChars allows specifying additional characters to be considered part of words for cursor movement and selection.
@@ -643,9 +639,7 @@ func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 func (m *Model) WithSyntaxHighlighter(hl *highlighter.Highlighter) {
 	m.highlighter = hl
 	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
-	if !m.editor.GetBuffer().IsEmpty() {
-		m.renderVisibleSlice()
-	}
+	m.renderVisibleSlice()
 }
 
 // WithCompletionAutoTrigger enables or disables auto-trigger completions.
@@ -954,10 +948,7 @@ func (m *Model) SetCursorPosition(row, col int) error {
 	cursor.Position.Col = max(0, cursor.Position.Col)
 
 	m.editor.GetBuffer().SetCursor(cursor)
-
-	m.calculateVisualMetrics()
-	m.updateVisualTopLine()
-	m.renderVisibleSlice()
+	m.scrollToCursor()
 
 	return nil
 }
@@ -974,12 +965,17 @@ func (m *Model) SetCursorPositionEnd() error {
 	cursor.Position.Col = m.editor.GetBuffer().LineRuneCount(lastLine)
 
 	m.editor.GetBuffer().SetCursor(cursor)
+	m.scrollToCursor()
 
+	return nil
+}
+
+// scrollToCursor recalculates the layout around the cursor, scrolls it into
+// view and renders, so a programmatic cursor move shows up immediately.
+func (m *Model) scrollToCursor() {
 	m.calculateVisualMetrics()
 	m.updateVisualTopLine()
 	m.renderVisibleSlice()
-
-	return nil
 }
 
 // GetCursorPosition returns the current cursor position in the core.
