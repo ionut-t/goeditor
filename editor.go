@@ -857,7 +857,8 @@ func (m *Model) DisableVimMode(disable bool) {
 // DisableCommandMode allows disabling command mode in the core.
 // This will disable the command mode functionality, meaning the editor will not respond to command mode keybindings.
 // Once command and search mode are both disabled the command line row is given to the editor,
-// and messages and errors are shown on the status line instead.
+// and messages and errors are shown on the status line instead. If the status line is hidden
+// too, messages and errors aren't shown at all.
 func (m *Model) DisableCommandMode(disable bool) {
 	m.editor.DisableCommandMode(disable)
 	m.applyBottomRows()
@@ -885,7 +886,8 @@ func (m *Model) DisableVisualLineMode(disable bool) {
 // DisableSearchMode allows disabling search mode in the core.
 // This will disable the search functionality, meaning the editor will not respond to '/' and '?'.
 // Once command and search mode are both disabled the command line row is given to the editor,
-// and messages and errors are shown on the status line instead.
+// and messages and errors are shown on the status line instead. If the status line is hidden
+// too, messages and errors aren't shown at all.
 func (m *Model) DisableSearchMode(disable bool) {
 	m.editor.DisableSearchMode(disable)
 	m.applyBottomRows()
