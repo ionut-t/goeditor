@@ -531,6 +531,7 @@ func (m *Model) SetSize(width, height int) {
 	}
 
 	m.viewport.SetYOffset(0)
+	m.renderVisibleSlice()
 }
 
 // SetBytes sets the content of the core.
@@ -540,6 +541,7 @@ func (m *Model) SetBytes(content []byte) {
 	}
 	m.editor.SetContent(content)
 	m.handleContentChange()
+	m.renderVisibleSlice()
 }
 
 // SetContent sets the content of the editor from a string.
@@ -593,6 +595,9 @@ func (m *Model) SetLanguage(language string, theme string) {
 	if language == "" {
 		m.highlighter = nil
 		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
+		if !m.editor.GetBuffer().IsEmpty() {
+			m.renderVisibleSlice()
+		}
 		return
 	}
 
@@ -602,6 +607,10 @@ func (m *Model) SetLanguage(language string, theme string) {
 
 	if language == "markdown" && m.extraHighlightedContextLines == 0 {
 		m.extraHighlightedContextLines = 100
+	}
+
+	if !m.editor.GetBuffer().IsEmpty() {
+		m.renderVisibleSlice()
 	}
 }
 
@@ -631,8 +640,12 @@ func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 }
 
 // WithSyntaxHighlighter allows setting a custom syntax highlighter.
-func (m *Model) WithSyntaxHighlighter(highlighter *highlighter.Highlighter) {
-	m.highlighter = highlighter
+func (m *Model) WithSyntaxHighlighter(hl *highlighter.Highlighter) {
+	m.highlighter = hl
+	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
+	if !m.editor.GetBuffer().IsEmpty() {
+		m.renderVisibleSlice()
+	}
 }
 
 // WithCompletionAutoTrigger enables or disables auto-trigger completions.
@@ -942,6 +955,10 @@ func (m *Model) SetCursorPosition(row, col int) error {
 
 	m.editor.GetBuffer().SetCursor(cursor)
 
+	m.calculateVisualMetrics()
+	m.updateVisualTopLine()
+	m.renderVisibleSlice()
+
 	return nil
 }
 
@@ -960,6 +977,7 @@ func (m *Model) SetCursorPositionEnd() error {
 
 	m.calculateVisualMetrics()
 	m.updateVisualTopLine()
+	m.renderVisibleSlice()
 
 	return nil
 }
