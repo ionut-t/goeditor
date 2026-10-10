@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/ionut-t/goeditor/compare/v0.6.0...v0.6.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **render:** ensure immediate redraw after programmatic state changes ([#10](https://github.com/ionut-t/goeditor/issues/10)) ([ff34a8b](https://github.com/ionut-t/goeditor/commit/ff34a8b60361fe04785a9aae3b9865c25eeea3c7))
+
 ## [0.6.0](https://github.com/ionut-t/goeditor/compare/v0.5.0...v0.6.0) (2026-08-15)
 
 
