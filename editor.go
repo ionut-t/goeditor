@@ -706,6 +706,7 @@ func (m *Model) ShowTildeIndicator(show bool) {
 }
 
 // HideStatusLine controls whether to show the status line at the bottom of the viewport.
+// A hidden status line gives its row to the editor.
 // If Vim mode is disabled, this will not have any effect.
 func (m *Model) HideStatusLine(hide bool) {
 	m.showStatusLine = !hide
@@ -717,6 +718,10 @@ func (m *Model) HideStatusLine(hide bool) {
 // line's row: the status line is shown until there is something to type or
 // report (a ':' command, a search, a message or an error), which then takes
 // its place. Values above 1 are treated as 1.
+//
+// This applies to a custom StatusLineFunc too: while the command line holds
+// the row, the custom status line isn't drawn, so it never shows the command
+// or search modes.
 func (m *Model) SetCommandLineHeight(height int) {
 	m.commandLineHeight = min(max(height, 0), 1)
 	m.applyBottomRows()
@@ -851,6 +856,8 @@ func (m *Model) DisableVimMode(disable bool) {
 
 // DisableCommandMode allows disabling command mode in the core.
 // This will disable the command mode functionality, meaning the editor will not respond to command mode keybindings.
+// Once command and search mode are both disabled the command line row is given to the editor,
+// and messages and errors are shown on the status line instead.
 func (m *Model) DisableCommandMode(disable bool) {
 	m.editor.DisableCommandMode(disable)
 	m.applyBottomRows()
@@ -875,6 +882,10 @@ func (m *Model) DisableVisualLineMode(disable bool) {
 	m.editor.DisableVisualLineMode(disable)
 }
 
+// DisableSearchMode allows disabling search mode in the core.
+// This will disable the search functionality, meaning the editor will not respond to '/' and '?'.
+// Once command and search mode are both disabled the command line row is given to the editor,
+// and messages and errors are shown on the status line instead.
 func (m *Model) DisableSearchMode(disable bool) {
 	m.editor.DisableSearchMode(disable)
 	m.applyBottomRows()
