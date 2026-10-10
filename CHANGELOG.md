@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/ionut-t/goeditor/compare/v0.6.1...v0.7.0) (2026-10-10)
+
+
+### Features
+
+* **editor:** add command line height control and shared status row ([#12](https://github.com/ionut-t/goeditor/issues/12)) ([c684944](https://github.com/ionut-t/goeditor/commit/c68494413089751e0d3bd617fa137dc05893ac48))
+
 ## [0.6.1](https://github.com/ionut-t/goeditor/compare/v0.6.0...v0.6.1) (2026-10-10)
 
 
