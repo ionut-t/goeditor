@@ -443,7 +443,6 @@ func TestWrapLineNeverDropsRunes(t *testing.T) {
 			// Wrapping only removes whitespace at break points, so every
 			// non-space rune of the input must survive somewhere in the
 			// concatenated segments, in order.
-			gotRunes := []rune(joined)
 			wantNonSpace := []rune{}
 			for _, r := range in {
 				if r != ' ' {
@@ -451,7 +450,7 @@ func TestWrapLineNeverDropsRunes(t *testing.T) {
 				}
 			}
 			gotNonSpace := []rune{}
-			for _, r := range gotRunes {
+			for _, r := range joined {
 				if r != ' ' {
 					gotNonSpace = append(gotNonSpace, r)
 				}
