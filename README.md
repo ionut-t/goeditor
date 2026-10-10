@@ -244,6 +244,7 @@ HideLineNumbers(hide bool)
 ShowRelativeLineNumbers(show bool)
 ShowTildeIndicator(show bool)
 HideStatusLine(hide bool)
+SetCommandLineHeight(height int) // 0 shares the status line's row
 
 // Cursor Control
 SetCursorPosition(row, col int) error
