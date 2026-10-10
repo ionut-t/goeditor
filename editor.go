@@ -213,6 +213,7 @@ type Model struct {
 	showLineNumbers    bool
 	showTildeIndicator bool
 	showStatusLine     bool
+	commandLineHeight  int
 
 	theme          Theme
 	StatusLineFunc func(ctx StatusLineContext) string
@@ -426,7 +427,7 @@ func New(width, height int, opts ...Option) Model {
 		opt(cfg)
 	}
 	texteditor := core.New(cfg.clipboard)
-	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height-2))
+	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
 
@@ -449,16 +450,17 @@ func New(width, height int, opts ...Option) Model {
 	}
 
 	m := Model{
-		editor:           texteditor,
-		viewport:         vp,
-		showLineNumbers:  true,
-		showStatusLine:   true,
-		theme:            defaultTheme,
-		highlightedWords: make(map[string]lipgloss.Style),
-		cursorMode:       CursorSteady,
-		cursorVisible:    true,
-		searchInput:      searchInput,
-		searchOptions:    searchOptions,
+		editor:            texteditor,
+		viewport:          vp,
+		showLineNumbers:   true,
+		showStatusLine:    true,
+		commandLineHeight: 1,
+		theme:             defaultTheme,
+		highlightedWords:  make(map[string]lipgloss.Style),
+		cursorMode:        CursorSteady,
+		cursorVisible:     true,
+		searchInput:       searchInput,
+		searchOptions:     searchOptions,
 
 		autoTriggerEnabled:          false,
 		completionDebounceTime:      300 * time.Millisecond,
@@ -484,7 +486,8 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(height - 2)
+	viewportHeight := max(0, height-m.bottomRows())
+	m.viewport.SetHeight(viewportHeight)
 
 	lineNumWidth := 0
 	if m.showLineNumbers {
@@ -501,7 +504,7 @@ func (m *Model) SetSize(width, height int) {
 	state := m.editor.GetState()
 	state.ViewportWidth = m.viewport.Width()
 	state.AvailableWidth = availableWidth
-	state.ViewportHeight = height - 2
+	state.ViewportHeight = viewportHeight
 	m.editor.SetState(state)
 
 	// Recalculate layout if dimensions changed and we have content
@@ -703,9 +706,57 @@ func (m *Model) ShowTildeIndicator(show bool) {
 }
 
 // HideStatusLine controls whether to show the status line at the bottom of the viewport.
+// A hidden status line gives its row to the editor.
 // If Vim mode is disabled, this will not have any effect.
 func (m *Model) HideStatusLine(hide bool) {
 	m.showStatusLine = !hide
+	m.applyBottomRows()
+}
+
+// SetCommandLineHeight sets how many rows the command line gets, like Vim's
+// 'cmdheight'. The default is 1. With 0 the command line shares the status
+// line's row: the status line is shown until there is something to type or
+// report (a ':' command, a search, a message or an error), which then takes
+// its place. Values above 1 are treated as 1.
+//
+// This applies to a custom StatusLineFunc too: while the command line holds
+// the row, the custom status line isn't drawn, so it never shows the command
+// or search modes.
+func (m *Model) SetCommandLineHeight(height int) {
+	m.commandLineHeight = min(max(height, 0), 1)
+	m.applyBottomRows()
+}
+
+// bottomRows is the number of rows below the viewport: the status line and
+// the command line. The command line only gets a row when command or search
+// mode can use it, and with a command line height of 0 it shares the status
+// line's row.
+func (m Model) bottomRows() int {
+	if m.disableVimMode {
+		return 0
+	}
+
+	rows := 0
+	if m.showStatusLine {
+		rows++
+	}
+
+	state := m.editor.GetState()
+	if state.WithCommandMode || state.WithSearchMode {
+		rows++
+	}
+
+	if m.commandLineHeight == 0 {
+		return min(rows, 1)
+	}
+	return rows
+}
+
+// applyBottomRows resizes the viewport after a change to which rows sit below it.
+func (m *Model) applyBottomRows() {
+	if m.viewport.Height() != max(0, m.height-m.bottomRows()) {
+		m.SetSize(m.width, m.height)
+	}
 }
 
 // GetSavedContent returns the saved content of the editor buffer
@@ -800,12 +851,17 @@ func (m *Model) GetEditor() core.Editor {
 func (m *Model) DisableVimMode(disable bool) {
 	m.disableVimMode = disable
 	m.editor.DisableVimMode(disable)
+	m.applyBottomRows()
 }
 
 // DisableCommandMode allows disabling command mode in the core.
 // This will disable the command mode functionality, meaning the editor will not respond to command mode keybindings.
+// Once command and search mode are both disabled the command line row is given to the editor,
+// and messages and errors are shown on the status line instead. If the status line is hidden
+// too, messages and errors aren't shown at all.
 func (m *Model) DisableCommandMode(disable bool) {
 	m.editor.DisableCommandMode(disable)
+	m.applyBottomRows()
 }
 
 // DisableInsertMode allows disabling insert mode in the core.
@@ -827,8 +883,14 @@ func (m *Model) DisableVisualLineMode(disable bool) {
 	m.editor.DisableVisualLineMode(disable)
 }
 
+// DisableSearchMode allows disabling search mode in the core.
+// This will disable the search functionality, meaning the editor will not respond to '/' and '?'.
+// Once command and search mode are both disabled the command line row is given to the editor,
+// and messages and errors are shown on the status line instead. If the status line is hidden
+// too, messages and errors aren't shown at all.
 func (m *Model) DisableSearchMode(disable bool) {
 	m.editor.DisableSearchMode(disable)
+	m.applyBottomRows()
 }
 
 // SetHighlightedWords allows setting highlighted words in the core.
@@ -1253,52 +1315,67 @@ func (m Model) View() string {
 		content = m.renderWithCompletionMenu(content)
 	}
 
-	if m.disableVimMode {
+	rows := m.bottomRows()
+	if rows == 0 {
 		return content
 	}
 
-	var commandLine string
-
-	if !m.disableVimMode {
-		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
-	}
-
-	if m.message != "" {
-		commandLine = m.theme.MessageStyle.
-			Background(m.theme.CommandLineStyle.GetBackground()).
-			Render(m.message)
-	}
-
-	if m.err != nil {
-		commandLine = m.theme.ErrorStyle.
-			Background(m.theme.CommandLineStyle.GetBackground()).
-			Render(m.err.Error())
-	}
-
 	statusLine := m.getStatusLine()
-
 	paddingWidth := m.width - lipgloss.Width(statusLine)
 	if paddingWidth > 0 {
 		statusLine += m.theme.StatusLineStyle.Render(strings.Repeat(" ", paddingWidth))
 	}
 
-	paddingWidth = m.width - lipgloss.Width(commandLine)
+	commandLine, active := m.getCommandLine(state)
+
+	var bottom string
+	switch {
+	case rows == 2:
+		bottom = lipgloss.JoinVertical(lipgloss.Left, statusLine, commandLine)
+	case m.showStatusLine && !active:
+		// One row, shared by both: the status line holds it until the
+		// command line has something to show.
+		bottom = statusLine
+	default:
+		bottom = commandLine
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, content, bottom)
+}
+
+// getCommandLine renders the command line at full width, and reports whether
+// it has anything worth taking over a shared row for. Pending normal-mode keys
+// (a count, or an operator waiting for its motion) don't count: they're too
+// brief to be worth hiding the status line for.
+func (m Model) getCommandLine(state core.State) (string, bool) {
+	if m.editor.IsSearchMode() {
+		return m.theme.CommandLineStyle.Render(m.searchInput.View()), true
+	}
+
+	var commandLine string
+	var active bool
+	switch {
+	case m.err != nil:
+		commandLine = m.theme.ErrorStyle.
+			Background(m.theme.CommandLineStyle.GetBackground()).
+			Render(m.err.Error())
+		active = true
+	case m.message != "":
+		commandLine = m.theme.MessageStyle.
+			Background(m.theme.CommandLineStyle.GetBackground()).
+			Render(m.message)
+		active = true
+	default:
+		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
+		active = state.Mode == core.CommandMode
+	}
+
+	paddingWidth := m.width - lipgloss.Width(commandLine)
 	if paddingWidth > 0 {
 		commandLine += m.theme.CommandLineStyle.Render(strings.Repeat(" ", paddingWidth))
 	}
 
-	if m.editor.IsSearchMode() {
-		commandLine = m.theme.CommandLineStyle.Render(m.searchInput.View())
-	}
-
-	viewContent := lipgloss.JoinVertical(
-		lipgloss.Left,
-		content,
-		statusLine,
-		commandLine,
-	)
-
-	return viewContent
+	return commandLine, active
 }
 
 func (m *Model) getStatusLine() string {

@@ -244,6 +244,7 @@ HideLineNumbers(hide bool)
 ShowRelativeLineNumbers(show bool)
 ShowTildeIndicator(show bool)
 HideStatusLine(hide bool)
+SetCommandLineHeight(height int) // 0 shares the status line's row
 
 // Cursor Control
 SetCursorPosition(row, col int) error
@@ -353,7 +354,7 @@ content := ed.GetBuffer().GetCurrentContent()
 
 ## Examples
 
-See [examples/basic](examples/basic/main.go) and [examples/completion](examples/completion/main.go).
+See [examples/basic](examples/basic/main.go), [examples/completion](examples/completion/main.go) and [examples/layout](examples/layout/main.go), which toggles the status line and command line rows at runtime.
 
 ## Acknowledgements
 
