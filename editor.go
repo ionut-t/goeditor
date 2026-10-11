@@ -428,9 +428,7 @@ func New(width, height int, opts ...Option) Model {
 	}
 	texteditor := core.New(cfg.clipboard)
 	// The core counts scrolling in screen rows, so it needs to know how lines wrap.
-	texteditor.SetLineHeightFunc(func(line string, width int) int {
-		return len(wrapLine(line, width))
-	})
+	texteditor.SetLineHeightFunc(lineRows)
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"

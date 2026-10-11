@@ -425,6 +425,27 @@ func TestWrapLine(t *testing.T) {
 	}
 }
 
+// TestLineRowsMatchesWrapLine guards the ASCII fast path: it has to agree with
+// wrapLine, which is what the layout actually draws.
+func TestLineRowsMatchesWrapLine(t *testing.T) {
+	lines := []string{
+		"",
+		"short",
+		strings.Repeat("x", 20),
+		strings.Repeat("x", 21),
+		"words that wrap at a space somewhere in the middle",
+		"\tindented with a tab",
+		"emoji 👍🏽 and wide 漢字 characters",
+		"trailing space ",
+		"~ and ' ' are the ends of printable ASCII",
+	}
+	for _, line := range lines {
+		for _, width := range []int{0, 1, 5, 20, 21, 80} {
+			assert.Equalf(t, len(wrapLine(line, width)), lineRows([]rune(line), width), "%q at width %d", line, width)
+		}
+	}
+}
+
 func TestWrapLineNeverDropsRunes(t *testing.T) {
 	inputs := []string{
 		"the quick brown fox jumps over the lazy dog",

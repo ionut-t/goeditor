@@ -275,7 +275,7 @@ func TestCtrlDInVisualMode(t *testing.T) {
 
 func TestScrollingCountsWrappedRows(t *testing.T) {
 	e := newScrollEditor(100, 10)
-	e.SetLineHeightFunc(func(string, int) int { return 3 })
+	e.SetLineHeightFunc(func([]rune, int) int { return 3 })
 
 	setCursorRow(e, 10)
 	keys(e, 'z', 'z')

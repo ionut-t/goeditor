@@ -936,6 +936,25 @@ func (m *Model) updateVisualTopLine() {
 	m.viewport.SetYOffset(0)
 }
 
+// lineRows returns how many screen rows wrapLine splits line into. Printable
+// ASCII is one column per rune, so a line of it that fits the width is one row
+// without measuring graphemes; most source lines take this path.
+func lineRows(line []rune, width int) int {
+	if len(line) <= width {
+		ascii := true
+		for _, r := range line {
+			if r < ' ' || r > '~' {
+				ascii = false
+				break
+			}
+		}
+		if ascii {
+			return 1
+		}
+	}
+	return len(wrapLine(string(line), width))
+}
+
 // wrapLine wraps a line to fit within the specified width.
 // It operates on grapheme clusters (not runes) to correctly handle multi-rune characters
 // like flag emojis (🇷🇴), skin tone modifiers (👍🏽), and ZWJ sequences (👨‍👩‍👧‍👦).

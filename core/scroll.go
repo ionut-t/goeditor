@@ -7,8 +7,10 @@ package core
 // much room here as they do on screen.
 
 // LineHeightFunc reports how many screen rows a buffer line takes up when it is
-// wrapped to width columns. The UI owns wrapping, so it supplies this.
-type LineHeightFunc func(line string, width int) int
+// wrapped to width columns. The UI owns wrapping, so it supplies this. line is
+// the buffer's own storage, passed without copying: it must not be modified or
+// kept after the call returns.
+type LineHeightFunc func(line []rune, width int) int
 
 // ScrollTarget says where z{t,z,b} put the cursor line in the window.
 type ScrollTarget int
@@ -30,7 +32,7 @@ func (e *editor) lineHeight(row int) int {
 	if e.lineHeightFunc == nil {
 		return 1
 	}
-	return max(1, e.lineHeightFunc(string(e.buffer.GetLineRunes(row)), e.state.AvailableWidth))
+	return max(1, e.lineHeightFunc(e.buffer.GetLineRunes(row), e.state.AvailableWidth))
 }
 
 // botline returns the first line that is not shown in full, like Vim's
@@ -253,6 +255,7 @@ func (e *editor) ScrollHalfPage(down bool, count int) (Cursor, error) {
 		}
 	}
 
+	// row is within the buffer, so neither move can hit its end and fail.
 	availableWidth := e.state.AvailableWidth
 	if delta := row - cursor.Position.Row; delta > 0 {
 		_ = cursor.MoveDown(e.buffer, delta, availableWidth)
