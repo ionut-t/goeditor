@@ -327,7 +327,7 @@ func (m *Model) calculateFullVisualLayout(allLogicalLines []string, availableWid
 }
 
 // calculateLazyVisualLayout computes layout only for visible region (large files)
-func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.Cursor, availableWidth int, viewportBuffer int) {
+func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.Cursor, topLine int, availableWidth int, viewportBuffer int) {
 	totalLines := len(allLogicalLines)
 	cursorLogicalRow := max(0, min(cursor.Position.Row, totalLines-1))
 
@@ -346,11 +346,16 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.
 	}
 
 	// Cache validity check: only recalculate if cursor is approaching cache boundaries
-	// This prevents unnecessary recalculation on every keystroke during scrolling
+	// This prevents unnecessary recalculation on every keystroke during scrolling.
+	// The window has to be cached too: it starts at TopLine and runs for at most
+	// a screen of lines.
 	const cacheHysteresis = 20 // Don't recalculate unless within 20 lines of edge
+	viewportHeight := m.viewport.Height()
 	if len(m.visualLayoutCache) > 0 &&
 		cursorLogicalRow >= m.cacheValidStartRow+cacheHysteresis &&
-		cursorLogicalRow <= m.cacheValidEndRow-cacheHysteresis {
+		cursorLogicalRow <= m.cacheValidEndRow-cacheHysteresis &&
+		topLine >= m.cacheValidStartRow &&
+		(topLine+viewportHeight <= m.cacheValidEndRow || m.cacheValidEndRow >= totalLines) {
 		// Cursor is well within valid range - no need to recalculate
 		return
 	}
@@ -373,7 +378,6 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.
 	}
 
 	// Use a larger buffer for better accuracy
-	viewportHeight := m.viewport.Height()
 	largerBuffer := viewportBuffer * 2
 
 	// Estimate logical lines needed to fill visual viewport + buffer
@@ -536,6 +540,11 @@ func (m *Model) calculateVisualMetrics() {
 		m.editor.SetState(newState)
 	}
 
+	// Lines may now wrap differently, and the cursor may have been moved from
+	// outside a key press, so let the core settle TopLine before it is cached.
+	m.editor.ScrollViewport()
+	state = m.editor.GetState()
+
 	// ========================================================================
 	// >>> 1. LAZY VISUAL LAYOUT - Only compute viewport + buffer <<<
 	// ========================================================================
@@ -553,7 +562,7 @@ func (m *Model) calculateVisualMetrics() {
 
 	if totalLogicalLines > largeFileThreshold {
 		// Lazy mode: only compute what we need
-		m.calculateLazyVisualLayout(allLogicalLines, cursor, availableWidth, viewportBuffer)
+		m.calculateLazyVisualLayout(allLogicalLines, cursor, state.TopLine, availableWidth, viewportBuffer)
 	} else {
 		// Small files: compute full layout (original behavior)
 		m.calculateFullVisualLayout(allLogicalLines, availableWidth)
@@ -647,20 +656,14 @@ func (m *Model) renderVisibleSliceDefault() {
 	var contentBuilder strings.Builder
 	renderedDisplayLineCount := 0
 
-	startRenderVisualRow := m.currentVisualTopLine
+	// Rows past the end of the buffer (after zz near the end, say) are left to
+	// the filler rows below, so this is not clamped to the layout height.
+	startRenderVisualRow := max(0, m.currentVisualTopLine)
 	if m.fullVisualLayoutHeight == 0 {
 		startRenderVisualRow = 0
-	} else {
-		if startRenderVisualRow < 0 {
-			startRenderVisualRow = 0
-		}
-		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height())
-		if startRenderVisualRow > maxTop {
-			startRenderVisualRow = maxTop
-		}
 	}
 
-	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height(), m.fullVisualLayoutHeight)
+	endRenderVisualRow := startRenderVisualRow + m.viewport.Height()
 
 	targetVisualRowInSlice := -1
 	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {
@@ -902,41 +905,32 @@ func (m *Model) renderVisibleSlice() {
 	}
 }
 
-// updateVisualTopLine adjusts the current visual top line based on the cursor's position.
-// It ensures that the cursor is always visible within the viewport.
-// If the cursor is above the current top line, it moves the top line up.
-// If the cursor is below the current top line, it moves the top line down.
+// updateVisualTopLine points the rendered slice at the core's TopLine. The core
+// decides what is in view, in buffer lines, as Vim does; this converts that
+// line into a row of the visual layout.
+//
+// It relies on calculateVisualMetrics having run first, which also lets the
+// core bring the cursor into view.
 func (m *Model) updateVisualTopLine() {
+	m.currentVisualTopLine = 0
 	if m.fullVisualLayoutHeight > 0 {
-		buffer := m.editor.GetBuffer()
-		cursor := buffer.GetCursor()
-		isOnLastLine := cursor.Position.Row == buffer.LineCount()-1
-
-		maxPossibleTopLine := 0
-		if m.fullVisualLayoutHeight > m.viewport.Height() {
-			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height()
-		}
-
-		if isOnLastLine {
-			// On last line: always scroll to show all content
-			m.currentVisualTopLine = maxPossibleTopLine
-		} else {
-			// Normal scrolling logic
-			if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
-				m.currentVisualTopLine = m.cursorAbsoluteVisualRow
-			} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height() {
-				m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height() + 1
-			}
-
-			if m.currentVisualTopLine > maxPossibleTopLine {
-				m.currentVisualTopLine = maxPossibleTopLine
-			}
-			if m.currentVisualTopLine < 0 {
-				m.currentVisualTopLine = 0
+		topLine := m.editor.GetState().TopLine
+		found := false
+		for cacheIdx, vli := range m.visualLayoutCache {
+			if vli.LogicalRow == topLine && vli.IsFirstSegment {
+				m.currentVisualTopLine = m.visualLayoutCacheStartVisualRow + cacheIdx
+				found = true
+				break
 			}
 		}
-	} else {
-		m.currentVisualTopLine = 0
+
+		// A cursor line taller than the window can't be shown whole (Vim skips
+		// part of it with 'skipcol'). Keep the cursor's own row on screen, which
+		// is also the fallback if the layout cache doesn't reach TopLine.
+		height := m.viewport.Height()
+		if !found || m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+height {
+			m.currentVisualTopLine = max(0, m.cursorAbsoluteVisualRow-height+1)
+		}
 	}
 
 	m.viewport.SetYOffset(0)
@@ -1082,20 +1076,14 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 	var contentBuilder strings.Builder
 	renderedDisplayLineCount := 0
 
-	startRenderVisualRow := m.currentVisualTopLine
+	// Rows past the end of the buffer (after zz near the end, say) are left to
+	// the filler rows below, so this is not clamped to the layout height.
+	startRenderVisualRow := max(0, m.currentVisualTopLine)
 	if m.fullVisualLayoutHeight == 0 {
 		startRenderVisualRow = 0
-	} else {
-		if startRenderVisualRow < 0 {
-			startRenderVisualRow = 0
-		}
-		maxTop := max(0, m.fullVisualLayoutHeight-m.viewport.Height())
-		if startRenderVisualRow > maxTop {
-			startRenderVisualRow = maxTop
-		}
 	}
 
-	endRenderVisualRow := min(startRenderVisualRow+m.viewport.Height(), m.fullVisualLayoutHeight)
+	endRenderVisualRow := startRenderVisualRow + m.viewport.Height()
 
 	targetVisualRowInSlice := -1
 	if m.cursorAbsoluteVisualRow >= startRenderVisualRow && m.cursorAbsoluteVisualRow < endRenderVisualRow {

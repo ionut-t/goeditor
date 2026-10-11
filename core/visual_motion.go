@@ -28,7 +28,7 @@ func handleVisualGKey(waitingForG *bool, editor Editor, buffer Buffer, key KeyEv
 // Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,, /, n/N
 // Excludes:
 //   - h/l            — count differs: charwise uses the user count, line mode always uses 1
-//   - g              — handled by each mode's waitingForG state before reaching here
+//   - g, z           — handled by each mode's waitingForG/waitingForZ state before reaching here
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
 //
 // Returns (movementAttempted, earlyReturn, moveErr).
@@ -43,15 +43,16 @@ func applyVisualMotion(
 ) (movementAttempted bool, earlyReturn bool, moveErr error) {
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
-	viewportHeight := state.ViewportHeight
 	switch {
 	// Ctrl-modified keys first: normalisation puts the letter in Rune, so they
 	// would otherwise match the plain-letter motions below.
-	case key.IsCtrl('d'):
-		moveErr = cursor.ScrollDown(buffer, viewportHeight, availableWidth)
-		movementAttempted = true
-	case key.IsCtrl('u'):
-		moveErr = cursor.ScrollUp(buffer, viewportHeight, availableWidth)
+	case key.IsCtrl('d'), key.IsCtrl('u'):
+		// The visual modes default count to 1, so an explicit 1 can't set 'scroll'.
+		scrollCount := 0
+		if count > 1 {
+			scrollCount = count
+		}
+		*cursor, moveErr = editor.ScrollHalfPage(key.IsCtrl('d'), scrollCount)
 		movementAttempted = true
 	case key.Modifiers&ModCtrl != 0:
 		// Unbound Ctrl combination — ignore rather than fall through.

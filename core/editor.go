@@ -93,8 +93,12 @@ type Editor interface {
 	PasteBefore() (string, error) // Paste from clipboard before/above cursor
 	Copy(op copyType) error       // Copy to clipboard
 
-	// Viewport scrolling (Could be part of UpdateState or separate)
-	ScrollViewport()
+	// Viewport scrolling. State.TopLine is the first line in the window; the UI
+	// draws from it and supplies line heights so wrapped lines count in rows.
+	ScrollViewport()                                     // Bring the cursor line into the window if it left
+	ScrollCursorTo(target ScrollTarget)                  // zt / zz / zb
+	ScrollHalfPage(down bool, count int) (Cursor, error) // CTRL-D / CTRL-U; returns the moved cursor
+	SetLineHeightFunc(f LineHeightFunc)
 	GetUpdateSignalChan() <-chan Signal            // For UI updates
 	GetSelectionStatus(pos Position) SelectionType // Get selection status of a position
 	Save(*string)                                  // Save the current buffer content

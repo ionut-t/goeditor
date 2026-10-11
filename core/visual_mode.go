@@ -6,6 +6,7 @@ type visualMode struct {
 	charSearch      charSearchState // Character search state (f/F/t/T)
 	pendingModifier rune            // 'i' or 'a' when waiting for text object key
 	waitingForG     bool            // true after 'g' is pressed, waiting for second key
+	waitingForZ     bool            // true after 'z' is pressed, waiting for second key
 }
 
 func NewVisualMode() EditorMode {
@@ -32,6 +33,7 @@ func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	m.charSearch = charSearchState{}
 	m.pendingModifier = 0
 	m.waitingForG = false
+	m.waitingForZ = false
 	// Update editor state to reflect visual mode is active
 	state := editor.GetState()
 	state.VisualStart = m.startPos
@@ -47,6 +49,7 @@ func (m *visualMode) Exit(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("")  // Clear status or let normal mode set it
 	editor.UpdateCommand("") // Clear command display
 	m.waitingForG = false
+	m.waitingForZ = false
 }
 
 // NormalizeSelection ensures start is before end, line by line, then column by column.
@@ -85,6 +88,12 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	if m.waitingForG {
 		handleVisualGKey(&m.waitingForG, editor, buffer, key, count)
+		return nil
+	}
+
+	if m.waitingForZ {
+		m.waitingForZ = false
+		handleZKey(editor, buffer, key, 0)
 		return nil
 	}
 
@@ -352,6 +361,10 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 	case key.Rune == 'g':
 		m.waitingForG = true
 		editor.UpdateCommand("g")
+		return nil
+	case key.Rune == 'z':
+		m.waitingForZ = true
+		editor.UpdateCommand("z")
 		return nil
 	default:
 		var movementAttempted, earlyReturn bool

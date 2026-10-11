@@ -24,7 +24,7 @@ type State struct {
 	Quit         bool   // Flag indicating if the editor should exit
 
 	// Viewport information
-	TopLine        int // First line visible in the viewport (0-indexed)
+	TopLine        int // First buffer line in the window (0-indexed); see scroll.go
 	ViewportHeight int // Number of lines that can be displayed
 	ViewportWidth  int // Number of columns that can be displayed
 
@@ -192,6 +192,12 @@ type editor struct {
 	mapTimeout    bool
 	mapTimeoutLen time.Duration
 	mapPendingGen MapToken
+
+	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
+	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
+	lineHeightFunc    LineHeightFunc
+	scrollLines       int
+	scrollLinesHeight int
 }
 
 // New creates a new editor instance
@@ -363,7 +369,8 @@ func (e *editor) SetBuffer(buffer Buffer) {
 	e.undoLineRow = -1
 	e.SaveHistory()                                       // Save the new buffer's initial state
 	e.UpdateStatus(fmt.Sprintf("-- %s --", e.state.Mode)) // Update status
-	e.ScrollViewport()                                    // Adjust viewport for new buffer
+	e.state.TopLine = 0                                   // A new buffer starts at the top
+	e.ScrollViewport()
 }
 
 func (e *editor) SetContent(content []byte) {
@@ -860,24 +867,6 @@ func (e *editor) onSearchResultFound(pos Position) {
 	cursor := e.buffer.GetCursor()
 	cursor.Position = pos
 	e.buffer.SetCursor(cursor)
-}
-
-// ScrollViewport ensures the cursor is within the visible area
-func (e *editor) ScrollViewport() {
-	cursor := e.buffer.GetCursor()
-	row := cursor.Position.Row
-
-	if row < e.state.TopLine {
-		e.state.TopLine = row
-	} else if row >= e.state.TopLine+e.state.ViewportHeight {
-		// Scroll down so cursor is on the last line of the viewport
-		e.state.TopLine = row - e.state.ViewportHeight + 1
-	}
-
-	// Ensure TopLine doesn't go below 0
-	if e.state.TopLine < 0 {
-		e.state.TopLine = 0
-	}
 }
 
 // --- History Management (Simple Snapshot Implementation) ---

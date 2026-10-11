@@ -101,6 +101,7 @@ m.WithTheme(theme)
 - **Word movement**: `w`, `b`, `e`, `ge` and WORD variants `W`, `B`, `E`, `gE`
 - **Line movement**: `0` (start), `$` (end), `^` (first non-blank)
 - **Document movement**: `gg` (first line), `G` (last line), `{` / `}` (paragraph), `%` (matching bracket)
+- **Scrolling**: `Ctrl+D` / `Ctrl+U` (half a page; a count sets the amount), `zz` / `zt` / `zb` (cursor line to middle / top / bottom), `z.` / `z<CR>` / `z-` (same, cursor to first non-blank)
 - **Character search**: `f`, `F`, `t`, `T`, repeated with `;` / `,`
 - **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `ip`, `i(`, `i"`, …)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)

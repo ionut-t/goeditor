@@ -6,6 +6,7 @@ type visualLineMode struct {
 	currentCount *int            // Temporary count parsed within visual line mode
 	charSearch   charSearchState // Character search state (f/F/t/T)
 	waitingForG  bool            // true after 'g' is pressed, waiting for second key
+	waitingForZ  bool            // true after 'z' is pressed, waiting for second key
 }
 
 func NewVisualLineMode() EditorMode {
@@ -32,6 +33,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	m.currentCount = nil
 	m.charSearch = charSearchState{}
 	m.waitingForG = false
+	m.waitingForZ = false
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
 	state.VisualStart = m.startPos // Use VisualStart to indicate visual active
@@ -46,6 +48,7 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("") // Clear status or let normal mode set it
 	m.currentCount = nil
 	m.waitingForG = false
+	m.waitingForZ = false
 }
 
 func (m *visualLineMode) GetCurrentCount() *int {
@@ -76,6 +79,12 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	if m.waitingForG {
 		handleVisualGKey(&m.waitingForG, editor, buffer, key, count)
+		return nil
+	}
+
+	if m.waitingForZ {
+		m.waitingForZ = false
+		handleZKey(editor, buffer, key, 0)
 		return nil
 	}
 
@@ -259,12 +268,6 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 	default:
 		col := cursor.Position.Col
 		switch {
-		case key.IsCtrl('d'):
-			moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
-			movementAttempted = true
-		case key.IsCtrl('u'):
-			moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
-			movementAttempted = true
 		case key.Rune == 'h' || key.Key == KeyLeft:
 			moveErr = cursor.MoveLeftOrUp(buffer, 1, col)
 			movementAttempted = true
@@ -274,6 +277,10 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 		case key.Rune == 'g':
 			m.waitingForG = true
 			editor.UpdateCommand("g")
+			return nil
+		case key.Rune == 'z':
+			m.waitingForZ = true
+			editor.UpdateCommand("z")
 			return nil
 		default:
 			var earlyReturn bool
