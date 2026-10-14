@@ -12,6 +12,7 @@ type normalMode struct {
 	charSearch        charSearchState // Character search state (f/F/t/T)
 	waitingForReplace bool            // True when waiting for character input after 'r'
 	waitingForG       bool            // True after 'g' is pressed, waiting for second key (gg, ge)
+	waitingForZ       bool            // True after 'z' is pressed, waiting for second key (zz, zt, zb)
 
 	pendingCaseOp       rune // Set after gu/gU/g~ while waiting for a motion key ('u','U','~', or 0)
 	pendingCaseModifier rune // Set after gu/gU/g~ + i/a while waiting for the text object key
@@ -53,6 +54,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.waitingForZ = false
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false
@@ -70,6 +72,7 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.waitingForZ = false
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false
@@ -85,6 +88,16 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	}
 	if m.waitingForG {
 		return m.handleGKey(editor, buffer, key)
+	}
+	if m.waitingForZ {
+		m.waitingForZ = false
+		count := 0
+		if pending := editor.GetState().PendingCount; pending != nil {
+			count = *pending
+		}
+		editor.ResetPendingCount()
+		handleZKey(editor, buffer, key, count)
+		return nil
 	}
 	if m.pendingCaseOp != 0 {
 		return m.handleCaseMotionKey(editor, buffer, key)
@@ -866,11 +879,12 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	// Ctrl-modified keys must be matched before the plain-letter commands:
 	// normalisation puts the letter in Rune, so Ctrl+D would otherwise fall into
 	// the 'd' operator, Ctrl+U into undo, Ctrl+R into replace-character, and so on.
-	case key.IsCtrl('d'):
-		moveErr = cursor.ScrollDown(buffer, state.ViewportHeight, availableWidth)
-
-	case key.IsCtrl('u'):
-		moveErr = cursor.ScrollUp(buffer, state.ViewportHeight, availableWidth)
+	case key.IsCtrl('d'), key.IsCtrl('u'):
+		scrollCount := 0
+		if countWasPending {
+			scrollCount = count
+		}
+		cursor, moveErr = editor.ScrollHalfPage(key.IsCtrl('d'), scrollCount)
 
 	case key.IsCtrl('r'): // Redo
 		if content, redoErr := editor.Redo(); redoErr != nil {
@@ -927,6 +941,10 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		m.waitingForG = true
 		editor.UpdateCommand("g")
 		return nil // wait for second key; preserve pendingCount for 5gg etc.
+	case key.Rune == 'z':
+		m.waitingForZ = true
+		editor.UpdateCommand("z")
+		return nil // wait for second key; preserve pendingCount for 10zz etc.
 	case key.Rune == 'G':
 		cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
@@ -1349,6 +1367,7 @@ func (m *normalMode) clearPendingState(editor Editor) {
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
 	m.waitingForG = false
+	m.waitingForZ = false
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false

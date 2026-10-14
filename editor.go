@@ -427,6 +427,8 @@ func New(width, height int, opts ...Option) Model {
 		opt(cfg)
 	}
 	texteditor := core.New(cfg.clipboard)
+	// The core counts scrolling in screen rows, so it needs to know how lines wrap.
+	texteditor.SetLineHeightFunc(lineRows)
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height))
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
@@ -512,28 +514,7 @@ func (m *Model) SetSize(width, height int) {
 		m.handleContentChange()
 	}
 
-	if m.fullVisualLayoutHeight > 0 {
-		if m.cursorAbsoluteVisualRow < m.currentVisualTopLine {
-			m.currentVisualTopLine = m.cursorAbsoluteVisualRow
-		} else if m.cursorAbsoluteVisualRow >= m.currentVisualTopLine+m.viewport.Height() {
-			m.currentVisualTopLine = m.cursorAbsoluteVisualRow - m.viewport.Height() + 1
-		}
-
-		maxPossibleTopLine := 0
-		if m.fullVisualLayoutHeight > m.viewport.Height() {
-			maxPossibleTopLine = m.fullVisualLayoutHeight - m.viewport.Height()
-		}
-		if m.currentVisualTopLine > maxPossibleTopLine {
-			m.currentVisualTopLine = maxPossibleTopLine
-		}
-		if m.currentVisualTopLine < 0 {
-			m.currentVisualTopLine = 0
-		}
-	} else {
-		m.currentVisualTopLine = 0
-	}
-
-	m.viewport.SetYOffset(0)
+	m.updateVisualTopLine()
 	m.renderVisibleSlice()
 }
 
@@ -1185,9 +1166,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.cursorMode == CursorBlink {
 			cmds = append(cmds, m.restartBlinkCycleCmd())
 		}
-
-		// The core editor's ScrollViewport() operates on logical lines and doesn't account
-		// for line wrapping or emoji visual widths, so we bypass it here.
 
 		m.updateVisualTopLine()
 

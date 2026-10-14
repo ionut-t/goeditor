@@ -646,10 +646,14 @@ func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
 	return nil
 }
 
+// Deprecated: ScrollUp only moves the cursor and leaves the window where it
+// is. CTRL-U is Editor.ScrollHalfPage(false, count), which scrolls both.
 func (c *Cursor) ScrollUp(buffer Buffer, viewportHeight, availableWidth int) error {
 	return c.MoveUp(buffer, max(viewportHeight/2, 1), availableWidth)
 }
 
+// Deprecated: ScrollDown only moves the cursor and leaves the window where it
+// is. CTRL-D is Editor.ScrollHalfPage(true, count), which scrolls both.
 func (c *Cursor) ScrollDown(buffer Buffer, viewportHeight, availableWidth int) error {
 	return c.MoveDown(buffer, max(viewportHeight/2, 1), availableWidth)
 }
