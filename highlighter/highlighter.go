@@ -46,12 +46,13 @@ func New(language string, theme string) *Highlighter {
 	}
 }
 
-// InvalidateCache clears the token cache (call when content changes)
+// InvalidateCache clears the token cache (call when content changes).
+// The style cache depends only on the theme, which is fixed for the
+// lifetime of a Highlighter, so it is left intact.
 func (sh *Highlighter) InvalidateCache() {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
 	sh.cache = make(map[int][]chroma.Token)
-	sh.styleCache = make(map[chroma.TokenType]lipgloss.Style)
 }
 
 // InvalidateLine clears the cache for a specific line number.
