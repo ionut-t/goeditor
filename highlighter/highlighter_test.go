@@ -101,7 +101,7 @@ func TestInvalidateLineRemovesOnlyThatLine(t *testing.T) {
 	assert.NotNil(t, h.GetTokensForLine(2, lines))
 }
 
-func TestInvalidateCacheClearsEverything(t *testing.T) {
+func TestInvalidateCacheClearsTokensKeepsStyles(t *testing.T) {
 	h := New("go", "monokai")
 	lines := []string{"x := 1", "y := 2"}
 	h.Tokenise(lines, 0, len(lines))
@@ -110,13 +110,15 @@ func TestInvalidateCacheClearsEverything(t *testing.T) {
 	// Populate the style cache too.
 	tokens := h.GetTokensForLine(0, lines)
 	require.NotEmpty(t, tokens)
-	h.GetStyleForToken(tokens[0].Type)
+	style := h.GetStyleForToken(tokens[0].Type)
 
 	h.InvalidateCache()
 
 	assert.Nil(t, h.GetTokensForLine(0, lines))
 	assert.Nil(t, h.GetTokensForLine(1, lines))
-	assert.Empty(t, h.styleCache)
+	// Styles depend only on the theme, so a content invalidation keeps them.
+	assert.Contains(t, h.styleCache, tokens[0].Type)
+	assert.Equal(t, style.String(), h.GetStyleForToken(tokens[0].Type).String())
 }
 
 // TestTokeniseSkipsReTokenisingAlreadyCachedLines proves the incremental
@@ -193,6 +195,9 @@ func TestHighlighterCacheAccessIsRaceFree(t *testing.T) {
 				}
 				if i%7 == 0 {
 					h.InvalidateLine(start)
+				}
+				if i%11 == 0 {
+					h.InvalidateCache()
 				}
 			}
 		}(g)
