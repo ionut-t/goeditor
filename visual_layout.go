@@ -484,7 +484,7 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.
 func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent string, availableWidth int, visualLayout *[]VisualLineInfo) {
 	originalLineRunes := []rune(logicalLineContent)
 	originalLineLen := len(originalLineRunes)
-	currentLogicalColToReport := 0
+	segmentStartRuneIdx := 0
 
 	if originalLineLen == 0 && logicalLineContent == "" {
 		*visualLayout = append(*visualLayout, VisualLineInfo{
@@ -505,15 +505,15 @@ func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent s
 		info := VisualLineInfo{
 			Content:         segmentStr,
 			LogicalRow:      bufferRowIdx,
-			LogicalStartCol: currentLogicalColToReport,
+			LogicalStartCol: segmentStartRuneIdx,
 			IsFirstSegment:  segIdx == 0,
 		}
 		*visualLayout = append(*visualLayout, info)
 
-		currentLogicalColToReport += segmentRunesLen
+		segmentStartRuneIdx += segmentRunesLen
 		if segIdx < len(wrappedSegmentStrings)-1 {
-			for currentLogicalColToReport < originalLineLen && unicode.IsSpace(originalLineRunes[currentLogicalColToReport]) {
-				currentLogicalColToReport++
+			for segmentStartRuneIdx < originalLineLen && isWrappableSpace(originalLineRunes[segmentStartRuneIdx]) {
+				segmentStartRuneIdx++
 			}
 		}
 	}
@@ -955,6 +955,14 @@ func lineRows(line []rune, width int) int {
 	return len(wrapLine(string(line), width))
 }
 
+// isWrappableSpace reports whether r is dropped at the start of a wrapped
+// segment. Only ' ' is: other whitespace such as a tab is content and must be
+// drawn. wrapLine and appendVisualLayoutForLine both skip with it, so segment
+// content and LogicalStartCol stay in step.
+func isWrappableSpace(r rune) bool {
+	return r == ' '
+}
+
 // wrapLine wraps a line to fit within the specified width.
 // It operates on grapheme clusters (not runes) to correctly handle multi-rune characters
 // like flag emojis (🇷🇴), skin tone modifiers (👍🏽), and ZWJ sequences (👨‍👩‍👧‍👦).
@@ -1042,13 +1050,8 @@ func wrapLine(line string, width int) []string {
 
 		// Advance, skipping leading spaces on the next line
 		currentRuneIdx = breakEndRuneIdx
-		for currentRuneIdx < len(runes) {
-			graphemeStr, _, runesConsumed := nextGrapheme(runes, currentRuneIdx, 0)
-			graphemeRunes := []rune(graphemeStr)
-			if len(graphemeRunes) == 0 || !unicode.IsSpace(graphemeRunes[0]) {
-				break
-			}
-			currentRuneIdx += runesConsumed
+		for currentRuneIdx < len(runes) && isWrappableSpace(runes[currentRuneIdx]) {
+			currentRuneIdx++
 		}
 	}
 
