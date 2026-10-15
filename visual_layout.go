@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/ionut-t/goeditor/core"
@@ -486,7 +487,7 @@ func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent s
 	originalLineLen := len(originalLineRunes)
 	segmentStartRuneIdx := 0
 
-	if originalLineLen == 0 && logicalLineContent == "" {
+	if originalLineLen == 0 {
 		*visualLayout = append(*visualLayout, VisualLineInfo{
 			Content:         "",
 			LogicalRow:      bufferRowIdx,
@@ -499,8 +500,7 @@ func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent s
 	wrappedSegmentStrings := wrapLine(logicalLineContent, availableWidth)
 
 	for segIdx, segmentStr := range wrappedSegmentStrings {
-		segmentRunes := []rune(segmentStr)
-		segmentRunesLen := len(segmentRunes)
+		segmentRunesLen := utf8.RuneCountInString(segmentStr)
 
 		info := VisualLineInfo{
 			Content:         segmentStr,
