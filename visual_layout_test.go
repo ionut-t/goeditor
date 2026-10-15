@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -559,6 +560,18 @@ func TestNextGraphemeMatchesFullScan(t *testing.T) {
 	assert.Equal(t, "", str)
 	assert.Equal(t, 0, width)
 	assert.Equal(t, 0, n)
+}
+
+// nextGrapheme returns printable ASCII without asking uniseg when the next rune
+// is ASCII too. That relies on no ASCII rune joining a printable ASCII rune into
+// a larger grapheme; this checks it against uniseg for every such pair.
+func TestPrintableASCIINeverJoinsWithASCII(t *testing.T) {
+	for a := rune(' '); a <= '~'; a++ {
+		for b := rune(0); b < utf8.RuneSelf; b++ {
+			cluster, _, _, _ := uniseg.FirstGraphemeClusterInString(string([]rune{a, b}), -1)
+			require.Equalf(t, string(a), cluster, "%q followed by %q forms one grapheme", a, b)
+		}
+	}
 }
 
 func TestGetVisualWidth(t *testing.T) {
