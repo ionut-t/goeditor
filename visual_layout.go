@@ -64,10 +64,22 @@ func getRuneVisualWidth(r rune) int {
 	return uniseg.StringWidth(string(r))
 }
 
+// graphemeWindow is how many runes nextGrapheme hands to uniseg at first. It
+// doubles whenever a grapheme fills the whole window, which only long
+// combining or ZWJ sequences do.
+const graphemeWindow = 16
+
+// printableASCII holds every printable ASCII character in order, so
+// nextGrapheme can return one as a substring without allocating.
+const printableASCII = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+
 // nextGrapheme returns the next grapheme cluster starting at the given rune index.
 // Returns the grapheme string, its visual width, and the number of runes consumed.
 // This centralises grapheme iteration logic to eliminate redundancy across rendering functions.
 // The currentCol parameter is used for proper tab width calculation.
+//
+// It only converts a short window of runes after startIdx to a string, not the
+// rest of the line, so iterating a line grapheme by grapheme stays linear.
 func nextGrapheme(runes []rune, startIdx int, currentCol int) (graphemeStr string, visualWidth int, runesConsumed int) {
 	const tabWidth = 4
 
@@ -75,31 +87,27 @@ func nextGrapheme(runes []rune, startIdx int, currentCol int) (graphemeStr strin
 		return "", 0, 0
 	}
 
-	// Use uniseg to properly identify the grapheme cluster boundary
-	remaining := string(runes[startIdx:])
-	gr := uniseg.NewGraphemes(remaining)
+	r := runes[startIdx]
+	if r == '\t' {
+		// A tab is a control character, so always a grapheme on its own.
+		// Its width depends on the current column position.
+		return "\t", tabWidth - (currentCol % tabWidth), 1
+	}
+	if r >= ' ' && r <= '~' && (startIdx+1 == len(runes) || runes[startIdx+1] < utf8.RuneSelf) {
+		// Printable ASCII followed by ASCII never joins into a larger grapheme.
+		return printableASCII[r-' ' : r-' '+1], 1, 1
+	}
 
-	if !gr.Next() {
-		// Fallback: treat single rune as grapheme if uniseg fails
-		graphemeStr = string(runes[startIdx])
-		if graphemeStr == "\t" {
-			visualWidth = tabWidth - (currentCol % tabWidth)
-		} else {
-			visualWidth = getRuneVisualWidth(runes[startIdx])
+	for window := graphemeWindow; ; window *= 2 {
+		end := min(startIdx+window, len(runes))
+		graphemeStr, _, visualWidth, _ = uniseg.FirstGraphemeClusterInString(string(runes[startIdx:end]), -1)
+		runesConsumed = utf8.RuneCountInString(graphemeStr)
+		// A grapheme that ends before the window does is complete. One that
+		// fills the window may continue past it, unless the line ends there.
+		if startIdx+runesConsumed < end || end == len(runes) {
+			return graphemeStr, visualWidth, runesConsumed
 		}
-		return graphemeStr, visualWidth, 1
 	}
-
-	graphemeStr = gr.Str()
-	if graphemeStr == "\t" {
-		// Tab width depends on current column position
-		visualWidth = tabWidth - (currentCol % tabWidth)
-	} else {
-		visualWidth = uniseg.StringWidth(graphemeStr)
-	}
-	runesConsumed = len([]rune(graphemeStr))
-
-	return graphemeStr, visualWidth, runesConsumed
 }
 
 // calculateCursorScreenCol calculates the cursor's screen column position.
