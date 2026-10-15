@@ -56,6 +56,10 @@ func (sh *Highlighter) InvalidateCache() {
 }
 
 // InvalidateLine clears the cache for a specific line number.
+//
+// Deprecated: tokens are cached by line number, so an edit that adds or
+// removes lines leaves every entry below it describing other text. Use
+// InvalidateCache, which the editor calls on every content change.
 func (sh *Highlighter) InvalidateLine(lineNum int) {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
