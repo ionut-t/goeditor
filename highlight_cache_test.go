@@ -54,10 +54,8 @@ func requireCachedTokensMatchBuffer(t *testing.T, m Model, cursorRow int) {
 	require.Equal(t, fresh.viewport.View(), m.viewport.View(), "screen should match a freshly loaded model")
 
 	for i, line := range lines {
-		// tokeniseRange leaves an empty entry for the line after the range
-		// it tokenised. It holds no tokens, so it can't draw stale colours.
 		tokens := m.highlighter.GetTokensForLine(i, nil)
-		if len(tokens) == 0 {
+		if tokens == nil {
 			continue
 		}
 		var b strings.Builder
