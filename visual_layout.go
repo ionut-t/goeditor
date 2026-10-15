@@ -512,7 +512,8 @@ func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent s
 
 		currentLogicalColToReport += segmentRunesLen
 		if segIdx < len(wrappedSegmentStrings)-1 {
-			for currentLogicalColToReport < originalLineLen && unicode.IsSpace(originalLineRunes[currentLogicalColToReport]) {
+			// Must match the skip in wrapLine: only spaces are dropped at a break.
+			for currentLogicalColToReport < originalLineLen && originalLineRunes[currentLogicalColToReport] == ' ' {
 				currentLogicalColToReport++
 			}
 		}
@@ -1040,15 +1041,12 @@ func wrapLine(line string, width int) []string {
 		segment := string(runes[lineStartRuneIdx:breakEndRuneIdx])
 		wrappedLines = append(wrappedLines, segment)
 
-		// Advance, skipping leading spaces on the next line
+		// Advance, skipping leading spaces on the next line. Only ' ' is
+		// skipped: other whitespace such as a tab is content and must be drawn.
+		// appendVisualLayoutForLine skips the same runes for LogicalStartCol.
 		currentRuneIdx = breakEndRuneIdx
-		for currentRuneIdx < len(runes) {
-			graphemeStr, _, runesConsumed := nextGrapheme(runes, currentRuneIdx, 0)
-			graphemeRunes := []rune(graphemeStr)
-			if len(graphemeRunes) == 0 || !unicode.IsSpace(graphemeRunes[0]) {
-				break
-			}
-			currentRuneIdx += runesConsumed
+		for currentRuneIdx < len(runes) && runes[currentRuneIdx] == ' ' {
+			currentRuneIdx++
 		}
 	}
 

@@ -452,9 +452,8 @@ func TestWrapLineNeverDropsRunes(t *testing.T) {
 		"supercalifragilisticexpialidocious",
 		"a b c d e f g h i j k l m n o p",
 		"👍🏽 emoji flag 🇷🇴 and text mixed together for width edge cases",
-		// Known gap: a tab landing exactly on a wrap point is dropped from the
-		// rendered segment. Fixing it requires changing wrapLine and the
-		// LogicalStartCol skip in appendVisualLayoutForLine together.
+		"aaaa bbbb\tcccc dddd",
+		"\tleading\ttabs\t\tand  double  spaces\t",
 	}
 
 	for _, in := range inputs {
@@ -478,6 +477,32 @@ func TestWrapLineNeverDropsRunes(t *testing.T) {
 			}
 			require.Equalf(t, string(wantNonSpace), string(gotNonSpace),
 				"input %q at width %d lost or reordered non-space characters: segments=%q", in, width, segs)
+		}
+	}
+}
+
+func TestVisualLayoutSegmentsMatchBuffer(t *testing.T) {
+	inputs := []string{
+		"aaaa bbbb\tcccc dddd",
+		"\tleading\ttabs\t\tand  double  spaces\t",
+		"the quick brown fox jumps over the lazy dog",
+		"👍🏽 emoji flag 🇷🇴 and\ttabs 漢字 mixed together for width edge cases",
+		"trailing spaces   ",
+	}
+
+	m := New(80, 20)
+	for _, in := range inputs {
+		runes := []rune(in)
+		for width := 1; width <= 20; width++ {
+			var layout []VisualLineInfo
+			m.appendVisualLayoutForLine(0, in, width, &layout)
+			for i, vli := range layout {
+				content := []rune(vli.Content)
+				end := vli.LogicalStartCol + len(content)
+				require.LessOrEqualf(t, end, len(runes), "input %q at width %d segment %d overruns the line", in, width, i)
+				require.Equalf(t, string(runes[vli.LogicalStartCol:end]), vli.Content,
+					"input %q at width %d segment %d: content does not match buffer at LogicalStartCol=%d", in, width, i, vli.LogicalStartCol)
+			}
 		}
 	}
 }
