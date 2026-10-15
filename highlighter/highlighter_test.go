@@ -147,6 +147,43 @@ func TestTokeniseSkipsReTokenisingAlreadyCachedLines(t *testing.T) {
 		"Tokenise should have skipped re-tokenising an already-cached range, so stale (original) tokens should remain until InvalidateLine is called")
 }
 
+func TestTokeniseCachesOnlyTheRequestedRange(t *testing.T) {
+	h := New("go", "monokai")
+	lines := []string{"x := 1", "y := 2", "z := 3"}
+	h.Tokenise(lines, 0, 2)
+
+	require.NotNil(t, h.GetTokensForLine(0, lines))
+	require.NotNil(t, h.GetTokensForLine(1, lines))
+	// An entry for line 2, even an empty one, would make a later Tokenise
+	// treat it as already done.
+	assert.Nil(t, h.GetTokensForLine(2, lines))
+}
+
+func TestTokeniseCachesAnEmptyLastLine(t *testing.T) {
+	h := New("go", "monokai")
+	lines := []string{"x := 1", ""}
+	h.Tokenise(lines, 0, 2)
+
+	// The joined range already ends in a newline, so the empty line's entry
+	// comes from that newline and must not be cut off with the range end.
+	tokens := h.GetTokensForLine(1, lines)
+	assert.NotNil(t, tokens)
+	assert.Empty(t, tokens)
+}
+
+func TestTokeniseKeepsTokensForTheLineAfterTheRange(t *testing.T) {
+	h := New("go", "monokai")
+	lines := []string{"x := 1", "y := 2", "z := 3", "w := 4"}
+	h.Tokenise(lines, 2, 4)
+	h.Tokenise(lines, 0, 2)
+
+	var b strings.Builder
+	for _, tok := range h.GetTokensForLine(2, lines) {
+		b.WriteString(tok.Value)
+	}
+	assert.Equal(t, lines[2], b.String())
+}
+
 func TestGetTokensForLineUnknownLineReturnsNil(t *testing.T) {
 	h := New("go", "monokai")
 	lines := []string{"x := 1"}
