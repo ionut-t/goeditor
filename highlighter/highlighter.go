@@ -132,7 +132,7 @@ func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
 			// The newline after the last line ends the range. Writing an
 			// entry for endLine would mark it as tokenised (or wipe its
 			// tokens), so a later Tokenise would skip it.
-			if lineNum == endLine {
+			if lineNum >= endLine {
 				return
 			}
 			sh.cache[lineNum] = []chroma.Token{}
