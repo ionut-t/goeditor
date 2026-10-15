@@ -1503,9 +1503,14 @@ func (m *Model) renderSegmentPlain(
 
 // handleContentChange is called when the content of the editor changes.
 func (m *Model) handleContentChange() {
+	// The highlighter caches tokens by line number, so an edit that shifts
+	// lines (dd, o, paste, undo) or changes lines away from the cursor
+	// (VGU, SetBytes) leaves off-screen entries describing other text.
+	// Clearing it all costs no extra tokenising: the cursor line is always
+	// on screen, and Tokenise re-tokenises the whole visible range when any
+	// line in it is missing.
 	if m.highlighter != nil {
-		currentLine := m.editor.GetBuffer().GetCursor().Position.Row
-		m.highlighter.InvalidateLine(currentLine)
+		m.highlighter.InvalidateCache()
 	}
 	// Clear persistent token cache on content changes
 	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
