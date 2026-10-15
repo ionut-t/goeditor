@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ionut-t/goeditor/highlighter"
+	"github.com/rivo/uniseg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -505,6 +506,59 @@ func TestVisualLayoutSegmentsMatchBuffer(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestNextGraphemeMatchesFullScan(t *testing.T) {
+	// fullScan is the previous nextGrapheme: it hands uniseg the whole rest of
+	// the line, so it is correct by construction but quadratic over a line.
+	fullScan := func(runes []rune, startIdx, currentCol int) (string, int, int) {
+		gr := uniseg.NewGraphemes(string(runes[startIdx:]))
+		gr.Next()
+		s := gr.Str()
+		if s == "\t" {
+			return s, 4 - currentCol%4, 1
+		}
+		return s, uniseg.StringWidth(s), len([]rune(s))
+	}
+
+	inputs := []string{
+		"plain ascii, with punctuation ~!",
+		"tabs\tin\t\tthe middle\t",
+		"e\u0301 combining after ascii, a\u0308\u0301 twice",
+		"e" + strings.Repeat("\u0301", 40) + " longer than the window",
+		strings.Repeat("\u0301", 20) + " leading combining marks",
+		"👍🏽 skin tone, 🇷🇴🇬🇧 flags, 👨‍👩‍👧‍👦 family",
+		strings.Repeat("👨‍👩‍👧‍👦", 6),
+		"wide 漢字 and 한국어 and jamo \u1100\u1161\u11a8",
+		"crlf\r\nand control \x01\x7f chars",
+		"\t\u0301 tab then combining",
+		"ends with combining e\u0301",
+	}
+
+	for _, in := range inputs {
+		runes := []rune(in)
+		for start := range runes {
+			for _, col := range []int{0, 1, 3, 4, 7} {
+				wantStr, wantWidth, wantN := fullScan(runes, start, col)
+				gotStr, gotWidth, gotN := nextGrapheme(runes, start, col)
+				require.Equalf(t, wantStr, gotStr, "input %q start %d col %d: grapheme", in, start, col)
+				require.Equalf(t, wantWidth, gotWidth, "input %q start %d col %d: width", in, start, col)
+				require.Equalf(t, wantN, gotN, "input %q start %d col %d: runes consumed", in, start, col)
+			}
+		}
+	}
+
+	for r := rune(' '); r <= '~'; r++ {
+		str, width, n := nextGrapheme([]rune{r, 'x'}, 0, 0)
+		require.Equalf(t, string(r), str, "printable ASCII %q", r)
+		require.Equal(t, 1, width)
+		require.Equal(t, 1, n)
+	}
+
+	str, width, n := nextGrapheme([]rune("abc"), 3, 0)
+	assert.Equal(t, "", str)
+	assert.Equal(t, 0, width)
+	assert.Equal(t, 0, n)
 }
 
 func TestGetVisualWidth(t *testing.T) {
