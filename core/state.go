@@ -198,6 +198,10 @@ type editor struct {
 	lineHeightFunc    LineHeightFunc
 	scrollLines       int
 	scrollLinesHeight int
+
+	// The last f/F/t/T search, shared by normal, visual and visual-line mode
+	// so ; and , still repeat it after a mode switch, as in Vim.
+	charSearch lastCharSearch
 }
 
 // New creates a new editor instance
@@ -220,13 +224,10 @@ func New(clipboard Clipboard) Editor {
 	}
 
 	// Register modes (pass editor instance if modes need it during init)
-	// The last f/F/t/T search is editor-wide, as in Vim, so ; and , still
-	// repeat it after a mode switch.
-	lastSearch := &lastCharSearch{}
-	e.modes[NormalMode] = newNormalMode(lastSearch)
+	e.modes[NormalMode] = newNormalMode(&e.charSearch)
 	e.modes[InsertMode] = NewInsertMode()
-	e.modes[VisualMode] = newVisualMode(lastSearch)
-	e.modes[VisualLineMode] = newVisualLineMode(lastSearch)
+	e.modes[VisualMode] = newVisualMode(&e.charSearch)
+	e.modes[VisualLineMode] = newVisualLineMode(&e.charSearch)
 	e.modes[CommandMode] = NewCommandMode()
 	e.modes[SearchMode] = NewSearchMode()
 
