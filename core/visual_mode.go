@@ -94,6 +94,11 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil
 	}
 
+	if isCharSearchKey(key) {
+		startCharSearch(&m.charSearch, editor, key.Rune) // the count stays pending for the target
+		return nil
+	}
+
 	count := takeCount(editor)
 
 	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {

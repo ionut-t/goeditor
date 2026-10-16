@@ -41,16 +41,17 @@ func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 
 // applyVisualMotion handles motion keys shared by all visual modes.
 //
-// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,, /, n/N
+// Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, ;/,, /, n/N
 // Excludes:
 //   - h/l            — count differs: charwise uses the user count, line mode always uses 1
 //   - g, z           — prefixes, completed by handleVisualPrefix before reaching here
+//   - f/F/t/T        — started by each mode before its count is taken, so 3fx keeps the 3
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
 //
 // count is 0 when none was typed; motions treat that as 1.
 //
 // Returns (movementAttempted, earlyReturn, moveErr).
-// earlyReturn=true signals the caller must return nil immediately (charSearch initiated).
+// earlyReturn=true signals the caller must return nil immediately (search mode entered).
 func applyVisualMotion(
 	cs *charSearchState,
 	editor Editor,
@@ -112,26 +113,6 @@ func applyVisualMotion(
 			editor.ResetPendingCount()
 		}
 		movementAttempted = true
-	case key.Rune == 'f':
-		cs.searchType = 'f'
-		cs.waitingForChar = true
-		editor.UpdateCommand("f")
-		earlyReturn = true
-	case key.Rune == 'F':
-		cs.searchType = 'F'
-		cs.waitingForChar = true
-		editor.UpdateCommand("F")
-		earlyReturn = true
-	case key.Rune == 't':
-		cs.searchType = 't'
-		cs.waitingForChar = true
-		editor.UpdateCommand("t")
-		earlyReturn = true
-	case key.Rune == 'T':
-		cs.searchType = 'T'
-		cs.waitingForChar = true
-		editor.UpdateCommand("T")
-		earlyReturn = true
 	case key.Rune == ';':
 		repeatCharSearch(cs, editor, buffer, count, false)
 		*cursor = buffer.GetCursor()

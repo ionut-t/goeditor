@@ -315,26 +315,11 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 
 	// Digit keys accumulate a count for the upcoming motion (e.g., 5 in gu5G).
 	// Must be checked before clearing pendingCaseOp so we stay in this handler.
+	if accumulateCount(editor, key) {
+		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *editor.GetState().PendingCount))
+		return nil
+	}
 	state := editor.GetState()
-	if key.Rune >= '1' && key.Rune <= '9' {
-		digit := int(key.Rune - '0')
-		if state.PendingCount == nil {
-			state.PendingCount = &digit
-		} else {
-			newCount := *state.PendingCount*10 + digit
-			state.PendingCount = &newCount
-		}
-		editor.SetState(state)
-		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *state.PendingCount))
-		return nil
-	}
-	if key.Rune == '0' && state.PendingCount != nil {
-		newCount := *state.PendingCount * 10
-		state.PendingCount = &newCount
-		editor.SetState(state)
-		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *state.PendingCount))
-		return nil
-	}
 
 	m.pendingCaseOp = 0
 
@@ -472,15 +457,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 
 	// Digit keys accumulate a count for the upcoming motion (e.g., the 2 in d2w).
 	// '0' is only a digit when a count is already started; otherwise it's a motion.
-	if (key.Rune >= '1' && key.Rune <= '9') || (key.Rune == '0' && state.PendingCount != nil) {
-		digit := int(key.Rune - '0')
-		if state.PendingCount == nil {
-			state.PendingCount = &digit
-		} else {
-			newCount := *state.PendingCount*10 + digit
-			state.PendingCount = &newCount
-		}
-		editor.SetState(state)
+	if accumulateCount(editor, key) {
 		editor.UpdateCommand(fmt.Sprintf("%s%c", state.CommandLine, key.Rune))
 		return nil
 	}
@@ -806,47 +783,15 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	cursor := buffer.GetCursor()
 
 	// --- Handle Numeric Input for Counts ---
-	if key.Rune >= '1' && key.Rune <= '9' {
-		digit := int(key.Rune - '0')
-		if pendingCount == nil {
-			// Start of count (unless it follows '0' motion)
-			if m.pendingKey.Rune == '0' { // Check local pendingKey for '0' motion
-				cursor.MoveToLineStart()
-				buffer.SetCursor(cursor)                 // Update buffer cursor!
-				m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear pending '0' motion key
-				// Start the count state with the current digit
-				state.PendingCount = &digit
-				editor.SetState(state) // Save state
-			} else {
-				// Normal start of count
-				state.PendingCount = &digit // Update state directly
-				editor.SetState(state)      // Save state
-			}
-		} else {
-			// Append to existing count
-			newCount := (*pendingCount * 10) + digit
-			state.PendingCount = &newCount // Update state
-			editor.SetState(state)         // Save state
-		}
-		// Update command display regardless of actionTaken status for digits
-		editor.UpdateCommand(fmt.Sprintf("%d", *state.PendingCount))
+	if accumulateCount(editor, key) {
+		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
 		return nil // Just consuming digits, wait for command
-
-	} else if key.Rune == '0' && pendingCount == nil {
-		// '0' is move-to-start-of-line command if it's the first digit pressed
-		m.pendingKey = KeyEvent{Key: KeyUnknown} // Clear any other pending op (like 'd')
-		editor.ResetPendingCount()               // Ensure no count is active (redundant but safe)
+	}
+	if key.Rune == '0' {
+		// '0' with no count started is the move-to-start-of-line motion
 		cursor.MoveToLineStart()
-		buffer.SetCursor(cursor) // Update buffer cursor!
+		buffer.SetCursor(cursor)
 		// Don't return yet, let subsequent logic handle potential errors/updates
-	} else if key.Rune == '0' && pendingCount != nil {
-		// '0' as part of a multi-digit count
-		digit := 0
-		newCount := (*pendingCount * 10) + digit
-		state.PendingCount = &newCount                               // Update state
-		editor.SetState(state)                                       // Save state
-		editor.UpdateCommand(fmt.Sprintf("%d", *state.PendingCount)) // Show count
-		return nil                                                   // Consuming digit, wait for command
 	}
 
 	// --- Get Count or Default to 1 ---
@@ -1038,29 +983,9 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		cursor = editor.SearchWordUnderCursor(true)
 
 	// Character search motions
-	case key.Rune == 'f': // Find character forward
-		m.charSearch.searchType = 'f'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("f")
-		return nil
-
-	case key.Rune == 'F': // Find character backward
-		m.charSearch.searchType = 'F'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("F")
-		return nil
-
-	case key.Rune == 't': // Till character forward
-		m.charSearch.searchType = 't'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("t")
-		return nil
-
-	case key.Rune == 'T': // Till character backward
-		m.charSearch.searchType = 'T'
-		m.charSearch.waitingForChar = true
-		editor.UpdateCommand("T")
-		return nil
+	case isCharSearchKey(key): // f / F / t / T
+		startCharSearch(&m.charSearch, editor, key.Rune)
+		return nil // the count stays pending for the target character
 
 	case key.Rune == ';': // Repeat last character search
 		cursor = m.handleCharSearchRepeat(editor, buffer, false)

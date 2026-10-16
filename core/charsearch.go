@@ -216,6 +216,23 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 	return true, nil
 }
 
+// isCharSearchKey reports whether key starts a character search (f/F/t/T).
+func isCharSearchKey(key KeyEvent) bool {
+	switch key.Rune {
+	case 'f', 'F', 't', 'T':
+		return key.Modifiers&ModCtrl == 0
+	}
+	return false
+}
+
+// startCharSearch waits for the target of f/F/t/T. Any count stays pending
+// until the target arrives (3fx), and is shown before the command.
+func startCharSearch(cs *charSearchState, editor Editor, searchType rune) {
+	cs.searchType = searchType
+	cs.waitingForChar = true
+	showPrefix(editor, searchType)
+}
+
 // repeatCharSearch repeats (reverse=false) or reverses (reverse=true) the last
 // character search stored in cs.
 func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count int, reverse bool) {

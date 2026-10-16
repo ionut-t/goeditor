@@ -214,3 +214,28 @@ func TestCharSearchWithOperators(t *testing.T) {
 		assertInsertMode(t, e)
 	})
 }
+
+func TestVisualCharSearchWithCount(t *testing.T) {
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newTestEditor("a.b.c.d.e")
+
+			keys(e, mode, '3', 'f')
+			assert.Equal(t, "3f", e.GetState().CommandLine)
+
+			keys(e, '.')
+			assert.Equal(t, 5, cursorPos(e).Col, "3f. goes to the third '.'")
+			assert.Nil(t, e.GetState().PendingCount)
+		})
+	}
+}
+
+func TestCharSearchShowsPendingCount(t *testing.T) {
+	e := newTestEditor("a.b.c.d.e")
+
+	keys(e, '2', 't')
+	assert.Equal(t, "2t", e.GetState().CommandLine)
+
+	keys(e, '.')
+	assert.Equal(t, 2, cursorPos(e).Col)
+}
