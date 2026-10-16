@@ -107,12 +107,7 @@ func applyVisualMotion(
 		cursor.moveToLine(buffer, lineCount, availableWidth)
 		movementAttempted = true
 	case key.Key == KeyEnter:
-		if count > 0 {
-			cursor.Position.Row = count - 1
-			buffer.SetCursor(*cursor)
-			editor.UpdateCommand("")
-			editor.ResetPendingCount()
-		}
+		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count, availableWidth)
 		movementAttempted = true
 	case key.Rune == ';':
 		repeatCharSearch(cs, editor, buffer, count, false)

@@ -872,17 +872,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 		cursor.moveToLine(buffer, lineCount, availableWidth)
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
-		if count == 0 {
-			moveErr = cursor.MoveDown(buffer, count, availableWidth)
-			if moveErr == nil {
-				cursor.MoveToFirstNonBlank(buffer, availableWidth)
-			}
-		} else {
-			cursor.Position.Row = count - 1
-			buffer.SetCursor(cursor)
-			editor.UpdateCommand("")
-			editor.ResetPendingCount()
-		}
+		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count, availableWidth)
 
 	// Mode changes
 	case key.Rune == 'i': // Insert before cursor
