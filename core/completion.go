@@ -1,5 +1,7 @@
 package core
 
+import "slices"
+
 // CompletionTriggerKind defines how completion was triggered
 type CompletionTriggerKind int
 
@@ -71,8 +73,8 @@ type Completion struct {
 func findWordLengthBeforeCursor(textBeforeCursor string, isWordChar func(rune) bool) int {
 	runes := []rune(textBeforeCursor)
 	length := 0
-	for i := len(runes) - 1; i >= 0; i-- {
-		if isWordChar(runes[i]) {
+	for _, r := range slices.Backward(runes) {
+		if isWordChar(r) {
 			length++
 		} else {
 			break

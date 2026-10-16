@@ -567,7 +567,7 @@ func TestNextGraphemeMatchesFullScan(t *testing.T) {
 // a larger grapheme; this checks it against uniseg for every such pair.
 func TestPrintableASCIINeverJoinsWithASCII(t *testing.T) {
 	for a := rune(' '); a <= '~'; a++ {
-		for b := rune(0); b < utf8.RuneSelf; b++ {
+		for b := range rune(utf8.RuneSelf) {
 			cluster, _, _, _ := uniseg.FirstGraphemeClusterInString(string([]rune{a, b}), -1)
 			require.Equalf(t, string(a), cluster, "%q followed by %q forms one grapheme", a, b)
 		}
