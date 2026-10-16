@@ -212,6 +212,24 @@ func TestMoveToBufferEnd(t *testing.T) {
 		keys(e, 'G')
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
+
+	t.Run("count: 2G goes to line 2 first non-blank", func(t *testing.T) {
+		e := newTestEditor("one\n  two\nthree")
+		keys(e, '2', 'G')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
+	t.Run("count: 1G goes to the first line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'G', '1', 'G')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("count past the end clamps to the last line", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, '9', 'G')
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
 }
 
 // TestMoveWordForward tests 'w' — move to start of next word.

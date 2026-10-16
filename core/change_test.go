@@ -174,6 +174,13 @@ func TestChangeToEndOfBuffer(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
+
+	t.Run("count: c2G changes from cursor line to line 2", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\nfour")
+		keys(e, 'c', '2', 'G')
+		assert.Equal(t, "three\nfour", content(e))
+		assertInsertMode(t, e)
+	})
 }
 
 // TestChangeInsideWord tests 'ciw' — change inside word.

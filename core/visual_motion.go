@@ -63,6 +63,7 @@ func applyVisualMotion(
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
 	scrollCount := count // 0 keeps 'scroll'; an explicit count, even 1, sets it
+	lineCount := count   // 0 sends G to the last line; a count sends it to that line
 	count = max(count, 1)
 	switch {
 	// Ctrl-modified keys first: normalisation puts the letter in Rune, so they
@@ -103,7 +104,7 @@ func applyVisualMotion(
 		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == 'G':
-		cursor.MoveToBufferEnd(buffer, availableWidth)
+		cursor.moveToLine(buffer, lineCount, availableWidth)
 		movementAttempted = true
 	case key.Key == KeyEnter:
 		if count > 0 {

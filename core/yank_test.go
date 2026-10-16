@@ -233,6 +233,20 @@ func TestYankToEndOfBuffer(t *testing.T) {
 		assert.Equal(t, "three\n", cb.content)
 		assert.Equal(t, Position{2, 0}, cursorPos(e))
 	})
+
+	t.Run("count: y2G yanks down to line 2, cursor stays", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'y', '2', 'G')
+		assert.Equal(t, "one\ntwo\n", cb.content)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("count: y1G yanks up to line 1, cursor moves there", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("one\ntwo\nthree")
+		keys(e, 'G', 'y', '1', 'G')
+		assert.Equal(t, "one\ntwo\nthree\n", cb.content)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
 }
 
 // TestYankInsideBrackets tests yi(/ya(, yib/yaB, yi"/ya" and related aliases.
