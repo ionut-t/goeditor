@@ -1,19 +1,18 @@
 package core
 
+import "fmt"
+
 type visualMode struct {
 	startPos        Position        // Where visual selection started
-	currentCount    *int            // Temporary count parsed within visual mode
 	charSearch      charSearchState // Character search state (f/F/t/T)
 	pendingModifier rune            // 'i' or 'a' when waiting for text object key
-	waitingForG     bool            // true after 'g' is pressed, waiting for second key
-	waitingForZ     bool            // true after 'z' is pressed, waiting for second key
+	pending         pendingPrefix   // g or z waiting for its second key
 }
 
 func NewVisualMode() EditorMode {
 	return &visualMode{
-		startPos:     Position{-1, -1},
-		currentCount: nil,
-		charSearch:   charSearchState{},
+		startPos:   Position{-1, -1},
+		charSearch: charSearchState{},
 	}
 }
 func (m *visualMode) Name() Mode { return VisualMode }
@@ -29,11 +28,10 @@ func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateCommand("")
 	// Record selection start position
 	m.startPos = buffer.GetCursor().Position
-	m.currentCount = nil
 	m.charSearch = charSearchState{}
 	m.pendingModifier = 0
-	m.waitingForG = false
-	m.waitingForZ = false
+	m.pending.reset()
+	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active
 	state := editor.GetState()
 	state.VisualStart = m.startPos
@@ -48,8 +46,9 @@ func (m *visualMode) Exit(editor Editor, buffer Buffer) {
 	editor.SetState(state)
 	editor.UpdateStatus("")  // Clear status or let normal mode set it
 	editor.UpdateCommand("") // Clear command display
-	m.waitingForG = false
-	m.waitingForZ = false
+	m.pendingModifier = 0
+	m.pending.reset()
+	editor.ResetPendingCount()
 }
 
 // NormalizeSelection ensures start is before end, line by line, then column by column.
@@ -58,14 +57,6 @@ func NormalizeSelection(p1, p2 Position) (start, end Position) {
 		return p1, p2
 	}
 	return p2, p1
-}
-
-func (m *visualMode) GetCurrentCount() *int {
-	return m.currentCount
-}
-
-func (m *visualMode) SetCurrentCount(count *int) {
-	m.currentCount = count
 }
 
 // HandleKey dispatches each incoming key to the appropriate handler.
@@ -81,25 +72,34 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		}
 	}
 
-	count, processedDigit := getMoveCount(m, editor, key)
-	if processedDigit {
+	if prefix := m.pending.take(); prefix != 0 {
+		handleVisualPrefix(prefix, editor, buffer, key)
 		return nil
 	}
 
-	if m.waitingForG {
-		handleVisualGKey(&m.waitingForG, editor, buffer, key, count)
+	if accumulateCount(editor, key) {
+		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
 		return nil
 	}
 
-	if m.waitingForZ {
-		m.waitingForZ = false
-		handleZKey(editor, buffer, key, 0)
-		return nil
-	}
-
+	// The key after i/a is the text object, even when it is g or z.
 	if m.pendingModifier != 0 {
+		editor.ResetPendingCount()
 		return m.handleTextObject(editor, buffer, key, buffer.GetCursor())
 	}
+
+	if isPrefixKey(key) {
+		m.pending.start(key.Rune) // the count stays pending for the prefix handler
+		showPrefix(editor, key.Rune)
+		return nil
+	}
+
+	if isCharSearchKey(key) {
+		startCharSearch(&m.charSearch, editor, key.Rune) // the count stays pending for the target
+		return nil
+	}
+
+	count := takeCount(editor)
 
 	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
 		return err
@@ -337,53 +337,28 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 	return false, nil
 }
 
-// handleMovement handles motion keys that extend the visual selection.
+// handleMovement handles motion keys that extend the visual selection. count
+// is 0 when none was typed.
 func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	state := editor.GetState()
-
-	countWasPending := false
-	if state.PendingCount != nil {
-		count = *state.PendingCount
-		countWasPending = true
-		editor.SetState(state)
-		editor.UpdateCommand("")
-	}
-
 	col := cursor.Position.Col
 	var moveErr error
 
 	switch {
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = cursor.MoveLeftOrUp(buffer, count, col)
+		moveErr = cursor.MoveLeftOrUp(buffer, max(count, 1), col)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
-		moveErr = cursor.MoveRightOrDown(buffer, count, col)
-	case key.Rune == 'g':
-		m.waitingForG = true
-		editor.UpdateCommand("g")
-		return nil
-	case key.Rune == 'z':
-		m.waitingForZ = true
-		editor.UpdateCommand("z")
-		return nil
+		moveErr = cursor.MoveRightOrDown(buffer, max(count, 1), col)
 	default:
-		var movementAttempted, earlyReturn bool
-		movementAttempted, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
+		var earlyReturn bool
+		_, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
 		if earlyReturn {
 			return nil
-		}
-		if !movementAttempted && countWasPending {
-			editor.ResetPendingCount()
 		}
 	}
 
 	if moveErr == nil || isBoundaryError(moveErr) {
 		buffer.SetCursor(cursor)
-		return nil
-	}
-
-	if countWasPending {
-		editor.ResetPendingCount()
 	}
 	return nil
 }

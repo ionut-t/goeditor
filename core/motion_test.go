@@ -491,3 +491,14 @@ func TestMatchingBracketMotion(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 }
+
+func TestOperatorWithUnknownGKeyIsCancelled(t *testing.T) {
+	e := newTestEditor("one two three")
+
+	keys(e, 'd', 'g', 'w')
+	assert.False(t, e.GetMode().OperatorPending(), "dgw cancels the d, as in Vim")
+
+	keys(e, 'w')
+	assert.Equal(t, "one two three", content(e))
+	assert.Equal(t, 4, cursorPos(e).Col)
+}

@@ -42,50 +42,70 @@ type baseMode struct{}
 func (baseMode) AwaitingLiteral() bool { return false }
 func (baseMode) OperatorPending() bool { return false }
 
-type VisualModeInterface interface {
-	GetCurrentCount() *int
-	SetCurrentCount(count *int)
+// pendingPrefix is the prefix key (g, z) a mode is waiting to complete, or 0.
+// Like Vim's nv_g_cmd / nv_zet, the handler reads the second key itself; each
+// mode switches on the prefix in its handlePrefix.
+type pendingPrefix struct {
+	prefix rune
 }
 
-// getMoveCount processes numeric key presses to build a command count for visual modes.
-// It returns:
-// - count: The calculated count (default 1 or accumulated value) if a non-digit key was pressed.
-// - processedDigit: true if the key was a digit ('0'-'9') and was consumed, false otherwise.
-func getMoveCount(mode VisualModeInterface, editor Editor, key KeyEvent) (count int, processedDigit bool) {
-	currentCount := mode.GetCurrentCount()
+// start records r as the pending prefix. The pending count is left alone so
+// the prefix handler can use it (5gg, 10zz).
+func (p *pendingPrefix) start(r rune) { p.prefix = r }
 
-	// --- Handle Digit Input ---
-	if key.Rune >= '1' && key.Rune <= '9' {
-		digit := int(key.Rune - '0')
-		if currentCount == nil {
-			currentCount = new(int) // Allocate memory
-		}
-		*currentCount = (*currentCount * 10) + digit // Append digit
-		mode.SetCurrentCount(currentCount)           //  Set state back
-		editor.UpdateCommand(fmt.Sprintf("%d", *currentCount))
-		return 0, true
-	} else if key.Rune == '0' {
-		if currentCount != nil { // Can only append '0' if count already started
-			digit := 0
-			*currentCount = (*currentCount * 10) + digit // Append digit
-			mode.SetCurrentCount(currentCount)
-			editor.UpdateCommand(fmt.Sprintf("%d", *currentCount))
-			return 0, true
-		}
+func (p *pendingPrefix) reset() { p.prefix = 0 }
+
+// take returns the pending prefix, or 0, and clears it, so the handler can
+// start a new one.
+func (p *pendingPrefix) take() rune {
+	r := p.prefix
+	p.prefix = 0
+	return r
+}
+
+// isPrefixKey reports whether key starts a two-key command in the visual
+// modes. Normal mode starts its prefixes from its own key switch.
+func isPrefixKey(key KeyEvent) bool {
+	return (key.Rune == 'g' || key.Rune == 'z') && key.Modifiers&ModCtrl == 0
+}
+
+// showPrefix shows a just-typed prefix after any pending count (10g), as
+// Vim's showcmd does.
+func showPrefix(editor Editor, r rune) {
+	if count := editor.GetState().PendingCount; count != nil {
+		editor.UpdateCommand(fmt.Sprintf("%d%c", *count, r))
+		return
 	}
+	editor.UpdateCommand(string(r))
+}
 
-	// --- Key was NOT a digit being accumulated ---
-	processedDigit = false // We didn't process a digit here
-
-	// Determine final count to use
-	count = 1 // Default count
-	if currentCount != nil {
-		count = *currentCount
-		// Reset the count now that it's being used/finalized
-		mode.SetCurrentCount(nil)
-		editor.UpdateCommand("") // Clear count display
+// accumulateCount adds a digit key to State.PendingCount and reports whether
+// the key was consumed. '0' only counts once a count has started; on its own
+// it is a motion.
+func accumulateCount(editor Editor, key KeyEvent) bool {
+	if key.Modifiers&ModCtrl != 0 {
+		return false
 	}
+	state := editor.GetState()
+	if key.Rune < '0' || key.Rune > '9' || (key.Rune == '0' && state.PendingCount == nil) {
+		return false
+	}
+	n := int(key.Rune - '0')
+	if state.PendingCount != nil {
+		n += *state.PendingCount * 10
+	}
+	state.PendingCount = &n
+	editor.SetState(state)
+	return true
+}
 
-	// Return the calculated count and indicate no digit was processed *by this part*
-	return count, processedDigit
+// takeCount consumes State.PendingCount. It returns 0 when no count was typed,
+// so callers can tell "no count" from an explicit 1.
+func takeCount(editor Editor) int {
+	pending := editor.GetState().PendingCount
+	if pending == nil {
+		return 0
+	}
+	editor.ResetPendingCount()
+	return *pending
 }

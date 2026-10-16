@@ -1,19 +1,18 @@
 // editor/visual_line_mode.go
 package core
 
+import "fmt"
+
 type visualLineMode struct {
-	startPos     Position        // Only the Row is relevant for selection extent
-	currentCount *int            // Temporary count parsed within visual line mode
-	charSearch   charSearchState // Character search state (f/F/t/T)
-	waitingForG  bool            // true after 'g' is pressed, waiting for second key
-	waitingForZ  bool            // true after 'z' is pressed, waiting for second key
+	startPos   Position        // Only the Row is relevant for selection extent
+	charSearch charSearchState // Character search state (f/F/t/T)
+	pending    pendingPrefix   // g or z waiting for its second key
 }
 
 func NewVisualLineMode() EditorMode {
 	return &visualLineMode{
-		startPos:     Position{-1, -1},
-		currentCount: nil,
-		charSearch:   charSearchState{},
+		startPos:   Position{-1, -1},
+		charSearch: charSearchState{},
 	}
 }
 
@@ -30,10 +29,9 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateCommand("")
 	// Record selection start position (row matters most)
 	m.startPos = buffer.GetCursor().Position
-	m.currentCount = nil
 	m.charSearch = charSearchState{}
-	m.waitingForG = false
-	m.waitingForZ = false
+	m.pending.reset()
+	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
 	state.VisualStart = m.startPos // Use VisualStart to indicate visual active
@@ -46,17 +44,8 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 	state.VisualStart = Position{Row: -1, Col: -1} // Mark inactive
 	editor.SetState(state)
 	editor.UpdateStatus("") // Clear status or let normal mode set it
-	m.currentCount = nil
-	m.waitingForG = false
-	m.waitingForZ = false
-}
-
-func (m *visualLineMode) GetCurrentCount() *int {
-	return m.currentCount
-}
-
-func (m *visualLineMode) SetCurrentCount(count *int) {
-	m.currentCount = count
+	m.pending.reset()
+	editor.ResetPendingCount()
 }
 
 // HandleKey dispatches each incoming key to the appropriate handler.
@@ -72,21 +61,28 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 	}
 
-	count, processedDigit := getMoveCount(m, editor, key)
-	if processedDigit {
+	if prefix := m.pending.take(); prefix != 0 {
+		handleVisualPrefix(prefix, editor, buffer, key)
 		return nil
 	}
 
-	if m.waitingForG {
-		handleVisualGKey(&m.waitingForG, editor, buffer, key, count)
+	if accumulateCount(editor, key) {
+		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
 		return nil
 	}
 
-	if m.waitingForZ {
-		m.waitingForZ = false
-		handleZKey(editor, buffer, key, 0)
+	if isPrefixKey(key) {
+		m.pending.start(key.Rune) // the count stays pending for the prefix handler
+		showPrefix(editor, key.Rune)
 		return nil
 	}
+
+	if isCharSearchKey(key) {
+		startCharSearch(&m.charSearch, editor, key.Rune) // the count stays pending for the target
+		return nil
+	}
+
+	count := takeCount(editor)
 
 	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
 		return err
@@ -237,14 +233,15 @@ func (m *visualLineMode) selectionRows(cursorRow int) (startRow, endRow int) {
 	return
 }
 
-// handleMovement handles motion keys that extend the line selection.
+// handleMovement handles motion keys that extend the line selection. count
+// is 0 when none was typed.
 func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
 	var moveErr error
 	movementAttempted := false
-	moveCount := count
+	moveCount := max(count, 1)
 
 	switch key.Key {
 	case KeyDown:
@@ -254,13 +251,13 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
 		movementAttempted = true
 	case KeyPageDown:
-		if count == 1 {
+		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
 		moveErr = cursor.MoveDown(buffer, moveCount, availableWidth)
 		movementAttempted = true
 	case KeyPageUp:
-		if count == 1 {
+		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
 		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
@@ -274,14 +271,6 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 		case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
 			moveErr = cursor.MoveRightOrDown(buffer, 1, col)
 			movementAttempted = true
-		case key.Rune == 'g':
-			m.waitingForG = true
-			editor.UpdateCommand("g")
-			return nil
-		case key.Rune == 'z':
-			m.waitingForZ = true
-			editor.UpdateCommand("z")
-			return nil
 		default:
 			var earlyReturn bool
 			movementAttempted, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
