@@ -16,6 +16,8 @@ type normalMode struct {
 	pendingCaseOp       rune // Set after gu/gU/g~ while waiting for a motion key ('u','U','~', or 0)
 	pendingCaseModifier rune // Set after gu/gU/g~ + i/a while waiting for the text object key
 	pendingCaseG        bool // Set after gu/gU/g~ + g, waiting for second key (g=buffer-start, op=current-line)
+
+	opCount int // Count typed before the pending operator (the 2 in 2d3w), 0 if none
 }
 
 func NewNormalMode() EditorMode {
@@ -223,10 +225,11 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	}
 
 	// Case operations: gu / gU / g~ — record the op and wait for the motion key.
-	// The pending count is intentionally preserved so it can be used by the motion.
+	// The count typed so far is set aside to multiply the motion's count.
 	if key.Rune == 'u' || key.Rune == 'U' || key.Rune == '~' {
 		m.pendingCaseOp = key.Rune
-		editor.UpdateCommand(fmt.Sprintf("g%c", key.Rune))
+		m.startOperatorCount(editor)
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil
 	}
 
@@ -323,30 +326,29 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	// Digit keys accumulate a count for the upcoming motion (e.g., 5 in gu5G).
 	// Must be checked before clearing pendingCaseOp so we stay in this handler.
 	if accumulateCount(editor, key) {
-		editor.UpdateCommand(fmt.Sprintf("g%c%d", op, *editor.GetState().PendingCount))
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil
 	}
 	state := editor.GetState()
 
 	m.pendingCaseOp = 0
 
-	if key.Key == KeyEscape {
+	if key.Key == KeyEscape || !state.WithInsertMode {
+		m.clearPendingState(editor)
 		editor.UpdateCommand("")
-		editor.ResetPendingCount()
 		return nil
 	}
 
-	if !state.WithInsertMode {
-		editor.UpdateCommand("")
-		editor.ResetPendingCount()
-		return nil
-	}
+	// Compose before the i/a check: the text object key that follows reads
+	// State.PendingCount directly (2gUaw).
+	m.composeOperatorCount(editor)
+	state = editor.GetState()
 
 	// i/a modifier: gUiw, g~aw, gui(, … — record modifier and wait for object key.
 	if key.Rune == 'i' || key.Rune == 'a' {
 		m.pendingCaseOp = op
 		m.pendingCaseModifier = key.Rune
-		editor.UpdateCommand(fmt.Sprintf("g%c%c", op, key.Rune))
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil
 	}
 
@@ -376,7 +378,7 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	case 'g': // gugg / gugu — wait for the second key
 		m.pendingCaseOp = op
 		m.pendingCaseG = true
-		editor.UpdateCommand(fmt.Sprintf("g%cg", op))
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil
 	case 'G':
 		if hasPendingCount {
@@ -443,9 +445,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 	}
 
 	if key.Key == KeyEscape {
-		m.pendingKey = KeyEvent{Key: KeyUnknown}
-		m.pendingModifier = 0
-		editor.ResetPendingCount()
+		m.clearPendingState(editor)
 		editor.UpdateCommand("")
 		return nil
 	}
@@ -468,11 +468,12 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 		editor.UpdateCommand(fmt.Sprintf("%s%c", state.CommandLine, key.Rune))
 		return nil
 	}
+	m.composeOperatorCount(editor)
 
 	// Check for text object modifiers (i/a)
 	if key.Rune == 'i' || key.Rune == 'a' {
 		m.pendingModifier = key.Rune
-		editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the text object key
 	}
 
@@ -1092,7 +1093,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 		m.pendingKey = key
-		// Don't clear count yet
+		m.startOperatorCount(editor)
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 
 		return nil // Wait for the next key (motion)
@@ -1103,11 +1104,13 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 		m.pendingKey = key
+		m.startOperatorCount(editor)
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'y': // Start 'yank' operation
 		m.pendingKey = key
+		m.startOperatorCount(editor)
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the next key (motion)
 
@@ -1278,4 +1281,38 @@ func (m *normalMode) resetPending() {
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false
+	m.opCount = 0
+}
+
+// startOperatorCount sets aside the count typed before an operator, so the
+// count typed after it starts fresh (the 2 and the 3 in 2d3w).
+func (m *normalMode) startOperatorCount(editor Editor) {
+	m.opCount = 0
+	state := editor.GetState()
+	if state.PendingCount == nil {
+		return
+	}
+	m.opCount = *state.PendingCount
+	// Not ResetPendingCount: that clears the command line, which should
+	// still show the count (2d).
+	state.PendingCount = nil
+	editor.SetState(state)
+}
+
+// composeOperatorCount multiplies the count typed before the operator into
+// the one typed after it, as Vim does: 2d3w deletes 6 words. It runs on the
+// first key after the operator that isn't a count digit, so the motion
+// handlers read the effective count from State.PendingCount.
+func (m *normalMode) composeOperatorCount(editor Editor) {
+	if m.opCount == 0 {
+		return
+	}
+	n := m.opCount
+	m.opCount = 0
+	state := editor.GetState()
+	if state.PendingCount != nil {
+		n *= *state.PendingCount
+	}
+	state.PendingCount = &n
+	editor.SetState(state)
 }

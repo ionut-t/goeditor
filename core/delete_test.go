@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -814,6 +815,120 @@ func TestOperatorCountAfterOperator(t *testing.T) {
 		escape(e)
 		keys(e, 'x')
 		assert.Equal(t, "ello", content(e))
+	})
+}
+
+// TestOperatorCountComposition tests that a count before the operator and one
+// after it multiply, as in Vim ([count]op[count]motion).
+func TestOperatorCountComposition(t *testing.T) {
+	t.Run("2d3w deletes six words", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'd', '3', 'w')
+		assert.Equal(t, "g h", content(e))
+	})
+
+	t.Run("multi-digit counts on both sides: 12d2w deletes 24 words", func(t *testing.T) {
+		words := make([]string, 26)
+		for i := range words {
+			words[i] = string(rune('a' + i))
+		}
+		e := newTestEditor(strings.Join(words, " "))
+		keys(e, '1', '2', 'd', '2', 'w')
+		assert.Equal(t, "y z", content(e))
+	})
+
+	t.Run("2dd and d2d both delete two lines", func(t *testing.T) {
+		for _, seq := range [][]rune{{'2', 'd', 'd'}, {'d', '2', 'd'}} {
+			e := newTestEditor("a\nb\nc\nd")
+			keys(e, seq...)
+			assert.Equal(t, "c\nd", content(e), string(seq))
+		}
+	})
+
+	t.Run("2d2d deletes four lines", func(t *testing.T) {
+		e := newTestEditor("a\nb\nc\nd\ne")
+		keys(e, '2', 'd', '2', 'd')
+		assert.Equal(t, "e", content(e))
+	})
+
+	t.Run("2y3w yanks six words", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("a b c d e f g h")
+		keys(e, '2', 'y', '3', 'w')
+		assert.Equal(t, "a b c d e f ", cb.content)
+	})
+
+	t.Run("2d2fx deletes through the fourth x", func(t *testing.T) {
+		e := newTestEditor("1x2x3x4x5x")
+		keys(e, '2', 'd', '2', 'f', 'x')
+		assert.Equal(t, "5x", content(e))
+	})
+
+	t.Run("2d2G deletes through line 4", func(t *testing.T) {
+		e := newTestEditor("a\nb\nc\nd\ne")
+		keys(e, '2', 'd', '2', 'G')
+		assert.Equal(t, "e", content(e))
+	})
+
+	t.Run("count before an escaped operator is dropped", func(t *testing.T) {
+		e := newTestEditor("a b c d e")
+		keys(e, '3', 'd')
+		escape(e)
+		keys(e, 'd', 'w')
+		assert.Equal(t, "b c d e", content(e))
+	})
+
+	t.Run("2d2aw deletes four words", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'd', '2', 'a', 'w')
+		assert.Equal(t, "e f g h", content(e))
+	})
+
+	t.Run("no count after a text object modifier: the digit cancels, then w moves", func(t *testing.T) {
+		for _, seq := range []string{"2di2w", "2gUi2w"} {
+			e := newTestEditor("a b c d e f g h")
+			keys(e, []rune(seq)...)
+			assert.Equal(t, "a b c d e f g h", content(e), seq)
+			assert.Equal(t, Position{0, 2}, cursorPos(e), seq)
+		}
+	})
+
+	t.Run("count before an escaped case operator is dropped", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'g', 'U')
+		escape(e)
+		keys(e, 'd', 'w')
+		assert.Equal(t, "b c d e f g h", content(e))
+	})
+
+	t.Run("2gU3w uppercases six words", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'g', 'U', '3', 'w')
+		assert.Equal(t, "A B C D E F g h", content(e))
+	})
+
+	t.Run("2gUU uppercases two lines", func(t *testing.T) {
+		e := newTestEditor("a\nb\nc")
+		keys(e, '2', 'g', 'U', 'U')
+		assert.Equal(t, "A\nB\nc", content(e))
+	})
+	t.Run("command line shows both counts as they are typed", func(t *testing.T) {
+		for _, tc := range []struct {
+			keys  string
+			shown []string // command line after each key
+		}{
+			{"2d3w", []string{"2", "2d", "2d3", ""}},
+			{"12y2w", []string{"1", "12", "12y", "12y2", ""}},
+			{"2gU3w", []string{"2", "2g", "2gU", "2gU3", ""}},
+			{"gUiw", []string{"g", "gU", "gUi", ""}},
+			{"daw", []string{"d", "da", ""}},
+			{"2d2aw", []string{"2", "2d", "2d2", "2d2a", ""}},
+		} {
+			e := newTestEditor("a b c d e f g h")
+			for i, r := range tc.keys {
+				keys(e, r)
+				assert.Equal(t, tc.shown[i], e.GetState().CommandLine, "%s after %q", tc.keys, tc.keys[:i+1])
+			}
+		}
 	})
 }
 
