@@ -256,3 +256,53 @@ func TestInsertEscape(t *testing.T) {
 		assert.Equal(t, "hello", content(e))
 	})
 }
+
+// TestInsertEscapeStepsBack tests that leaving insert mode moves the cursor
+// one left, as in Vim, unless it is already at col 0.
+func TestInsertEscapeStepsBack(t *testing.T) {
+	t.Run("A<Esc> lands on the last char", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'A')
+		escape(e)
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("i<Esc> after typing lands on the last inserted char", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'l', 'i', 'X', 'Y')
+		escape(e)
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		keys(e, 'x')
+		assert.Equal(t, "aXbc", content(e))
+	})
+
+	t.Run("no move at col 0", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'i')
+		escape(e)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("o<Esc> on the new empty line stays at col 0", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'o')
+		escape(e)
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("O<Esc> on the new empty line stays at col 0", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'O')
+		escape(e)
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("non-vim mode: escape does not move the cursor", func(t *testing.T) {
+		e := newTestEditor("abc")
+		e.DisableVimMode(true)
+		keys(e, 'X')
+		escape(e)
+		assert.True(t, e.IsInsertMode())
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+}

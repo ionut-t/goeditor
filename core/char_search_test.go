@@ -245,10 +245,10 @@ func TestCharSearchShowsPendingCount(t *testing.T) {
 func TestCharSearchRepeatSurvivesModeSwitch(t *testing.T) {
 	t.Run("normal, insert, normal", func(t *testing.T) {
 		e := newTestEditor("a.b.c.d")
-		keys(e, 'f', '.', 'i')
+		keys(e, 'f', '.', 'a')
 		escape(e)
 		keys(e, ';')
-		assert.Equal(t, 3, cursorPos(e).Col, "; repeats f. after i<Esc>")
+		assert.Equal(t, 3, cursorPos(e).Col, "; repeats f. after a<Esc>")
 	})
 
 	for _, mode := range []rune{'v', 'V'} {

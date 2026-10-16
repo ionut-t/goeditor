@@ -28,6 +28,11 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if !editor.IsVimMode() {
 			return nil
 		}
+		// Like Vim, leaving insert steps back onto the last inserted char
+		// (no move at col 0), so normal mode never sits past the line end.
+		if cursor.MoveLeft(buffer, 1, availableWidth) == nil {
+			buffer.SetCursor(cursor)
+		}
 		editor.SetNormalMode()
 		return nil
 
