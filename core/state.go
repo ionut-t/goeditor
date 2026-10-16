@@ -311,7 +311,9 @@ func (e *editor) SetNormalMode() {
 }
 
 func (e *editor) SetInsertMode() {
-	if !e.state.WithInsertMode {
+	// Already in insert: setMode would run insertMode.Exit, stepping the
+	// cursor back, though insert was never left (e.g. a host refocusing).
+	if !e.state.WithInsertMode || e.state.Mode == InsertMode {
 		return
 	}
 

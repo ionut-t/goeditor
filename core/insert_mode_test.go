@@ -297,6 +297,39 @@ func TestInsertEscapeStepsBack(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
+	t.Run("host SetNormalMode from insert steps back", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'A')
+		e.SetNormalMode()
+		assert.True(t, e.IsNormalMode())
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("host switch from insert to visual steps back", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'A')
+		e.SetVisualMode()
+		assert.True(t, e.IsVisualMode())
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("SetInsertMode while in insert does not move", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'A')
+		e.SetInsertMode()
+		assertInsertMode(t, e)
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+
+	t.Run("updates the preferred column for j", func(t *testing.T) {
+		e := newTestEditor("abc\nabcdef")
+		setWidth(e, 80)
+		keys(e, 'A')
+		escape(e)
+		keys(e, 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
 	t.Run("non-vim mode: escape does not move the cursor", func(t *testing.T) {
 		e := newTestEditor("abc")
 		e.DisableVimMode(true)
