@@ -178,6 +178,18 @@ func (c *Cursor) MoveDown(buffer Buffer, count int, availableWidth int) error {
 	return nil
 }
 
+// MoveDownToFirstNonBlank moves the cursor down count lines to the first
+// non-blank, as Vim's <CR> and +. A count past the end stops on the last line;
+// on the last line it returns ErrEndOfBuffer without moving.
+func (c *Cursor) MoveDownToFirstNonBlank(buffer Buffer, count int, availableWidth int) error {
+	startRow := c.Position.Row
+	err := c.MoveDown(buffer, count, availableWidth)
+	if c.Position.Row != startRow {
+		c.MoveToFirstNonBlank(buffer, availableWidth)
+	}
+	return err
+}
+
 // MoveLeftOrUp moves the cursor left or up based on the current column and visual width
 func (c *Cursor) MoveLeftOrUp(buffer Buffer, count, availableWidth int) error {
 	if availableWidth <= 0 {

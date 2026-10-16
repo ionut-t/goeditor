@@ -178,6 +178,41 @@ func TestMoveToFirstNonBlank(t *testing.T) {
 	})
 }
 
+// TestEnterMovesDown tests <Enter> — move down [count] lines to the first non-blank.
+func TestEnterMovesDown(t *testing.T) {
+	const text = "one\n  two\n    three\n four\nfive"
+
+	t.Run("no count moves down one line", func(t *testing.T) {
+		e := newTestEditor(text)
+		setCursorRow(e, 1)
+		enter(e)
+		assert.Equal(t, Position{2, 4}, cursorPos(e))
+	})
+
+	t.Run("count moves down count lines", func(t *testing.T) {
+		e := newTestEditor(text)
+		keys(e, '2')
+		enter(e)
+		assert.Equal(t, Position{2, 4}, cursorPos(e))
+		assert.Nil(t, e.GetState().PendingCount)
+	})
+
+	t.Run("count past the end stops on the last line", func(t *testing.T) {
+		e := newTestEditor(text)
+		setCursorRow(e, 2)
+		keys(e, '9')
+		enter(e)
+		assert.Equal(t, Position{4, 0}, cursorPos(e))
+	})
+
+	t.Run("on the last line stays put", func(t *testing.T) {
+		e := newTestEditor(text)
+		keys(e, 'G', 'l', 'l')
+		enter(e)
+		assert.Equal(t, Position{4, 2}, cursorPos(e))
+	})
+}
+
 // TestMoveToBufferStart tests 'g' — move to first line.
 func TestMoveToBufferStart(t *testing.T) {
 	t.Run("moves to row 0 col 0", func(t *testing.T) {

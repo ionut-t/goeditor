@@ -367,6 +367,25 @@ func TestVisualGWithCountGoesToLine(t *testing.T) {
 	}
 }
 
+func TestVisualEnterMovesDown(t *testing.T) {
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newTestEditor("one\n  two\n    three\n four\nfive")
+			setCursorRow(e, 1)
+
+			keys(e, mode)
+			enter(e)
+			assert.Equal(t, Position{2, 4}, cursorPos(e), "no count moves down one line")
+
+			keys(e, '2')
+			enter(e)
+			assert.Equal(t, Position{4, 0}, cursorPos(e), "count moves down count lines")
+			assert.Nil(t, e.GetState().PendingCount)
+			assert.Equal(t, Position{Row: 1, Col: 0}, e.GetState().VisualStart)
+		})
+	}
+}
+
 func TestPrefixDoesNotSurviveModeSwitch(t *testing.T) {
 	e := newTestEditor("one\ntwo\nthree\nfour")
 	setCursorRow(e, 2)
