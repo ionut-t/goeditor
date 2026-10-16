@@ -10,9 +10,15 @@ type visualLineMode struct {
 }
 
 func NewVisualLineMode() EditorMode {
+	return newVisualLineMode(&lastCharSearch{})
+}
+
+// newVisualLineMode builds the mode sharing last (the last f/F/t/T search) with the
+// other modes.
+func newVisualLineMode(last *lastCharSearch) *visualLineMode {
 	return &visualLineMode{
 		startPos:   Position{-1, -1},
-		charSearch: charSearchState{},
+		charSearch: newCharSearchState(last),
 	}
 }
 
@@ -29,7 +35,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateCommand("")
 	// Record selection start position (row matters most)
 	m.startPos = buffer.GetCursor().Position
-	m.charSearch = charSearchState{}
+	m.charSearch.cancel() // keeps the last search for ; and ,
 	m.pending.reset()
 	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active (use same flag)

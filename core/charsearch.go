@@ -5,11 +5,37 @@ import (
 	"fmt"
 )
 
-// charSearchState holds state for character search motions (f/F/t/T)
+// lastCharSearch is the most recent f/F/t/T search, the one ; and , repeat.
+// Like Vim's, it is editor-wide: every mode shares one, so it survives mode
+// switches (fx, i<Esc>, ; and fx, v, ; both repeat the search).
+type lastCharSearch struct {
+	char       rune // The character searched for
+	searchType rune // 'f', 'F', 't', or 'T'; 0 when there has been no search
+}
+
+// charSearchState holds a mode's character search state (f/F/t/T). The
+// pending fields are per mode and reset on a mode switch; last is shared.
 type charSearchState struct {
-	lastChar       rune // The character being searched for
-	searchType     rune // 'f', 'F', 't', or 'T'
-	waitingForChar bool // True when waiting for character input after f/F/t/T
+	last           *lastCharSearch // Shared by all modes; never reset by cancel
+	searchType     rune            // Pending 'f', 'F', 't', or 'T' waiting for its target
+	waitingForChar bool            // True when waiting for character input after f/F/t/T
+}
+
+// newCharSearchState returns a mode's state sharing last with the other modes.
+func newCharSearchState(last *lastCharSearch) charSearchState {
+	return charSearchState{last: last}
+}
+
+// cancel drops a pending search but keeps the last one for ; and ,.
+func (cs *charSearchState) cancel() {
+	cs.searchType = 0
+	cs.waitingForChar = false
+}
+
+// record makes the pending search, now with its target, the one ; and , repeat.
+// Vim records it even when the target isn't found, so callers record first.
+func (cs *charSearchState) record(char rune) {
+	*cs.last = lastCharSearch{char: char, searchType: cs.searchType}
 }
 
 // findCharOnLine searches for a character on the current line.
@@ -75,11 +101,11 @@ func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, 
 
 // performCharSearch executes a character search and moves the cursor.
 // Returns error if character not found.
-func performCharSearch(buffer Buffer, cs *charSearchState, char rune, count int) error {
+func performCharSearch(buffer Buffer, searchType rune, char rune, count int) error {
 	cursor := buffer.GetCursor()
 	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
 
-	newCol := findCharOnLine(lineRunes, cursor.Position.Col, char, cs.searchType, count)
+	newCol := findCharOnLine(lineRunes, cursor.Position.Col, char, searchType, count)
 
 	if newCol == -1 {
 		return fmt.Errorf("character '%c' not found", char)
@@ -87,7 +113,6 @@ func performCharSearch(buffer Buffer, cs *charSearchState, char rune, count int)
 
 	cursor.Position.Col = newCol
 	buffer.SetCursor(cursor)
-	cs.lastChar = char
 
 	return nil
 }
@@ -161,16 +186,17 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 // repeatCharSearchOperator implements d;/y;/c; and d,/y,/c, — apply an operator
 // over a repeat of the last f/F/t/T search (reversed for ',').
 func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer, op string, count int, reverse bool) *EditorError {
-	if cs.searchType == 0 || cs.lastChar == 0 {
+	last := *cs.last
+	if last.searchType == 0 || last.char == 0 {
 		return &EditorError{
 			id:  ErrInvalidMotionId,
 			err: errors.New("no previous character search to repeat"),
 		}
 	}
 
-	searchType := cs.searchType
+	searchType := last.searchType
 	if reverse {
-		switch cs.searchType {
+		switch last.searchType {
 		case 'f':
 			searchType = 'F'
 		case 'F':
@@ -182,7 +208,7 @@ func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer,
 		}
 	}
 
-	return handleCharSearchOperator(editor, buffer, op, searchType, cs.lastChar, count, true)
+	return handleCharSearchOperator(editor, buffer, op, searchType, last.char, count, true)
 }
 
 // handleVisualCharSearchInput encapsulates the repeated waitingForChar block used
@@ -192,13 +218,13 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 	editor.UpdateCommand("")
 
 	if key.Key == KeyEscape {
-		*cs = charSearchState{}
+		cs.cancel()
 		editor.SetNormalMode()
 		return true, nil
 	}
 
 	if key.Rune == 0 {
-		*cs = charSearchState{}
+		cs.cancel()
 		return true, nil
 	}
 
@@ -209,8 +235,10 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 		editor.ResetPendingCount()
 	}
 
-	if err := performCharSearch(buffer, cs, key.Rune, count); err != nil {
-		*cs = charSearchState{}
+	cs.record(key.Rune)
+	err := performCharSearch(buffer, cs.searchType, key.Rune, count)
+	cs.cancel()
+	if err != nil {
 		editor.DispatchError(ErrCharNotFoundId, err)
 	}
 	return true, nil
@@ -234,15 +262,16 @@ func startCharSearch(cs *charSearchState, editor Editor, searchType rune) {
 }
 
 // repeatCharSearch repeats (reverse=false) or reverses (reverse=true) the last
-// character search stored in cs.
+// character search shared through cs.
 func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count int, reverse bool) {
-	if cs.searchType == 0 || cs.lastChar == 0 {
+	last := *cs.last
+	if last.searchType == 0 || last.char == 0 {
 		return
 	}
 
-	searchType := cs.searchType
+	searchType := last.searchType
 	if reverse {
-		switch cs.searchType {
+		switch last.searchType {
 		case 'f':
 			searchType = 'F'
 		case 'F':
@@ -253,9 +282,6 @@ func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count i
 			searchType = 't'
 		}
 	}
-
-	originalType := cs.searchType
-	cs.searchType = searchType
 
 	// For t/T the cursor sits one col before/after the matched char. Nudge it
 	// one step further so findCharOnLine skips that char and finds the next one.
@@ -270,9 +296,8 @@ func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count i
 		buffer.SetCursor(cursor)
 	}
 
-	if err := performCharSearch(buffer, cs, cs.lastChar, count); err != nil {
+	if err := performCharSearch(buffer, searchType, last.char, count); err != nil {
 		buffer.SetCursor(original) // undo the nudge if the search found nothing
 		editor.DispatchError(ErrCharNotFoundId, err)
 	}
-	cs.searchType = originalType
 }

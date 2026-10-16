@@ -19,10 +19,16 @@ type normalMode struct {
 }
 
 func NewNormalMode() EditorMode {
+	return newNormalMode(&lastCharSearch{})
+}
+
+// newNormalMode builds normal mode sharing last (the last f/F/t/T search)
+// with the other modes.
+func newNormalMode(last *lastCharSearch) *normalMode {
 	return &normalMode{
 		pendingKey:      KeyEvent{Key: KeyUnknown},
 		pendingModifier: 0,
-		charSearch:      charSearchState{},
+		charSearch:      newCharSearchState(last),
 
 		pendingCaseOp:       0,
 		pendingCaseModifier: 0,
@@ -115,7 +121,7 @@ func (m *normalMode) handleCharSearchKey(editor Editor, buffer Buffer, key KeyEv
 
 		if op != "" {
 			// Record the search so ;/, (and d;/d,) can repeat it later.
-			m.charSearch.lastChar = key.Rune
+			m.charSearch.record(key.Rune)
 			err := handleCharSearchOperator(editor, buffer, op, m.charSearch.searchType, key.Rune, count, false)
 			if err != nil {
 				m.clearPendingState(editor)
@@ -125,7 +131,8 @@ func (m *normalMode) handleCharSearchKey(editor Editor, buffer Buffer, key KeyEv
 	}
 
 	// No pending operator - just perform the character search
-	if err := performCharSearch(buffer, &m.charSearch, key.Rune, count); err != nil {
+	m.charSearch.record(key.Rune)
+	if err := performCharSearch(buffer, m.charSearch.searchType, key.Rune, count); err != nil {
 		m.clearPendingState(editor)
 		editor.DispatchError(ErrCharNotFoundId, err)
 	}
@@ -1265,7 +1272,7 @@ func (m *normalMode) clearPendingState(editor Editor) {
 func (m *normalMode) resetPending() {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
-	m.charSearch = charSearchState{}
+	m.charSearch.cancel() // keeps the last search for ; and ,
 	m.waitingForReplace = false
 	m.pending.reset()
 	m.pendingCaseOp = 0
