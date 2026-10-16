@@ -422,3 +422,13 @@ func TestPrefixShowsPendingCount(t *testing.T) {
 		})
 	}
 }
+
+// Re-entering visual mode (e.g. a host refocusing) must not reset the anchor.
+func TestSetVisualModeWhileInVisualKeepsSelection(t *testing.T) {
+	e := newTestEditor("abc")
+	keys(e, 'v', 'l')
+	e.SetVisualMode()
+	assert.True(t, e.IsVisualMode())
+	assert.Equal(t, Position{0, 0}, e.GetState().VisualStart)
+	assert.Equal(t, Position{0, 1}, cursorPos(e))
+}
