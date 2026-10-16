@@ -2,25 +2,31 @@ package core
 
 import "errors"
 
-// handleVisualGKey handles the second key of a 'g' prefix in any visual mode (gg / ge).
-// It resets the waitingForG flag, clears the command display, and applies the motion.
-func handleVisualGKey(waitingForG *bool, editor Editor, buffer Buffer, key KeyEvent, count int) {
-	*waitingForG = false
+// handleVisualGPrefix handles the second key of a 'g' prefix in any visual
+// mode (gg / ge). [count]gg goes to line count, as in normal mode.
+func handleVisualGPrefix[M any](_ M, editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	count := takeCount(editor)
 	editor.UpdateCommand("")
 	if key.Key == KeyEscape {
-		return
+		return nil
 	}
 	cursor := buffer.GetCursor()
 	switch key.Rune {
 	case 'g':
-		cursor.MoveToBufferStart()
+		if count > 0 && buffer.LineCount() > 0 {
+			cursor.Position.Row = min(count, buffer.LineCount()) - 1
+			cursor.Position.Col = 0
+		} else {
+			cursor.MoveToBufferStart()
+		}
 		buffer.SetCursor(cursor)
 	case 'e':
-		moveErr := cursor.MoveWordToEndBackward(buffer, count, editor.GetState().AvailableWidth, editor.IsWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.GetState().AvailableWidth, editor.IsWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
 	}
+	return nil
 }
 
 // applyVisualMotion handles motion keys shared by all visual modes.
@@ -28,8 +34,10 @@ func handleVisualGKey(waitingForG *bool, editor Editor, buffer Buffer, key KeyEv
 // Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,, /, n/N
 // Excludes:
 //   - h/l            — count differs: charwise uses the user count, line mode always uses 1
-//   - g, z           — handled by each mode's waitingForG/waitingForZ state before reaching here
+//   - g, z           — prefixes, dispatched through each mode's prefixTable before reaching here
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
+//
+// count is 0 when none was typed; motions treat that as 1.
 //
 // Returns (movementAttempted, earlyReturn, moveErr).
 // earlyReturn=true signals the caller must return nil immediately (charSearch initiated).
@@ -43,15 +51,12 @@ func applyVisualMotion(
 ) (movementAttempted bool, earlyReturn bool, moveErr error) {
 	state := editor.GetState()
 	availableWidth := state.AvailableWidth
+	scrollCount := count // 0 keeps 'scroll'; an explicit count, even 1, sets it
+	count = max(count, 1)
 	switch {
 	// Ctrl-modified keys first: normalisation puts the letter in Rune, so they
 	// would otherwise match the plain-letter motions below.
 	case key.IsCtrl('d'), key.IsCtrl('u'):
-		// The visual modes default count to 1, so an explicit 1 can't set 'scroll'.
-		scrollCount := 0
-		if count > 1 {
-			scrollCount = count
-		}
 		*cursor, moveErr = editor.ScrollHalfPage(key.IsCtrl('d'), scrollCount)
 		movementAttempted = true
 	case key.Modifiers&ModCtrl != 0:

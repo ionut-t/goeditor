@@ -11,12 +11,16 @@ type normalMode struct {
 	pendingModifier   rune            // Stores text object modifier ('i' for inside, 'a' for around)
 	charSearch        charSearchState // Character search state (f/F/t/T)
 	waitingForReplace bool            // True when waiting for character input after 'r'
-	waitingForG       bool            // True after 'g' is pressed, waiting for second key (gg, ge)
-	waitingForZ       bool            // True after 'z' is pressed, waiting for second key (zz, zt, zb)
+	pending           pendingPrefix   // g or z waiting for its second key
 
 	pendingCaseOp       rune // Set after gu/gU/g~ while waiting for a motion key ('u','U','~', or 0)
 	pendingCaseModifier rune // Set after gu/gU/g~ + i/a while waiting for the text object key
 	pendingCaseG        bool // Set after gu/gU/g~ + g, waiting for second key (g=buffer-start, op=current-line)
+}
+
+var normalPrefixes = prefixTable[*normalMode]{
+	'g': (*normalMode).handleGKey,
+	'z': handleZPrefix[*normalMode],
 }
 
 func NewNormalMode() EditorMode {
@@ -48,17 +52,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- NORMAL --")
 	editor.UpdateCommand("")
 
-	// Reset pending state on entering normal mode
-	m.pendingKey = KeyEvent{Key: KeyUnknown}
-	m.pendingModifier = 0
-	m.charSearch = charSearchState{}
-	m.waitingForReplace = false
-	m.waitingForG = false
-	m.waitingForZ = false
-	m.pendingCaseOp = 0
-	m.pendingCaseModifier = 0
-	m.pendingCaseG = false
-	editor.ResetPendingCount()
+	m.clearPendingState(editor)
 	// Clear visual selection when entering normal mode
 	state := editor.GetState()
 	state.VisualStart = Position{-1, -1}
@@ -66,16 +60,7 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 }
 
 func (m *normalMode) Exit(editor Editor, buffer Buffer) {
-	// Clear pending state when exiting normal mode
-	m.pendingKey = KeyEvent{Key: KeyUnknown}
-	m.pendingModifier = 0
-	m.charSearch = charSearchState{}
-	m.waitingForReplace = false
-	m.waitingForG = false
-	m.waitingForZ = false
-	m.pendingCaseOp = 0
-	m.pendingCaseModifier = 0
-	m.pendingCaseG = false
+	m.resetPending()
 }
 
 // HandleKey dispatches each incoming key to the appropriate handler.
@@ -86,18 +71,8 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	if m.waitingForReplace {
 		return m.handleReplaceKey(editor, buffer, key)
 	}
-	if m.waitingForG {
-		return m.handleGKey(editor, buffer, key)
-	}
-	if m.waitingForZ {
-		m.waitingForZ = false
-		count := 0
-		if pending := editor.GetState().PendingCount; pending != nil {
-			count = *pending
-		}
-		editor.ResetPendingCount()
-		handleZKey(editor, buffer, key, count)
-		return nil
+	if handled, err := dispatchPrefix(normalPrefixes, &m.pending, m, editor, buffer, key); handled {
+		return err
 	}
 	if m.pendingCaseOp != 0 {
 		return m.handleCaseMotionKey(editor, buffer, key)
@@ -177,8 +152,6 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 // handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg,
 // and the case-op prefixes gu, gU, g~).
 func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
-	m.waitingForG = false
-
 	state := editor.GetState()
 	pendingCount := state.PendingCount
 	cursor := buffer.GetCursor()
@@ -516,7 +489,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 	// Check for 'g' prefix motion (dgg, ygg, cgg, dge, ...)
 	// The pending count is preserved for handleGKey to consume.
 	if key.Rune == 'g' {
-		m.waitingForG = true
+		m.pending.start('g')
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Keep pendingKey, wait for the second key
 	}
@@ -938,11 +911,11 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == '^' || key.Key == KeyHome:
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 	case key.Rune == 'g':
-		m.waitingForG = true
+		m.pending.start('g')
 		editor.UpdateCommand("g")
 		return nil // wait for second key; preserve pendingCount for 5gg etc.
 	case key.Rune == 'z':
-		m.waitingForZ = true
+		m.pending.start('z')
 		editor.UpdateCommand("z")
 		return nil // wait for second key; preserve pendingCount for 10zz etc.
 	case key.Rune == 'G':
@@ -1360,16 +1333,21 @@ func (m *normalMode) handleCharSearchRepeat(editor Editor, buffer Buffer, revers
 	return buffer.GetCursor() // Return refreshed cursor
 }
 
-// clearPendingState resets all pending state in normal mode
+// clearPendingState resets all pending state in normal mode, including the count.
 func (m *normalMode) clearPendingState(editor Editor) {
+	m.resetPending()
+	editor.ResetPendingCount()
+}
+
+// resetPending clears every partly typed command. It is the one place that
+// knows the full list, so a mode switch can't leave a stale prefix behind.
+func (m *normalMode) resetPending() {
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
 	m.pendingModifier = 0
 	m.charSearch = charSearchState{}
 	m.waitingForReplace = false
-	m.waitingForG = false
-	m.waitingForZ = false
+	m.pending.reset()
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false
-	editor.ResetPendingCount()
 }

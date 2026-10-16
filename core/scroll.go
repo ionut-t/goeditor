@@ -289,6 +289,12 @@ func zScrollTarget(key KeyEvent) (target ScrollTarget, firstNonBlank bool, ok bo
 	return 0, false, false
 }
 
+// handleZPrefix is the 'z' entry of every mode's prefixTable.
+func handleZPrefix[M any](_ M, editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	handleZKey(editor, buffer, key, takeCount(editor))
+	return nil
+}
+
 // handleZKey runs the second key of a z scroll command in any mode. A count
 // (0 for none) first moves the cursor to that line, as in Vim. A key that
 // isn't a z command cancels the z without moving anything.

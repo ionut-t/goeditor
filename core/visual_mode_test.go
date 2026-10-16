@@ -338,3 +338,28 @@ func TestVisualModeMovementSequences(t *testing.T) {
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
 }
+
+func TestVisualGGWithCountGoesToLine(t *testing.T) {
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newTestEditor("one\ntwo\nthree\nfour\nfive\nsix")
+
+			keys(e, mode, '4', 'g', 'g')
+
+			assert.Equal(t, 3, cursorPos(e).Row)
+			assert.Nil(t, e.GetState().PendingCount)
+		})
+	}
+}
+
+func TestPrefixDoesNotSurviveModeSwitch(t *testing.T) {
+	e := newTestEditor("one\ntwo\nthree\nfour")
+	setCursorRow(e, 2)
+
+	keys(e, 'g')
+	e.SetInsertMode()
+	escape(e)
+	keys(e, 'g')
+
+	assert.Equal(t, 2, cursorPos(e).Row, "the g typed before the switch must not complete a gg")
+}

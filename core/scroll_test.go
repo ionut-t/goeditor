@@ -148,6 +148,21 @@ func TestZZInVisualModes(t *testing.T) {
 	}
 }
 
+func TestZWithCountInVisualModes(t *testing.T) {
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newScrollEditor(100, 10)
+
+			keys(e, mode, '3', '0', 'z', 'z')
+
+			assert.Equal(t, 29, cursorPos(e).Row)
+			assert.Equal(t, 25, topLine(e))
+			assert.Nil(t, e.GetState().PendingCount)
+			assert.True(t, e.IsVisualMode() || e.IsVisualLineMode(), "zz keeps the selection")
+		})
+	}
+}
+
 func TestCursorLeavingWindowScrollsLikeVim(t *testing.T) {
 	t.Run("one line below scrolls one line", func(t *testing.T) {
 		e := newScrollEditor(100, 10)
@@ -271,6 +286,15 @@ func TestCtrlDInVisualMode(t *testing.T) {
 	assert.Equal(t, 5, topLine(e))
 	assert.Equal(t, 7, cursorPos(e).Row)
 	assert.True(t, e.IsVisualMode())
+}
+
+func TestCtrlDCountOfOneInVisualMode(t *testing.T) {
+	e := newScrollEditor(100, 10)
+
+	keys(e, 'v', '1')
+	ctrlKey(e, 'd')
+
+	assert.Equal(t, 1, topLine(e), "an explicit 1 sets 'scroll', unlike no count")
 }
 
 func TestScrollingCountsWrappedRows(t *testing.T) {

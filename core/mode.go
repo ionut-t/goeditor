@@ -1,9 +1,5 @@
 package core
 
-import (
-	"fmt"
-)
-
 type Mode string
 
 const (
@@ -42,50 +38,68 @@ type baseMode struct{}
 func (baseMode) AwaitingLiteral() bool { return false }
 func (baseMode) OperatorPending() bool { return false }
 
-type VisualModeInterface interface {
-	GetCurrentCount() *int
-	SetCurrentCount(count *int)
+// prefixHandler runs the second key of a prefix command (gg, zz, ...) for a
+// mode. Any count typed before the prefix is still in State.PendingCount.
+type prefixHandler[M any] func(m M, editor Editor, buffer Buffer, key KeyEvent) *EditorError
+
+// prefixTable maps a prefix key to the handler for the key that follows it.
+// Vim marks these commands as taking a second character and reads it before
+// calling the handler (nv_g_cmd, nv_zet); each mode keeps one such table.
+type prefixTable[M any] map[rune]prefixHandler[M]
+
+// pendingPrefix is the prefix key a mode is waiting to complete, or 0.
+type pendingPrefix struct {
+	prefix rune
 }
 
-// getMoveCount processes numeric key presses to build a command count for visual modes.
-// It returns:
-// - count: The calculated count (default 1 or accumulated value) if a non-digit key was pressed.
-// - processedDigit: true if the key was a digit ('0'-'9') and was consumed, false otherwise.
-func getMoveCount(mode VisualModeInterface, editor Editor, key KeyEvent) (count int, processedDigit bool) {
-	currentCount := mode.GetCurrentCount()
+// start records r as the pending prefix. The pending count is left alone so
+// the prefix handler can use it (5gg, 10zz).
+func (p *pendingPrefix) start(r rune) { p.prefix = r }
 
-	// --- Handle Digit Input ---
-	if key.Rune >= '1' && key.Rune <= '9' {
-		digit := int(key.Rune - '0')
-		if currentCount == nil {
-			currentCount = new(int) // Allocate memory
-		}
-		*currentCount = (*currentCount * 10) + digit // Append digit
-		mode.SetCurrentCount(currentCount)           //  Set state back
-		editor.UpdateCommand(fmt.Sprintf("%d", *currentCount))
-		return 0, true
-	} else if key.Rune == '0' {
-		if currentCount != nil { // Can only append '0' if count already started
-			digit := 0
-			*currentCount = (*currentCount * 10) + digit // Append digit
-			mode.SetCurrentCount(currentCount)
-			editor.UpdateCommand(fmt.Sprintf("%d", *currentCount))
-			return 0, true
-		}
+func (p *pendingPrefix) reset() { p.prefix = 0 }
+
+// dispatchPrefix runs the handler for the pending prefix, if there is one, and
+// reports whether it did. The prefix is cleared before the handler runs, so a
+// handler can start a new one.
+func dispatchPrefix[M any](table prefixTable[M], p *pendingPrefix, m M, editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
+	if p.prefix == 0 {
+		return false, nil
 	}
-
-	// --- Key was NOT a digit being accumulated ---
-	processedDigit = false // We didn't process a digit here
-
-	// Determine final count to use
-	count = 1 // Default count
-	if currentCount != nil {
-		count = *currentCount
-		// Reset the count now that it's being used/finalized
-		mode.SetCurrentCount(nil)
-		editor.UpdateCommand("") // Clear count display
+	handler, ok := table[p.prefix]
+	p.reset()
+	if !ok {
+		return true, nil
 	}
+	return true, handler(m, editor, buffer, key)
+}
 
-	// Return the calculated count and indicate no digit was processed *by this part*
-	return count, processedDigit
+// accumulateCount adds a digit key to State.PendingCount and reports whether
+// the key was consumed. '0' only counts once a count has started; on its own
+// it is a motion.
+func accumulateCount(editor Editor, key KeyEvent) bool {
+	if key.Modifiers&ModCtrl != 0 {
+		return false
+	}
+	state := editor.GetState()
+	if key.Rune < '0' || key.Rune > '9' || (key.Rune == '0' && state.PendingCount == nil) {
+		return false
+	}
+	n := int(key.Rune - '0')
+	if state.PendingCount != nil {
+		n += *state.PendingCount * 10
+	}
+	state.PendingCount = &n
+	editor.SetState(state)
+	return true
+}
+
+// takeCount consumes State.PendingCount. It returns 0 when no count was typed,
+// so callers can tell "no count" from an explicit 1.
+func takeCount(editor Editor) int {
+	pending := editor.GetState().PendingCount
+	if pending == nil {
+		return 0
+	}
+	editor.ResetPendingCount()
+	return *pending
 }
