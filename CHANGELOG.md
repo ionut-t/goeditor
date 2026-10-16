@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.1](https://github.com/ionut-t/goeditor/compare/v0.8.0...v0.8.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **charsearch:** preserve last character search across mode switches ([#26](https://github.com/ionut-t/goeditor/issues/26)) ([845a05a](https://github.com/ionut-t/goeditor/commit/845a05a57c268695cba862af3fe0abaaba0cb634))
+* **core:** handle Enter key motion with count correctly ([#25](https://github.com/ionut-t/goeditor/issues/25)) ([fce3804](https://github.com/ionut-t/goeditor/commit/fce38045d384055cc5c9b6ad2dfd502220393692))
+* **core:** handle line count for G motion and operators ([#23](https://github.com/ionut-t/goeditor/issues/23)) ([3e336c5](https://github.com/ionut-t/goeditor/commit/3e336c55f09b301ca1372aa2c0fffe8b24c3af9d))
+* **core:** step cursor left when exiting insert mode ([#27](https://github.com/ionut-t/goeditor/issues/27)) ([de90309](https://github.com/ionut-t/goeditor/commit/de90309e989f173cd3866d2c1f6d118ba114cc96))
+
 ## [0.8.0](https://github.com/ionut-t/goeditor/compare/v0.7.0...v0.8.0) (2026-10-15)
 
 
