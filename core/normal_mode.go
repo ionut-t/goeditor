@@ -477,7 +477,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 	// Check for text object modifiers (i/a)
 	if key.Rune == 'i' || key.Rune == 'a' {
 		m.pendingModifier = key.Rune
-		editor.UpdateCommand(fmt.Sprintf("%s%c%c", editor.GetState().CommandLine, firstKey.Rune, key.Rune))
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the text object key
 	}
 

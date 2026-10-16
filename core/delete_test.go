@@ -917,6 +917,8 @@ func TestOperatorCountComposition(t *testing.T) {
 			{"12y2w", []string{"1", "12", "12y", "12y2", ""}},
 			{"2gU3w", []string{"2", "2g", "2gU", "2gU3", ""}},
 			{"gUiw", []string{"g", "gU", "gUi", ""}},
+			{"daw", []string{"d", "da", ""}},
+			{"2d2aw", []string{"2", "2d", "2d2", "2d2a", ""}},
 		} {
 			e := newTestEditor("a b c d e f g h")
 			for i, r := range tc.keys {
