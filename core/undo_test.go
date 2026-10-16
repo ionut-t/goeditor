@@ -135,3 +135,141 @@ func TestUndoTruncatesRedo(t *testing.T) {
 		assert.Equal(t, "ne\ntwo\nthree", content(e))
 	})
 }
+
+// skipUntilDeltaHistory skips an undo test that fails today. Step 3 of the
+// `.` + undo design (delta history, boundaries in dispatchKey) un-skips them.
+func skipUntilDeltaHistory(t *testing.T, why string) {
+	t.Helper()
+	t.Skipf("%s; fixed by delta undo history (step 3 of the . + undo design)", why)
+}
+
+// TestUndoStepsMatchVim pins down what one 'u' undoes, as in Vim: a whole
+// insert session, a change and the insert that follows it, and each paste or
+// visual operation are one undo step.
+func TestUndoStepsMatchVim(t *testing.T) {
+	t.Run("A world<Esc>u undoes the whole insert", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "insert mode saves history per keystroke")
+		e := newTestEditor("hello")
+		keys(e, []rune("A world")...)
+		escape(e)
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "hello world", content(e))
+	})
+
+	t.Run("insert with Backspace, Enter and Tab is one step", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "insert mode saves history per keystroke")
+		e := newTestEditor("hello")
+		keys(e, []rune("Axy")...)
+		backspace(e)
+		enter(e)
+		tab(e)
+		keys(e, 'z')
+		escape(e)
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("cwX<Esc>u undoes the delete and the insert", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "c saves after the delete, then per inserted rune")
+		e := newTestEditor("one two three")
+		keys(e, []rune("cwX")...)
+		escape(e)
+		assert.Equal(t, "X two three", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one two three", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "X two three", content(e))
+	})
+
+	t.Run("2d3w is one step", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'd', '3', 'w')
+		keys(e, 'u')
+		assert.Equal(t, "a b c d e f g h", content(e))
+	})
+
+	t.Run("oX<Esc>u undoes the new line and its text", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "o saves after the new line, then per inserted rune")
+		e := newTestEditor("one\ntwo")
+		keys(e, []rune("oX")...)
+		escape(e)
+		assert.Equal(t, "one\nX\ntwo", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+
+	t.Run("OX<Esc>u undoes the new line and its text", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "O saves after the new line, then per inserted rune")
+		e := newTestEditor("one\ntwo")
+		keys(e, []rune("jOX")...)
+		escape(e)
+		assert.Equal(t, "one\nX\ntwo", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+
+	t.Run("SX<Esc>u undoes the substitute", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "S deletes the line instead of emptying it (gives \"Xtwo\"), and saves per inserted rune")
+		e := newTestEditor("one\ntwo")
+		keys(e, []rune("SX")...)
+		escape(e)
+		assert.Equal(t, "X\ntwo", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+
+	t.Run("yyp then u removes the pasted line", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("one")
+		keys(e, 'y', 'y', 'p')
+		assert.Equal(t, "one\none", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one", content(e))
+	})
+
+	t.Run("3p of a line is one step", func(t *testing.T) {
+		skipUntilDeltaHistory(t, "each pasted line saves its own history step")
+		e, _ := newTestEditorWithClipboard("one")
+		keys(e, 'y', 'y', '3', 'p')
+		assert.Equal(t, "one\none\none\none", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one", content(e))
+	})
+
+	t.Run("x then ylp: u undoes only the paste, then the x", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("abc")
+		keys(e, 'x', 'y', 'l', 'p')
+		assert.Equal(t, "bbc", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "bc", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "abc", content(e))
+	})
+
+	t.Run("visual d then u restores the selection", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		keys(e, 'v', 'e', 'd')
+		assert.Equal(t, " world", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello world", content(e))
+	})
+
+	t.Run("visual line d then u restores the lines", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree")
+		keys(e, 'V', 'j', 'd')
+		assert.Equal(t, "three", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one\ntwo\nthree", content(e))
+	})
+
+	t.Run("U after an insert restores the line", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("A world")...)
+		escape(e)
+		keys(e, 'U')
+		assert.Equal(t, "hello", content(e))
+		keys(e, 'U') // U undoes itself
+		assert.Equal(t, "hello world", content(e))
+	})
+}
