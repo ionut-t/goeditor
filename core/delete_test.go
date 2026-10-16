@@ -883,10 +883,13 @@ func TestOperatorCountComposition(t *testing.T) {
 		assert.Equal(t, "e f g h", content(e))
 	})
 
-	t.Run("2di2w is cancelled: no count after a text object modifier", func(t *testing.T) {
-		e := newTestEditor("a b c d e f g h")
-		keys(e, '2', 'd', 'i', '2', 'w')
-		assert.Equal(t, "a b c d e f g h", content(e))
+	t.Run("no count after a text object modifier: the digit cancels, then w moves", func(t *testing.T) {
+		for _, seq := range []string{"2di2w", "2gUi2w"} {
+			e := newTestEditor("a b c d e f g h")
+			keys(e, []rune(seq)...)
+			assert.Equal(t, "a b c d e f g h", content(e), seq)
+			assert.Equal(t, Position{0, 2}, cursorPos(e), seq)
+		}
 	})
 
 	t.Run("count before an escaped case operator is dropped", func(t *testing.T) {
