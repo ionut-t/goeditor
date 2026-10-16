@@ -239,3 +239,61 @@ func TestCharSearchShowsPendingCount(t *testing.T) {
 	keys(e, '.')
 	assert.Equal(t, 2, cursorPos(e).Col)
 }
+
+// The last f/F/t/T search is editor-wide, as in Vim: a mode switch must not
+// make ; and , forget it.
+func TestCharSearchRepeatSurvivesModeSwitch(t *testing.T) {
+	t.Run("normal, insert, normal", func(t *testing.T) {
+		e := newTestEditor("a.b.c.d")
+		keys(e, 'f', '.', 'i')
+		escape(e)
+		keys(e, ';')
+		assert.Equal(t, 3, cursorPos(e).Col, "; repeats f. after i<Esc>")
+	})
+
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run("normal to "+string(mode), func(t *testing.T) {
+			e := newTestEditor("a.b.c.d")
+			keys(e, 'f', '.', mode, ';')
+			assert.Equal(t, 3, cursorPos(e).Col)
+			keys(e, ',')
+			assert.Equal(t, 1, cursorPos(e).Col)
+		})
+
+		t.Run(string(mode)+" to normal", func(t *testing.T) {
+			e := newTestEditor("a.b.c.d")
+			keys(e, mode, 'f', '.')
+			escape(e)
+			keys(e, ';')
+			assert.Equal(t, 3, cursorPos(e).Col)
+		})
+	}
+
+	t.Run("operator search, then visual", func(t *testing.T) {
+		e := newTestEditor("a.b.c.d")
+		keys(e, 'd', 't', '.', 'v', ';')
+		assert.Equal(t, ".b.c.d", content(e))
+		assert.Equal(t, 1, cursorPos(e).Col, "; repeats t. from the d")
+	})
+}
+
+func TestCancelledCharSearchKeepsLastSearch(t *testing.T) {
+	e := newTestEditor("a.b.c.d")
+	keys(e, 'f', '.', 'f')
+	escape(e)
+	keys(e, ';')
+	assert.Equal(t, 3, cursorPos(e).Col, "f<Esc> leaves the last search as f.")
+
+	keys(e, 'v', 'f')
+	escape(e) // cancels the search and leaves visual mode
+	escape(e)
+	keys(e, ';')
+	assert.Equal(t, 5, cursorPos(e).Col)
+}
+
+// Vim records an f/F/t/T search even when its target isn't found.
+func TestFailedCharSearchIsStillRepeated(t *testing.T) {
+	e := newTestEditor("a.b\nzz")
+	keys(e, 'f', 'z', 'j', '0', ';')
+	assert.Equal(t, 1, cursorPos(e).Col, "; repeats fz on the next line")
+}

@@ -10,9 +10,15 @@ type visualMode struct {
 }
 
 func NewVisualMode() EditorMode {
+	return newVisualMode(&lastCharSearch{})
+}
+
+// newVisualMode builds the mode sharing last (the last f/F/t/T search) with the
+// other modes.
+func newVisualMode(last *lastCharSearch) *visualMode {
 	return &visualMode{
 		startPos:   Position{-1, -1},
-		charSearch: charSearchState{},
+		charSearch: newCharSearchState(last),
 	}
 }
 func (m *visualMode) Name() Mode { return VisualMode }
@@ -28,7 +34,7 @@ func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateCommand("")
 	// Record selection start position
 	m.startPos = buffer.GetCursor().Position
-	m.charSearch = charSearchState{}
+	m.charSearch.cancel() // keeps the last search for ; and ,
 	m.pendingModifier = 0
 	m.pending.reset()
 	editor.ResetPendingCount()

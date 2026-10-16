@@ -220,10 +220,13 @@ func New(clipboard Clipboard) Editor {
 	}
 
 	// Register modes (pass editor instance if modes need it during init)
-	e.modes[NormalMode] = NewNormalMode()
+	// The last f/F/t/T search is editor-wide, as in Vim, so ; and , still
+	// repeat it after a mode switch.
+	lastSearch := &lastCharSearch{}
+	e.modes[NormalMode] = newNormalMode(lastSearch)
 	e.modes[InsertMode] = NewInsertMode()
-	e.modes[VisualMode] = NewVisualMode()
-	e.modes[VisualLineMode] = NewVisualLineMode()
+	e.modes[VisualMode] = newVisualMode(lastSearch)
+	e.modes[VisualLineMode] = newVisualLineMode(lastSearch)
 	e.modes[CommandMode] = NewCommandMode()
 	e.modes[SearchMode] = NewSearchMode()
 
