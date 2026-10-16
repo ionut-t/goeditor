@@ -296,6 +296,12 @@ func (e *editor) ShowRelativeLineNumbers(show bool) {
 func (e *editor) setMode(modeName Mode) {
 	newMode := e.modes[modeName]
 
+	// Switching to the current mode is a no-op: re-running Exit/Enter would
+	// e.g. step the cursor back in insert or reset the visual anchor.
+	if newMode == e.currentMode {
+		return
+	}
+
 	if e.currentMode != nil {
 		e.currentMode.Exit(e, e.buffer) // Pass buffer to Exit
 	}
