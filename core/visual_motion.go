@@ -2,13 +2,24 @@ package core
 
 import "errors"
 
-// handleVisualGPrefix handles the second key of a 'g' prefix in any visual
-// mode (gg / ge). [count]gg goes to line count, as in normal mode.
-func handleVisualGPrefix[M any](_ M, editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+// handleVisualPrefix runs the key that completes a g or z prefix in any
+// visual mode.
+func handleVisualPrefix(prefix rune, editor Editor, buffer Buffer, key KeyEvent) {
+	switch prefix {
+	case 'g':
+		handleVisualGKey(editor, buffer, key)
+	case 'z':
+		handleZKey(editor, buffer, key, takeCount(editor))
+	}
+}
+
+// handleVisualGKey handles the second key of a 'g' prefix in any visual mode
+// (gg / ge). [count]gg goes to line count, as in normal mode.
+func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 	count := takeCount(editor)
 	editor.UpdateCommand("")
 	if key.Key == KeyEscape {
-		return nil
+		return
 	}
 	cursor := buffer.GetCursor()
 	switch key.Rune {
@@ -26,7 +37,6 @@ func handleVisualGPrefix[M any](_ M, editor Editor, buffer Buffer, key KeyEvent)
 			buffer.SetCursor(cursor)
 		}
 	}
-	return nil
 }
 
 // applyVisualMotion handles motion keys shared by all visual modes.
@@ -34,7 +44,7 @@ func handleVisualGPrefix[M any](_ M, editor Editor, buffer Buffer, key KeyEvent)
 // Covers: j/k, Ctrl-D/U, {/}, 0/$, ^, G, w/e/b, Enter, f/F/t/T, ;/,, /, n/N
 // Excludes:
 //   - h/l            — count differs: charwise uses the user count, line mode always uses 1
-//   - g, z           — prefixes, dispatched through each mode's prefixTable before reaching here
+//   - g, z           — prefixes, completed by handleVisualPrefix before reaching here
 //   - PageUp/PageDown, arrow keys — line mode only (handled via key.Key in the outer switch)
 //
 // count is 0 when none was typed; motions treat that as 1.

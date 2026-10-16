@@ -18,11 +18,6 @@ type normalMode struct {
 	pendingCaseG        bool // Set after gu/gU/g~ + g, waiting for second key (g=buffer-start, op=current-line)
 }
 
-var normalPrefixes = prefixTable[*normalMode]{
-	'g': (*normalMode).handleGKey,
-	'z': handleZPrefix[*normalMode],
-}
-
 func NewNormalMode() EditorMode {
 	return &normalMode{
 		pendingKey:      KeyEvent{Key: KeyUnknown},
@@ -71,8 +66,8 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	if m.waitingForReplace {
 		return m.handleReplaceKey(editor, buffer, key)
 	}
-	if handled, err := dispatchPrefix(normalPrefixes, &m.pending, m, editor, buffer, key); handled {
-		return err
+	if prefix := m.pending.take(); prefix != 0 {
+		return m.handlePrefix(prefix, editor, buffer, key)
 	}
 	if m.pendingCaseOp != 0 {
 		return m.handleCaseMotionKey(editor, buffer, key)
@@ -149,6 +144,17 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 	return replaceCharUnderCursor(editor, buffer, key.Rune)
 }
 
+// handlePrefix runs the key that completes a g or z prefix.
+func (m *normalMode) handlePrefix(prefix rune, editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	switch prefix {
+	case 'g':
+		return m.handleGKey(editor, buffer, key)
+	case 'z':
+		handleZKey(editor, buffer, key, takeCount(editor))
+	}
+	return nil
+}
+
 // handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg,
 // and the case-op prefixes gu, gU, g~).
 func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
@@ -197,6 +203,16 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		_ = endCursor.MoveRight(buffer, 1, availableWidth)
 
 		return applyOperatorToRange(editor, buffer, operatorName(firstKey.Rune), tempCursor.Position, endCursor.Position)
+	}
+
+	// Any other key after an operator + g isn't a motion (dgw, ygu): Vim
+	// cancels the whole command rather than leaving the operator pending.
+	if m.hasPendingOperator() {
+		m.pendingKey = KeyEvent{Key: KeyUnknown}
+		m.pendingModifier = 0
+		editor.ResetPendingCount()
+		editor.UpdateCommand("")
+		return nil
 	}
 
 	// Case operations: gu / gU / g~ — record the op and wait for the motion key.
@@ -912,11 +928,11 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 	case key.Rune == 'g':
 		m.pending.start('g')
-		editor.UpdateCommand("g")
+		showPrefix(editor, 'g')
 		return nil // wait for second key; preserve pendingCount for 5gg etc.
 	case key.Rune == 'z':
 		m.pending.start('z')
-		editor.UpdateCommand("z")
+		showPrefix(editor, 'z')
 		return nil // wait for second key; preserve pendingCount for 10zz etc.
 	case key.Rune == 'G':
 		cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line

@@ -9,11 +9,6 @@ type visualLineMode struct {
 	pending    pendingPrefix   // g or z waiting for its second key
 }
 
-var visualLinePrefixes = prefixTable[*visualLineMode]{
-	'g': handleVisualGPrefix[*visualLineMode],
-	'z': handleZPrefix[*visualLineMode],
-}
-
 func NewVisualLineMode() EditorMode {
 	return &visualLineMode{
 		startPos:   Position{-1, -1},
@@ -66,8 +61,9 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 	}
 
-	if handled, err := dispatchPrefix(visualLinePrefixes, &m.pending, m, editor, buffer, key); handled {
-		return err
+	if prefix := m.pending.take(); prefix != 0 {
+		handleVisualPrefix(prefix, editor, buffer, key)
+		return nil
 	}
 
 	if accumulateCount(editor, key) {
@@ -75,9 +71,9 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
-	if _, ok := visualLinePrefixes[key.Rune]; ok && key.Modifiers&ModCtrl == 0 {
+	if isPrefixKey(key) {
 		m.pending.start(key.Rune) // the count stays pending for the prefix handler
-		editor.UpdateCommand(string(key.Rune))
+		showPrefix(editor, key.Rune)
 		return nil
 	}
 

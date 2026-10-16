@@ -1,5 +1,9 @@
 package core
 
+import (
+	"fmt"
+)
+
 type Mode string
 
 const (
@@ -38,16 +42,9 @@ type baseMode struct{}
 func (baseMode) AwaitingLiteral() bool { return false }
 func (baseMode) OperatorPending() bool { return false }
 
-// prefixHandler runs the second key of a prefix command (gg, zz, ...) for a
-// mode. Any count typed before the prefix is still in State.PendingCount.
-type prefixHandler[M any] func(m M, editor Editor, buffer Buffer, key KeyEvent) *EditorError
-
-// prefixTable maps a prefix key to the handler for the key that follows it.
-// Vim marks these commands as taking a second character and reads it before
-// calling the handler (nv_g_cmd, nv_zet); each mode keeps one such table.
-type prefixTable[M any] map[rune]prefixHandler[M]
-
-// pendingPrefix is the prefix key a mode is waiting to complete, or 0.
+// pendingPrefix is the prefix key (g, z) a mode is waiting to complete, or 0.
+// Like Vim's nv_g_cmd / nv_zet, the handler reads the second key itself; each
+// mode switches on the prefix in its handlePrefix.
 type pendingPrefix struct {
 	prefix rune
 }
@@ -58,19 +55,28 @@ func (p *pendingPrefix) start(r rune) { p.prefix = r }
 
 func (p *pendingPrefix) reset() { p.prefix = 0 }
 
-// dispatchPrefix runs the handler for the pending prefix, if there is one, and
-// reports whether it did. The prefix is cleared before the handler runs, so a
-// handler can start a new one.
-func dispatchPrefix[M any](table prefixTable[M], p *pendingPrefix, m M, editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
-	if p.prefix == 0 {
-		return false, nil
+// take returns the pending prefix, or 0, and clears it, so the handler can
+// start a new one.
+func (p *pendingPrefix) take() rune {
+	r := p.prefix
+	p.prefix = 0
+	return r
+}
+
+// isPrefixKey reports whether key starts a two-key command in the visual
+// modes. Normal mode starts its prefixes from its own key switch.
+func isPrefixKey(key KeyEvent) bool {
+	return (key.Rune == 'g' || key.Rune == 'z') && key.Modifiers&ModCtrl == 0
+}
+
+// showPrefix shows a just-typed prefix after any pending count (10g), as
+// Vim's showcmd does.
+func showPrefix(editor Editor, r rune) {
+	if count := editor.GetState().PendingCount; count != nil {
+		editor.UpdateCommand(fmt.Sprintf("%d%c", *count, r))
+		return
 	}
-	handler, ok := table[p.prefix]
-	p.reset()
-	if !ok {
-		return true, nil
-	}
-	return true, handler(m, editor, buffer, key)
+	editor.UpdateCommand(string(r))
 }
 
 // accumulateCount adds a digit key to State.PendingCount and reports whether

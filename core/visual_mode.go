@@ -9,11 +9,6 @@ type visualMode struct {
 	pending         pendingPrefix   // g or z waiting for its second key
 }
 
-var visualPrefixes = prefixTable[*visualMode]{
-	'g': handleVisualGPrefix[*visualMode],
-	'z': handleZPrefix[*visualMode],
-}
-
 func NewVisualMode() EditorMode {
 	return &visualMode{
 		startPos:   Position{-1, -1},
@@ -77,8 +72,9 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		}
 	}
 
-	if handled, err := dispatchPrefix(visualPrefixes, &m.pending, m, editor, buffer, key); handled {
-		return err
+	if prefix := m.pending.take(); prefix != 0 {
+		handleVisualPrefix(prefix, editor, buffer, key)
+		return nil
 	}
 
 	if accumulateCount(editor, key) {
@@ -86,17 +82,19 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil
 	}
 
-	if _, ok := visualPrefixes[key.Rune]; ok && key.Modifiers&ModCtrl == 0 {
+	// The key after i/a is the text object, even when it is g or z.
+	if m.pendingModifier != 0 {
+		editor.ResetPendingCount()
+		return m.handleTextObject(editor, buffer, key, buffer.GetCursor())
+	}
+
+	if isPrefixKey(key) {
 		m.pending.start(key.Rune) // the count stays pending for the prefix handler
-		editor.UpdateCommand(string(key.Rune))
+		showPrefix(editor, key.Rune)
 		return nil
 	}
 
 	count := takeCount(editor)
-
-	if m.pendingModifier != 0 {
-		return m.handleTextObject(editor, buffer, key, buffer.GetCursor())
-	}
 
 	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
 		return err

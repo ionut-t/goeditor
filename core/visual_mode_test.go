@@ -363,3 +363,28 @@ func TestPrefixDoesNotSurviveModeSwitch(t *testing.T) {
 
 	assert.Equal(t, 2, cursorPos(e).Row, "the g typed before the switch must not complete a gg")
 }
+
+func TestVisualTextObjectKeyIsNotAPrefix(t *testing.T) {
+	e := newTestEditor("one\ntwo three\nfour")
+	setCursorRow(e, 1)
+
+	keys(e, 'v', 'i', 'g', 'w')
+
+	assert.Equal(t, Position{Row: 1, Col: 4}, cursorPos(e), "g after i is the (unknown) text object, so w is a plain motion")
+	assert.Equal(t, Position{Row: 1, Col: 0}, e.GetState().VisualStart)
+}
+
+func TestPrefixShowsPendingCount(t *testing.T) {
+	e := newTestEditor("one\ntwo")
+	keys(e, '1', '0', 'g')
+	assert.Equal(t, "10g", e.GetState().CommandLine)
+	escape(e)
+
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newTestEditor("one\ntwo")
+			keys(e, mode, '1', '0', 'z')
+			assert.Equal(t, "10z", e.GetState().CommandLine)
+		})
+	}
+}
