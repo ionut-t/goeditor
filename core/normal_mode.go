@@ -334,9 +334,8 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	m.pendingCaseOp = 0
 
 	if key.Key == KeyEscape || !state.WithInsertMode {
-		m.opCount = 0
+		m.clearPendingState(editor)
 		editor.UpdateCommand("")
-		editor.ResetPendingCount()
 		return nil
 	}
 
@@ -446,10 +445,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 	}
 
 	if key.Key == KeyEscape {
-		m.pendingKey = KeyEvent{Key: KeyUnknown}
-		m.pendingModifier = 0
-		m.opCount = 0
-		editor.ResetPendingCount()
+		m.clearPendingState(editor)
 		editor.UpdateCommand("")
 		return nil
 	}
