@@ -17,7 +17,7 @@ type normalMode struct {
 	pendingCaseModifier rune // Set after gu/gU/g~ + i/a while waiting for the text object key
 	pendingCaseG        bool // Set after gu/gU/g~ + g, waiting for second key (g=buffer-start, op=current-line)
 
-	opCount *int // Count typed before the pending operator (the 2 in 2d3w), nil if none
+	opCount int // Count typed before the pending operator (the 2 in 2d3w), 0 if none
 }
 
 func NewNormalMode() EditorMode {
@@ -329,22 +329,21 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil
 	}
-	m.composeOperatorCount(editor)
 	state := editor.GetState()
 
 	m.pendingCaseOp = 0
 
-	if key.Key == KeyEscape {
+	if key.Key == KeyEscape || !state.WithInsertMode {
+		m.opCount = 0
 		editor.UpdateCommand("")
 		editor.ResetPendingCount()
 		return nil
 	}
 
-	if !state.WithInsertMode {
-		editor.UpdateCommand("")
-		editor.ResetPendingCount()
-		return nil
-	}
+	// Compose before the i/a check: the text object key that follows reads
+	// State.PendingCount directly (2gUaw).
+	m.composeOperatorCount(editor)
+	state = editor.GetState()
 
 	// i/a modifier: gUiw, g~aw, gui(, … — record modifier and wait for object key.
 	if key.Rune == 'i' || key.Rune == 'a' {
@@ -449,7 +448,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 	if key.Key == KeyEscape {
 		m.pendingKey = KeyEvent{Key: KeyUnknown}
 		m.pendingModifier = 0
-		m.opCount = nil
+		m.opCount = 0
 		editor.ResetPendingCount()
 		editor.UpdateCommand("")
 		return nil
@@ -1286,14 +1285,18 @@ func (m *normalMode) resetPending() {
 	m.pendingCaseOp = 0
 	m.pendingCaseModifier = 0
 	m.pendingCaseG = false
-	m.opCount = nil
+	m.opCount = 0
 }
 
 // startOperatorCount sets aside the count typed before an operator, so the
 // count typed after it starts fresh (the 2 and the 3 in 2d3w).
 func (m *normalMode) startOperatorCount(editor Editor) {
+	m.opCount = 0
 	state := editor.GetState()
-	m.opCount = state.PendingCount
+	if state.PendingCount == nil {
+		return
+	}
+	m.opCount = *state.PendingCount
 	// Not ResetPendingCount: that clears the command line, which should
 	// still show the count (2d).
 	state.PendingCount = nil
@@ -1305,11 +1308,11 @@ func (m *normalMode) startOperatorCount(editor Editor) {
 // first key after the operator that isn't a count digit, so the motion
 // handlers read the effective count from State.PendingCount.
 func (m *normalMode) composeOperatorCount(editor Editor) {
-	if m.opCount == nil {
+	if m.opCount == 0 {
 		return
 	}
-	n := *m.opCount
-	m.opCount = nil
+	n := m.opCount
+	m.opCount = 0
 	state := editor.GetState()
 	if state.PendingCount != nil {
 		n *= *state.PendingCount

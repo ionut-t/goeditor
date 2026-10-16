@@ -877,6 +877,26 @@ func TestOperatorCountComposition(t *testing.T) {
 		assert.Equal(t, "b c d e", content(e))
 	})
 
+	t.Run("2d2aw deletes four words", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'd', '2', 'a', 'w')
+		assert.Equal(t, "e f g h", content(e))
+	})
+
+	t.Run("2di2w is cancelled: no count after a text object modifier", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'd', 'i', '2', 'w')
+		assert.Equal(t, "a b c d e f g h", content(e))
+	})
+
+	t.Run("count before an escaped case operator is dropped", func(t *testing.T) {
+		e := newTestEditor("a b c d e f g h")
+		keys(e, '2', 'g', 'U')
+		escape(e)
+		keys(e, 'd', 'w')
+		assert.Equal(t, "b c d e f g h", content(e))
+	})
+
 	t.Run("2gU3w uppercases six words", func(t *testing.T) {
 		e := newTestEditor("a b c d e f g h")
 		keys(e, '2', 'g', 'U', '3', 'w')
