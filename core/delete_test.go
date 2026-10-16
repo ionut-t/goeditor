@@ -161,6 +161,26 @@ func TestDeleteToEndOfBuffer(t *testing.T) {
 		assert.Equal(t, "one", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
+
+	t.Run("count: d3G deletes from cursor line down to line 3", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\nfour\nfive")
+		keys(e, 'j', 'd', '3', 'G')
+		assert.Equal(t, "one\nfour\nfive", content(e))
+		assert.Equal(t, 1, cursorPos(e).Row)
+	})
+
+	t.Run("count: d2G deletes from cursor line up to line 2", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\nfour\nfive")
+		keys(e, 'j', 'j', 'j', 'd', '2', 'G')
+		assert.Equal(t, "one\nfive", content(e))
+		assert.Equal(t, 1, cursorPos(e).Row)
+	})
+
+	t.Run("count before operator: 3dG", func(t *testing.T) {
+		e := newTestEditor("one\ntwo\nthree\nfour\nfive")
+		keys(e, '3', 'd', 'G')
+		assert.Equal(t, "four\nfive", content(e))
+	})
 }
 
 // TestDeleteInsideWord tests 'diw' — delete inside word (text object).

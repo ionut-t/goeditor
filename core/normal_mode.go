@@ -487,11 +487,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 		return nil // Keep pendingKey, wait for the second key
 	}
 
-	count := 1
-	if state.PendingCount != nil {
-		count = *state.PendingCount
-		editor.ResetPendingCount()
-	}
+	count := takeCount(editor)
 
 	// Consume the pending key now if not waiting for text object
 	m.pendingKey = KeyEvent{Key: KeyUnknown}
@@ -565,9 +561,13 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 }
 
 // dispatchOperatorMotion executes the appropriate buffer operation for an operator+motion pair.
+// count is 0 when none was typed; motions treat that as 1, except G, which then
+// goes to the last line.
 func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key KeyEvent, op string, firstKeyRune rune, count int) *EditorError {
 	var err *EditorError
 	actionTaken := false
+	lineCount := count
+	count = max(count, 1)
 
 	cursor := buffer.GetCursor()
 	availableWidth := editor.GetState().AvailableWidth
@@ -647,26 +647,12 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			err = changeToEndOfLine(editor, buffer)
 			actionTaken = true
 		}
-	case 'G': // dG, yG, cG
-		switch op {
-		case "delete":
-			count := buffer.LineCount() - cursor.Position.Row
-			var deletedContent string
-			deletedContent, err = deleteLines(editor, buffer, count)
-			editor.DispatchSignal(DeleteSignal{content: deletedContent})
-			actionTaken = true
-		case "yank":
-			count := buffer.LineCount() - cursor.Position.Row
-			err = yankLines(editor, buffer, count)
-			actionTaken = true
-		case "change":
-			count := buffer.LineCount() - cursor.Position.Row
-			_, err = deleteLines(editor, buffer, count)
-			if err == nil {
-				editor.SetInsertMode()
-			}
-			actionTaken = true
-		}
+	case 'G': // dG, yG, cG — cursor line to line count (last line if none), line-wise
+		targetRow := gotoLineRow(buffer, lineCount)
+		startRow := min(cursor.Position.Row, targetRow)
+		endRow := max(cursor.Position.Row, targetRow)
+		err = applyOperatorToLineRange(editor, buffer, op, startRow, endRow)
+		actionTaken = true
 
 	case 'j': // dj, yj, cj — current line and count lines below (line-wise)
 		if cursor.Position.Row < buffer.LineCount()-1 {
@@ -879,8 +865,12 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		m.pending.start('z')
 		showPrefix(editor, 'z')
 		return nil // wait for second key; preserve pendingCount for 10zz etc.
-	case key.Rune == 'G':
-		cursor.MoveToBufferEnd(buffer, availableWidth) // Moves to start of last line
+	case key.Rune == 'G': // [count]G — line count, or the last line with no count
+		lineCount := 0
+		if countWasPending {
+			lineCount = count
+		}
+		cursor.moveToLine(buffer, lineCount, availableWidth)
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
 		if count == 0 {
 			moveErr = cursor.MoveDown(buffer, count, availableWidth)

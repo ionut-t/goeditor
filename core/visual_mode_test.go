@@ -352,6 +352,21 @@ func TestVisualGGWithCountGoesToLine(t *testing.T) {
 	}
 }
 
+func TestVisualGWithCountGoesToLine(t *testing.T) {
+	for _, mode := range []rune{'v', 'V'} {
+		t.Run(string(mode), func(t *testing.T) {
+			e := newTestEditor("one\ntwo\nthree\nfour\nfive\nsix")
+
+			keys(e, mode, '3', 'G')
+			assert.Equal(t, 2, cursorPos(e).Row)
+			assert.Nil(t, e.GetState().PendingCount)
+
+			keys(e, 'G')
+			assert.Equal(t, 5, cursorPos(e).Row, "G with no count goes to the last line")
+		})
+	}
+}
+
 func TestPrefixDoesNotSurviveModeSwitch(t *testing.T) {
 	e := newTestEditor("one\ntwo\nthree\nfour")
 	setCursorRow(e, 2)

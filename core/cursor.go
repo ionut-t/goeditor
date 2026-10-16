@@ -288,10 +288,25 @@ func (c *Cursor) MoveToBufferStart() {
 	c.Preferred = 0
 }
 
-// MoveToBufferEnd moves the cursor to the start of the last line
+// MoveToBufferEnd moves the cursor to the first non-blank of the last line
 func (c *Cursor) MoveToBufferEnd(buffer Buffer, availableWidth int) {
+	c.moveToLine(buffer, 0, availableWidth)
+}
+
+// gotoLineRow returns the 0-indexed row a [count]G motion targets: line count
+// (1-indexed, clamped to the buffer), or the last line when count is 0.
+func gotoLineRow(buffer Buffer, count int) int {
 	lastLine := max(buffer.LineCount()-1, 0)
-	c.Position.Row = lastLine
+	if count <= 0 {
+		return lastLine
+	}
+	return min(count-1, lastLine)
+}
+
+// moveToLine moves the cursor to the first non-blank of the line a [count]G
+// motion targets (the last line when count is 0).
+func (c *Cursor) moveToLine(buffer Buffer, count int, availableWidth int) {
+	c.Position.Row = gotoLineRow(buffer, count)
 	c.MoveToFirstNonBlank(buffer, availableWidth)
 }
 
