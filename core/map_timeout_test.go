@@ -14,7 +14,7 @@ func fireMapTimeout(t *testing.T, e Editor) {
 	t.Helper()
 	_, token, ok := e.PendingMapTimeout()
 	require.True(t, ok, "expected keys to be held for a timeout")
-	e.TimeoutPendingMapping(token)
+	_ = e.TimeoutPendingMapping(token)
 }
 
 // TestPendingMapTimeout covers when a timer is asked for. Keys are only held
@@ -116,7 +116,7 @@ func TestTimeoutPendingMapping(t *testing.T) {
 		keys(e, 'Q')
 		require.Equal(t, "", content(e))
 
-		e.TimeoutPendingMapping(token)
+		_ = e.TimeoutPendingMapping(token)
 		assert.Equal(t, "", content(e), "the late timer did nothing")
 	})
 
@@ -130,7 +130,7 @@ func TestTimeoutPendingMapping(t *testing.T) {
 		fireMapTimeout(t, e)
 		require.Equal(t, "world", content(e))
 
-		e.TimeoutPendingMapping(token)
+		_ = e.TimeoutPendingMapping(token)
 		assert.Equal(t, "world", content(e), "the same timer cannot fire twice")
 	})
 
@@ -143,7 +143,7 @@ func TestTimeoutPendingMapping(t *testing.T) {
 		_, token, _ := e.PendingMapTimeout()
 
 		e.SetMapTimeout(false)
-		e.TimeoutPendingMapping(token)
+		_ = e.TimeoutPendingMapping(token)
 		assert.Equal(t, "hello world", content(e), "the keys keep waiting")
 
 		keys(e, 'Q')

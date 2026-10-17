@@ -108,8 +108,8 @@ func TestYankToWordEnd(t *testing.T) {
 func TestYankToEndOfLine(t *testing.T) {
 	t.Run("from start", func(t *testing.T) {
 		e, cb := newTestEditorWithClipboard("hello world")
-		e.HandleKey(KeyEvent{Rune: 'y'})
-		e.HandleKey(KeyEvent{Rune: '$'})
+		_ = e.HandleKey(KeyEvent{Rune: 'y'})
+		_ = e.HandleKey(KeyEvent{Rune: '$'})
 		assert.Equal(t, "hello world", cb.content)
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
@@ -117,8 +117,8 @@ func TestYankToEndOfLine(t *testing.T) {
 	t.Run("from mid-line", func(t *testing.T) {
 		e, cb := newTestEditorWithClipboard("hello world")
 		keys(e, 'w')
-		e.HandleKey(KeyEvent{Rune: 'y'})
-		e.HandleKey(KeyEvent{Rune: '$'})
+		_ = e.HandleKey(KeyEvent{Rune: 'y'})
+		_ = e.HandleKey(KeyEvent{Rune: '$'})
 		assert.Equal(t, "world", cb.content)
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})

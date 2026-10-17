@@ -37,28 +37,31 @@ func (r RelativeNumbersSignal) Value() bool {
 }
 
 type UndoSignal struct {
-	contentBefore string
+	edits []TextEdit
 }
 
-func (u UndoSignal) Value() string {
-	return u.contentBefore
+// Value returns the edits applied to the buffer, in order (see TextEdit).
+func (u UndoSignal) Value() []TextEdit {
+	return u.edits
 }
 
 type RedoSignal struct {
-	contentBefore string
+	edits []TextEdit
 }
 
-func (r RedoSignal) Value() string {
-	return r.contentBefore
+// Value returns the edits applied to the buffer, in order (see TextEdit).
+func (r RedoSignal) Value() []TextEdit {
+	return r.edits
 }
 
 // UndoLineSignal is dispatched when 'U' restores the last-changed line.
 type UndoLineSignal struct {
-	contentBefore string
+	edits []TextEdit
 }
 
-func (u UndoLineSignal) Value() string {
-	return u.contentBefore
+// Value returns the edits applied to the buffer, in order (see TextEdit).
+func (u UndoLineSignal) Value() []TextEdit {
+	return u.edits
 }
 
 type RenameSignal struct {

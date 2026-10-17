@@ -478,7 +478,7 @@ func TestGPrefix(t *testing.T) {
 	t.Run("Escape after g cancels prefix", func(t *testing.T) {
 		e := newTestEditor("hello\nworld")
 		keys(e, 'j') // row 1
-		e.HandleKey(KeyEvent{Rune: 'g'})
+		_ = e.HandleKey(KeyEvent{Rune: 'g'})
 		escape(e)
 		assert.Equal(t, Position{1, 0}, cursorPos(e)) // cursor unchanged
 		assert.True(t, e.IsNormalMode())

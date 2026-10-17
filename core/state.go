@@ -431,7 +431,7 @@ func (e *editor) InsertCompletion(completion Completion) error {
 	// Delete the word fragment after the cursor first (col doesn't change).
 	if wordAfter > 0 {
 		if err := e.buffer.DeleteRunesAt(pos.Row, pos.Col, wordAfter); err != nil {
-			return err.Error()
+			return err
 		}
 	}
 
@@ -440,7 +440,7 @@ func (e *editor) InsertCompletion(completion Completion) error {
 		deleteStart := pos.Col - wordBefore
 		if deleteStart >= 0 {
 			if err := e.buffer.DeleteRunesAt(pos.Row, deleteStart, wordBefore); err != nil {
-				return err.Error()
+				return err
 			}
 			cursor.Position.Col = deleteStart
 		}

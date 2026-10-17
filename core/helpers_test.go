@@ -26,7 +26,7 @@ func newTestEditorWithClipboard(content string) (Editor, *testClipboard) {
 
 func keys(e Editor, runes ...rune) {
 	for _, r := range runes {
-		e.HandleKey(KeyEvent{Rune: r})
+		_ = e.HandleKey(KeyEvent{Rune: r})
 	}
 }
 
@@ -52,9 +52,9 @@ func setWidth(e Editor, width int) {
 }
 
 // ctrlKey sends Ctrl+<r>, e.g. ctrlKey(e, 'r') for redo.
-func ctrlKey(e Editor, r rune) { e.HandleKey(Ctrl(r)) }
+func ctrlKey(e Editor, r rune) { _ = e.HandleKey(Ctrl(r)) }
 
-func escape(e Editor)    { e.HandleKey(KeyEvent{Key: KeyEscape}) }
-func backspace(e Editor) { e.HandleKey(KeyEvent{Key: KeyBackspace}) }
-func enter(e Editor)     { e.HandleKey(KeyEvent{Key: KeyEnter}) }
-func tab(e Editor)       { e.HandleKey(KeyEvent{Key: KeyTab}) }
+func escape(e Editor)    { _ = e.HandleKey(KeyEvent{Key: KeyEscape}) }
+func backspace(e Editor) { _ = e.HandleKey(KeyEvent{Key: KeyBackspace}) }
+func enter(e Editor)     { _ = e.HandleKey(KeyEvent{Key: KeyEnter}) }
+func tab(e Editor)       { _ = e.HandleKey(KeyEvent{Key: KeyTab}) }

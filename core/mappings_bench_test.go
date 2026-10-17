@@ -52,7 +52,7 @@ func BenchmarkHandleKeyWithMappings(b *testing.B) {
 
 			b.ResetTimer()
 			for b.Loop() {
-				e.HandleKey(key)
+				_ = e.HandleKey(key)
 			}
 		})
 	}

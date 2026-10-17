@@ -126,8 +126,8 @@ func TestDeleteToWordEnd(t *testing.T) {
 func TestDeleteToEndOfLine(t *testing.T) {
 	t.Run("from start clears line", func(t *testing.T) {
 		e := newTestEditor("hello world")
-		e.HandleKey(KeyEvent{Rune: 'd'})
-		e.HandleKey(KeyEvent{Rune: '$'})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Rune: '$'})
 		assert.Equal(t, "", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
@@ -136,8 +136,8 @@ func TestDeleteToEndOfLine(t *testing.T) {
 		e := newTestEditor("hello world")
 		// 'w' moves to col 6 ('w' of "world")
 		keys(e, 'w')
-		e.HandleKey(KeyEvent{Rune: 'd'})
-		e.HandleKey(KeyEvent{Rune: '$'})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Rune: '$'})
 		assert.Equal(t, "hello ", content(e))
 		// Cursor stays at the column where deletion started
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
@@ -148,8 +148,8 @@ func TestDeleteToEndOfLine(t *testing.T) {
 func TestDeleteToEndOfBuffer(t *testing.T) {
 	t.Run("from first line", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
-		e.HandleKey(KeyEvent{Rune: 'd'})
-		e.HandleKey(KeyEvent{Rune: 'G'})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Rune: 'G'})
 		assert.Equal(t, "", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
@@ -157,8 +157,8 @@ func TestDeleteToEndOfBuffer(t *testing.T) {
 	t.Run("from second line", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, 'j')
-		e.HandleKey(KeyEvent{Rune: 'd'})
-		e.HandleKey(KeyEvent{Rune: 'G'})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Rune: 'G'})
 		assert.Equal(t, "one", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
@@ -372,8 +372,8 @@ func TestDeleteToBufferStart(t *testing.T) {
 	t.Run("Escape after dg cancels without deleting", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, 'j')
-		e.HandleKey(KeyEvent{Rune: 'd'})
-		e.HandleKey(KeyEvent{Rune: 'g'})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Rune: 'g'})
 		escape(e)
 		assert.Equal(t, "one\ntwo\nthree", content(e))
 		assert.Equal(t, Position{1, 0}, cursorPos(e))

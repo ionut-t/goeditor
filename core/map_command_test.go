@@ -96,7 +96,7 @@ func TestMapCommandArgumentParsing(t *testing.T) {
 		e := newTestEditor("hello world")
 		require.Nil(t, runCommand(t, e, "nnoremap <Space> dw"))
 
-		e.HandleKey(KeyEvent{Key: KeySpace, Rune: ' '})
+		_ = e.HandleKey(KeyEvent{Key: KeySpace, Rune: ' '})
 		assert.Equal(t, "world", content(e))
 	})
 
@@ -153,7 +153,7 @@ func TestMapCommandErrors(t *testing.T) {
 			err := runCommand(t, e, tc.cmd)
 			require.NotNil(t, err, "expected an error")
 			assert.Equal(t, ErrInvalidMappingId, err.ID())
-			assert.EqualError(t, err.Error(), tc.msg)
+			assert.EqualError(t, err, tc.msg)
 		})
 	}
 }
@@ -173,7 +173,7 @@ func TestMapErrorsIdentifySide(t *testing.T) {
 
 	setErr := runCommand(t, e, "set mapleader=<Bogus>")
 	require.NotNil(t, setErr)
-	assert.EqualError(t, setErr.Error(), "invalid mapping: unknown key <Bogus> in mapleader")
+	assert.EqualError(t, setErr, "invalid mapping: unknown key <Bogus> in mapleader")
 }
 
 // TestMapCommandDoesNotShadowOtherCommands guards the early-return added to
