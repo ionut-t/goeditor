@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -565,6 +566,14 @@ func TestUndoReturnsEdits(t *testing.T) {
 		}
 	})
 
+	t.Run("a replacement whose insert fails reports the delete", func(t *testing.T) {
+		buf := failingInsertBuffer{NewBufferFromBytes([]byte("hello"))}
+		applied, err := replaceAt(buf, Position{0, 0}, "he", "HE", nil)
+		assert.ErrorIs(t, err, errInsertFailed)
+		assert.Equal(t, "llo", buf.GetCurrentContent())
+		assert.Equal(t, []TextEdit{{End: Position{0, 2}}}, applied)
+	})
+
 	t.Run("nothing to undo returns no edits", func(t *testing.T) {
 		e := newTestEditor("hello")
 		edits, err := e.Undo()
@@ -592,3 +601,10 @@ func TestUndoReturnsEdits(t *testing.T) {
 		}, got)
 	})
 }
+
+var errInsertFailed = errors.New("insert failed")
+
+// failingInsertBuffer is a Buffer whose inserts always fail.
+type failingInsertBuffer struct{ Buffer }
+
+func (failingInsertBuffer) InsertRunesAt(int, int, []rune) error { return errInsertFailed }

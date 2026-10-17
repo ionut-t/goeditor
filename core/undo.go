@@ -55,43 +55,46 @@ func (s *undoStep) flushTyped() {
 // applied. An error means the buffer no longer matches the history — it was
 // edited behind the recording wrapper — and leaves the step part applied.
 func (s *undoStep) undo(buf Buffer, applied []TextEdit) ([]TextEdit, error) {
+	var err error
 	for _, ed := range slices.Backward(s.edits) {
-		te, err := replaceAt(buf, ed.at, ed.inserted, ed.removed)
-		if err != nil {
+		if applied, err = replaceAt(buf, ed.at, ed.inserted, ed.removed, applied); err != nil {
 			return applied, err
 		}
-		applied = append(applied, te)
 	}
 	return applied, nil
 }
 
 // redo re-applies the step's edits in order, as undo does.
 func (s *undoStep) redo(buf Buffer, applied []TextEdit) ([]TextEdit, error) {
+	var err error
 	for _, ed := range s.edits {
-		te, err := replaceAt(buf, ed.at, ed.removed, ed.inserted)
-		if err != nil {
+		if applied, err = replaceAt(buf, ed.at, ed.removed, ed.inserted, applied); err != nil {
 			return applied, err
 		}
-		applied = append(applied, te)
 	}
 	return applied, nil
 }
 
 // replaceAt replaces the text old, starting at position at, with text, and
-// returns the replacement as a TextEdit. It is the primitive undo and redo
-// share.
-func replaceAt(buf Buffer, at Position, old, text string) (TextEdit, error) {
+// appends the replacement to applied as a TextEdit. It is the primitive undo
+// and redo share. If the insert fails after the delete succeeded, the delete
+// alone is appended, so applied still describes the text.
+func replaceAt(buf Buffer, at Position, old, text string, applied []TextEdit) ([]TextEdit, error) {
 	n := utf8.RuneCountInString(old)
 	if err := buf.DeleteRunesAt(at.Row, at.Col, n); err != nil {
-		return TextEdit{}, fmt.Errorf("deleting %d runes at %d:%d: %w", n, at.Row, at.Col, err)
+		return applied, fmt.Errorf("deleting %d runes at %d:%d: %w", n, at.Row, at.Col, err)
 	}
+	end := insertEnd(at, old)
 	if text != "" {
 		if err := buf.InsertRunesAt(at.Row, at.Col, []rune(text)); err != nil {
-			return TextEdit{}, fmt.Errorf("inserting %d runes at %d:%d: %w",
+			if old != "" {
+				applied = append(applied, TextEdit{Start: at, End: end})
+			}
+			return applied, fmt.Errorf("inserting %d runes at %d:%d: %w",
 				utf8.RuneCountInString(text), at.Row, at.Col, err)
 		}
 	}
-	return TextEdit{Start: at, End: insertEnd(at, old), Text: text}, nil
+	return append(applied, TextEdit{Start: at, End: end, Text: text}), nil
 }
 
 // insertEnd returns where text ends once inserted at position at.

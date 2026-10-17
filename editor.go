@@ -1107,7 +1107,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		if err != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return ErrorMsg{ID: err.ID(), Error: err.Err()}
+				return ErrorMsg{ID: err.ID(), Error: err}
 			})
 		}
 
@@ -1236,7 +1236,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// the held keys are still waiting.
 		if err := m.editor.TimeoutPendingMapping(msg.token); err != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return ErrorMsg{ID: err.ID(), Error: err.Err()}
+				return ErrorMsg{ID: err.ID(), Error: err}
 			})
 		}
 
