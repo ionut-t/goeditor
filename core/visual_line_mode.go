@@ -191,9 +191,6 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		}
 		_ = editor.Copy(cutType)
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
-		initialCursor := buffer.GetCursor()
-		initialCursor.Position.Row = startRow
-		buffer.SetCursor(initialCursor)
 		err = changeLineRange(editor, buffer, startRow, endRow)
 		editor.ResetPendingCount()
 		return true, err
