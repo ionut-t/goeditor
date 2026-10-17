@@ -75,11 +75,7 @@ func applyOperatorToLineRange(editor Editor, buffer Buffer, op string, startRow,
 		return yankLines(editor, buffer, endRow-startRow+1)
 
 	case "change":
-		_, err := deleteLineRange(editor, buffer, startRow, endRow)
-		if err == nil {
-			editor.SetInsertMode()
-		}
-		return err
+		return changeLineRange(editor, buffer, startRow, endRow)
 	}
 
 	return nil

@@ -417,10 +417,7 @@ func (m *normalMode) handleOperatorGG(editor Editor, buffer Buffer, cursor Curso
 		if !state.WithInsertMode {
 			return nil
 		}
-		_, err = deleteLines(editor, buffer, lineCount)
-		if err == nil {
-			editor.SetInsertMode()
-		}
+		err = changeLines(editor, buffer, lineCount)
 	}
 	return err
 }
@@ -599,10 +596,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		}
 	case 'c': // cc = change line
 		if op == "change" {
-			_, err = deleteLines(editor, buffer, count)
-			if err == nil {
-				editor.SetInsertMode()
-			}
+			err = changeLines(editor, buffer, count)
 			actionTaken = true
 		}
 	case 'w': // dw = delete word, yw = yank word forward, cw = change word
@@ -1067,10 +1061,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 
-		_, err = deleteLines(editor, buffer, count)
-		if err == nil {
-			editor.SetInsertMode()
-		}
+		err = changeLines(editor, buffer, count)
 		skipCursorUpdate = true
 
 	case key.Rune == 'J': // Join lines

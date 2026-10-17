@@ -1,5 +1,7 @@
 package core
 
+import "errors"
+
 func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
@@ -82,4 +84,32 @@ func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune) *EditorError 
 
 	editor.SaveHistory()
 	return nil
+}
+
+// changeLineRange is the linewise change (cc, S, cj, cG, Vc): it empties the
+// lines [startRow, endRow] down to a single empty line, as Vim does, and
+// starts insert mode on it.
+func changeLineRange(editor Editor, buffer Buffer, startRow, endRow int) *EditorError {
+	if startRow < 0 || endRow >= buffer.LineCount() || startRow > endRow {
+		return &EditorError{id: ErrInvalidPositionId, err: errors.New("invalid line range for change")}
+	}
+
+	end := Position{Row: endRow, Col: buffer.LineRuneCount(endRow)}
+	if err := deleteRange(buffer, Position{Row: startRow, Col: 0}, end); err != nil {
+		return err
+	}
+
+	cursor := buffer.GetCursor()
+	cursor.Position = Position{Row: startRow, Col: 0}
+	buffer.SetCursor(cursor)
+	editor.SaveHistory()
+	editor.SetInsertMode()
+	return nil
+}
+
+// changeLines changes count lines starting at the cursor row (cc, S).
+func changeLines(editor Editor, buffer Buffer, count int) *EditorError {
+	startRow := buffer.GetCursor().Position.Row
+	endRow := min(startRow+count-1, buffer.LineCount()-1)
+	return changeLineRange(editor, buffer, startRow, endRow)
 }

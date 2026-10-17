@@ -1,12 +1,13 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// TestChangeLine tests 'cc' — delete current line and enter insert mode.
+// TestChangeLine tests 'cc' — empty the current line and enter insert mode on it.
 func TestChangeLine(t *testing.T) {
 	t.Run("single line becomes empty", func(t *testing.T) {
 		e := newTestEditor("hello")
@@ -19,23 +20,23 @@ func TestChangeLine(t *testing.T) {
 	t.Run("first of two lines", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
 		keys(e, 'c', 'c')
-		assert.Equal(t, "second", content(e))
+		assert.Equal(t, "\nsecond", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
 
-	t.Run("last line is removed, cursor moves to previous line", func(t *testing.T) {
+	t.Run("last line is emptied, cursor stays on it", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
 		keys(e, 'j', 'c', 'c')
-		assert.Equal(t, "first", content(e))
-		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assert.Equal(t, "first\n", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
 
 	t.Run("count: 2cc", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, '2', 'c', 'c')
-		assert.Equal(t, "three", content(e))
+		assert.Equal(t, "\nthree", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
@@ -170,15 +171,15 @@ func TestChangeToEndOfBuffer(t *testing.T) {
 		keys(e, 'j')
 		e.HandleKey(KeyEvent{Rune: 'c'})
 		e.HandleKey(KeyEvent{Rune: 'G'})
-		assert.Equal(t, "one", content(e))
-		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assert.Equal(t, "one\n", content(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
 
 	t.Run("count: c2G changes from cursor line to line 2", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree\nfour")
 		keys(e, 'c', '2', 'G')
-		assert.Equal(t, "three\nfour", content(e))
+		assert.Equal(t, "\nthree\nfour", content(e))
 		assertInsertMode(t, e)
 	})
 }
@@ -357,7 +358,7 @@ func TestChangeOperatorMotions(t *testing.T) {
 	t.Run("cj changes current and next line", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, 'c', 'j')
-		assert.Equal(t, "three", content(e))
+		assert.Equal(t, "\nthree", content(e))
 		assertInsertMode(t, e)
 	})
 }
@@ -391,14 +392,14 @@ func TestSubstituteLine(t *testing.T) {
 	t.Run("clears current line and enters insert mode", func(t *testing.T) {
 		e := newTestEditor("one\ntwo")
 		keys(e, 'S')
-		assert.Equal(t, "two", content(e))
+		assert.Equal(t, "\ntwo", content(e))
 		assertInsertMode(t, e)
 	})
 
 	t.Run("count: 2S", func(t *testing.T) {
 		e := newTestEditor("one\ntwo\nthree")
 		keys(e, '2', 'S')
-		assert.Equal(t, "three", content(e))
+		assert.Equal(t, "\nthree", content(e))
 		assertInsertMode(t, e)
 	})
 }
@@ -411,4 +412,40 @@ func TestChangeWORD(t *testing.T) {
 		assert.Equal(t, " baz", content(e))
 		assertInsertMode(t, e)
 	})
+}
+
+// TestLinewiseChangeMatchesVim checks every linewise change leaves one empty
+// line where the changed lines were, with insert mode on it. Expected results
+// come from Vim with 'noautoindent' (its default): keys, then X<Esc>.
+func TestLinewiseChangeMatchesVim(t *testing.T) {
+	tests := []struct {
+		lines, keys, want string // lines joined with |
+	}{
+		{"hello", "cc", "X"},
+		{"first|second", "cc", "X|second"},
+		{"first|second", "jcc", "first|X"},
+		{"one|two|three", "2cc", "X|three"},
+		{"one|two|three", "5cc", "X"},
+		{"  foo|bar", "cc", "X|bar"},
+		{"one|two", "S", "X|two"},
+		{"one|two", "jS", "one|X"},
+		{"one|two|three", "2S", "X|three"},
+		{"one|two|three", "cj", "X|three"},
+		{"one|two|three", "jck", "X|three"},
+		{"one|two|three", "cG", "X"},
+		{"one|two|three", "jjcgg", "X"},
+		{"one|two|three|four", "jjcgg", "X|four"},
+		{"one|two|three|four", "jcgg", "X|three|four"},
+		{"one|two|three", "jc2G", "one|X|three"},
+		{"one|two|three", "Vjc", "X|three"},
+		{"one|two|three", "jVjc", "one|X"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.lines+" "+tt.keys, func(t *testing.T) {
+			e := newTestEditor(strings.ReplaceAll(tt.lines, "|", "\n"))
+			keys(e, []rune(tt.keys+"X")...)
+			escape(e)
+			assert.Equal(t, strings.ReplaceAll(tt.want, "|", "\n"), content(e))
+		})
+	}
 }

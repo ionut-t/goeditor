@@ -270,20 +270,19 @@ func TestVisualLineModeYank(t *testing.T) {
 
 // TestVisualLineModeChange tests 'c' in visual line mode.
 func TestVisualLineModeChange(t *testing.T) {
-	t.Run("c deletes selected lines and enters insert mode", func(t *testing.T) {
+	t.Run("c empties selected lines to one and enters insert mode", func(t *testing.T) {
 		e := newTestEditor("first\nsecond\nthird")
 		keys(e, 'V', 'j', 'c')
-		assert.Equal(t, "third", content(e))
+		assert.Equal(t, "\nthird", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
 
-	t.Run("typing after c inserts before remaining content", func(t *testing.T) {
+	t.Run("typing after c fills the emptied line", func(t *testing.T) {
 		e := newTestEditor("first\nsecond\nthird")
 		keys(e, 'V', 'j', 'c')
-		// Cursor is at (0,0) of "third"; typing inserts before it on the same line.
 		keys(e, 'n', 'e', 'w')
-		assert.Equal(t, "newthird", content(e))
+		assert.Equal(t, "new\nthird", content(e))
 	})
 }
 
