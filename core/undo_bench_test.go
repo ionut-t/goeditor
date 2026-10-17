@@ -22,3 +22,20 @@ func BenchmarkUndoableEdit(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkInsertSession measures typing into one long insert session, where
+// each key extends the same edit. Lines are kept short so the buffer's own
+// per-line cost stays fixed; the cost per key should not grow with the session.
+func BenchmarkInsertSession(b *testing.B) {
+	e := newTestEditor("x")
+	keys(e, 'i')
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		if i++; i%80 == 0 {
+			enter(e)
+		} else {
+			keys(e, 'x')
+		}
+	}
+}

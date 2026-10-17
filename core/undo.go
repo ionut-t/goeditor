@@ -20,9 +20,9 @@ import (
 // InsertCompletion between keys) collect in a step of their own that closes
 // when the next key arrives.
 
-// edit is one change recorded by recordingBuffer: removed was deleted at at
-// and inserted put in its place, at positions in the buffer as it stood just
-// before the edit.
+// edit is one change recorded by recordingBuffer: starting at position at,
+// removed was deleted and inserted put in its place. Positions refer to the
+// buffer as it stood just before the edit.
 type edit struct {
 	at       Position
 	removed  string
@@ -35,6 +35,20 @@ type undoStep struct {
 	cursorBefore Cursor // restored by undo
 	cursorAfter  Cursor // restored by redo
 	host         bool   // opened by an edit made outside a key
+
+	// While the step is open, typing grows the last edit's insertion here
+	// rather than by string concatenation, which would copy it on every key.
+	// typedEnd is where that insertion ends. flushTyped moves it into edits.
+	typed    []byte
+	typedEnd Position
+}
+
+// flushTyped stores the insertion being typed into the last edit.
+func (s *undoStep) flushTyped() {
+	if s.typed != nil {
+		s.edits[len(s.edits)-1].inserted = string(s.typed)
+		s.typed = nil
+	}
 }
 
 // undo reverts the step's edits, last first. An error means the buffer no
@@ -42,14 +56,8 @@ type undoStep struct {
 // and leaves the step part applied.
 func (s *undoStep) undo(buf Buffer) error {
 	for _, ed := range slices.Backward(s.edits) {
-
-		if err := buf.DeleteRunesAt(ed.at.Row, ed.at.Col, utf8.RuneCountInString(ed.inserted)); err != nil {
-			return err.Error()
-		}
-		if ed.removed != "" {
-			if err := buf.InsertRunesAt(ed.at.Row, ed.at.Col, []rune(ed.removed)); err != nil {
-				return err
-			}
+		if err := replaceAt(buf, ed.at, ed.inserted, ed.removed); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -58,16 +66,39 @@ func (s *undoStep) undo(buf Buffer) error {
 // redo re-applies the step's edits in order, failing as undo does.
 func (s *undoStep) redo(buf Buffer) error {
 	for _, ed := range s.edits {
-		if err := buf.DeleteRunesAt(ed.at.Row, ed.at.Col, utf8.RuneCountInString(ed.removed)); err != nil {
-			return err.Error()
-		}
-		if ed.inserted != "" {
-			if err := buf.InsertRunesAt(ed.at.Row, ed.at.Col, []rune(ed.inserted)); err != nil {
-				return err
-			}
+		if err := replaceAt(buf, ed.at, ed.removed, ed.inserted); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// replaceAt replaces the text old, starting at position at, with text. It is
+// the primitive undo and redo share.
+func replaceAt(buf Buffer, at Position, old, text string) error {
+	n := utf8.RuneCountInString(old)
+	if err := buf.DeleteRunesAt(at.Row, at.Col, n); err != nil {
+		return fmt.Errorf("deleting %d runes at %d:%d: %w", n, at.Row, at.Col, err.Error())
+	}
+	if text != "" {
+		if err := buf.InsertRunesAt(at.Row, at.Col, []rune(text)); err != nil {
+			return fmt.Errorf("inserting %d runes at %d:%d: %w",
+				utf8.RuneCountInString(text), at.Row, at.Col, err)
+		}
+	}
+	return nil
+}
+
+// insertEnd returns where text ends once inserted at position at.
+func insertEnd(at Position, text string) Position {
+	i := strings.LastIndexByte(text, '\n')
+	if i < 0 {
+		return Position{Row: at.Row, Col: at.Col + utf8.RuneCountInString(text)}
+	}
+	return Position{
+		Row: at.Row + strings.Count(text, "\n"),
+		Col: utf8.RuneCountInString(text[i+1:]),
+	}
 }
 
 // undoCorrupt handles a step that failed part way. The text no longer matches
@@ -150,7 +181,26 @@ func (e *editor) recordEdit(cursor Cursor, ed edit) {
 	if e.openStep == nil {
 		e.openStep = &undoStep{cursorBefore: cursor, host: true}
 	}
-	e.openStep.edits = append(e.openStep.edits, ed)
+
+	// Typing inserts one rune at a time, each where the last one ended. Merge
+	// those into one edit, so an insert session costs one edit, not one per
+	// key.
+	step := e.openStep
+	n := len(step.edits)
+	if n > 0 && ed.removed == "" && step.edits[n-1].removed == "" && ed.at == step.typedEnd {
+		if step.typed == nil {
+			step.typed = []byte(step.edits[n-1].inserted)
+		}
+		step.typed = append(step.typed, ed.inserted...)
+		step.typedEnd = insertEnd(ed.at, ed.inserted)
+		return
+	}
+
+	step.flushTyped()
+	step.edits = append(step.edits, ed)
+	if ed.removed == "" {
+		step.typedEnd = insertEnd(ed.at, ed.inserted)
+	}
 }
 
 // openUndoStep runs before each key is dispatched. It closes a step left open
@@ -173,6 +223,7 @@ func (e *editor) closeUndoStep() {
 	if step == nil || len(step.edits) == 0 {
 		return
 	}
+	step.flushTyped()
 	step.cursorAfter = e.buffer.GetCursor()
 
 	clear(e.undoSteps[e.undoPos:])

@@ -391,3 +391,54 @@ func TestUndoHistory(t *testing.T) {
 		assert.Equal(t, "foo two three", content(e))
 	})
 }
+
+// TestUndoCoalescesTyping verifies an insert session is recorded as one edit
+// when each key inserts where the previous one ended, line breaks included.
+func TestUndoCoalescesTyping(t *testing.T) {
+	t.Run("typing across a line break is one edit", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("Aab")...)
+		enter(e)
+		keys(e, 'c', 'd')
+		escape(e)
+		require.Equal(t, "helloab\ncd", content(e))
+
+		ed := e.(*editor)
+		require.Len(t, ed.undoSteps, 1)
+		assert.Equal(t, []edit{{at: Position{0, 5}, inserted: "ab\ncd"}}, ed.undoSteps[0].edits)
+
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "helloab\ncd", content(e))
+	})
+
+	t.Run("an insert that does not follow the last one is a new edit", func(t *testing.T) {
+		e := newTestEditor("hello")
+		buf := e.GetBuffer()
+		require.NoError(t, buf.InsertRunesAt(0, 0, []rune("x\ny")))
+		require.NoError(t, buf.InsertRunesAt(0, 1, []rune("z"))) // inside the first insert
+		require.Equal(t, "xz\nyhello", content(e))
+
+		keys(e, 'l') // closes the host step
+		ed := e.(*editor)
+		require.Len(t, ed.undoSteps, 1)
+		assert.Len(t, ed.undoSteps[0].edits, 2)
+
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("a Backspace is not merged into the insert", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("Aab")...)
+		backspace(e)
+		keys(e, 'c')
+		escape(e)
+		require.Equal(t, "helloac", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "helloac", content(e))
+	})
+}
