@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/ionut-t/goeditor/compare/v0.8.2...v0.9.0) (2026-10-17)
+
+
+### Features
+
+* **undo:** implement delta-based undo and redo system ([#33](https://github.com/ionut-t/goeditor/issues/33)) ([71de9ef](https://github.com/ionut-t/goeditor/commit/71de9ef1abc08b10044d50a3cdfe74543cc3b564))
+
 ## [0.8.2](https://github.com/ionut-t/goeditor/compare/v0.8.1...v0.8.2) (2026-10-17)
 
 
