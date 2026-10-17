@@ -9,8 +9,16 @@ func (m *insertMode) Name() Mode { return InsertMode }
 func (m *insertMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- INSERT --")
 	editor.UpdateCommand("")
-	// Save state for undo *before* the first insertion
-	editor.SaveHistory()
+}
+
+// syncsUndo ends the undo step on cursor keys, as Vim does: text typed after
+// moving the cursor undoes separately from text typed before.
+func (m *insertMode) syncsUndo(key KeyEvent) bool {
+	switch key.Key {
+	case KeyLeft, KeyRight, KeyUp, KeyDown:
+		return true
+	}
+	return false
 }
 
 func (m *insertMode) Exit(editor Editor, buffer Buffer) {
@@ -48,7 +56,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			if err == nil {
 				_ = cursor.MoveLeft(buffer, 1, availableWidth) // Move cursor back
 				buffer.SetCursor(cursor)
-				editor.SaveHistory() // Save after modification
 			}
 		} else if row > 0 {
 			// At beginning of line, merge with previous line
@@ -61,7 +68,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 				cursor.Position.Row--
 				cursor.Position.Col = prevLineLen
 				buffer.SetCursor(cursor)
-				editor.SaveHistory()
 			}
 		} else {
 			// Cannot backspace at start of buffer
@@ -81,7 +87,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			cursor.Position.Col = 0
 			cursor.Preferred = 0 // Reset preferred col
 			buffer.SetCursor(cursor)
-			editor.SaveHistory()
 		} else {
 			err = &EditorError{
 				id:  ErrInvalidPositionId,
@@ -97,7 +102,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if insertErr == nil {
 			_ = cursor.MoveRight(buffer, 1, availableWidth) // Tab counts as one "character" position for movement
 			buffer.SetCursor(cursor)
-			editor.SaveHistory()
 		} else {
 			err = &EditorError{
 				id:  ErrInvalidPositionId,
@@ -114,20 +118,17 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case KeyLeft:
 		_ = cursor.MoveLeftOrUp(buffer, 1, col)
 		buffer.SetCursor(cursor)
-		editor.SaveHistory() // Save after modification
 		return nil
 
 	case KeyRight:
 		_ = cursor.MoveRightOrDown(buffer, 1, col)
 		buffer.SetCursor(cursor)
-		editor.SaveHistory() // Save after modification
 		return nil
 
 	case KeyUp:
 		if row > 0 {
 			_ = cursor.MoveUp(buffer, 1, availableWidth) // Move cursor up
 			buffer.SetCursor(cursor)
-			editor.SaveHistory() // Save after modification
 		}
 		return nil
 
@@ -135,7 +136,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if row < buffer.LineCount()-1 {
 			_ = cursor.MoveDown(buffer, 1, availableWidth) // Move cursor down
 			buffer.SetCursor(cursor)
-			editor.SaveHistory() // Save after modification
 		}
 		return nil
 
@@ -151,7 +151,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			if insertErr == nil {
 				_ = cursor.MoveRight(buffer, 1, availableWidth) // Move cursor forward
 				buffer.SetCursor(cursor)
-				editor.SaveHistory() // Save after modification
 			} else {
 				err = &EditorError{
 					id:  ErrInvalidPositionId,

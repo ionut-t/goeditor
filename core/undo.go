@@ -1,0 +1,364 @@
+package core
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"unicode/utf8"
+)
+
+// Undo history is a list of undo steps, each holding the edits one command
+// made. Recording, undo and redo cost the size of the change, not of the
+// buffer.
+//
+// Boundaries follow Vim, which ends an undo step whenever it waits for a new
+// typed command: dispatchKey opens a step before each key and closes it once
+// the mode is idle and no mapping is still feeding keys. A whole insert
+// session, a change and the insert that follows it, and a whole mapping are
+// therefore each one step. Edits made outside a key (by the host, or by
+// InsertCompletion between keys) collect in a step of their own that closes
+// when the next key arrives.
+
+// edit is one change recorded by recordingBuffer: removed was deleted at at
+// and inserted put in its place, at positions in the buffer as it stood just
+// before the edit.
+type edit struct {
+	at       Position
+	removed  string
+	inserted string
+}
+
+// undoStep is what one 'u' undoes.
+type undoStep struct {
+	edits        []edit // in the order applied
+	cursorBefore Cursor // restored by undo
+	cursorAfter  Cursor // restored by redo
+	host         bool   // opened by an edit made outside a key
+}
+
+// undo reverts the step's edits, last first. An error means the buffer no
+// longer matches the history — it was edited behind the recording wrapper —
+// and leaves the step part applied.
+func (s *undoStep) undo(buf Buffer) error {
+	for _, ed := range slices.Backward(s.edits) {
+
+		if err := buf.DeleteRunesAt(ed.at.Row, ed.at.Col, utf8.RuneCountInString(ed.inserted)); err != nil {
+			return err.Error()
+		}
+		if ed.removed != "" {
+			if err := buf.InsertRunesAt(ed.at.Row, ed.at.Col, []rune(ed.removed)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// redo re-applies the step's edits in order, failing as undo does.
+func (s *undoStep) redo(buf Buffer) error {
+	for _, ed := range s.edits {
+		if err := buf.DeleteRunesAt(ed.at.Row, ed.at.Col, utf8.RuneCountInString(ed.removed)); err != nil {
+			return err.Error()
+		}
+		if ed.inserted != "" {
+			if err := buf.InsertRunesAt(ed.at.Row, ed.at.Col, []rune(ed.inserted)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// undoCorrupt handles a step that failed part way. The text no longer matches
+// the history, so applying further steps would only damage it more: drop the
+// history, as Vim does on E438.
+func (e *editor) undoCorrupt(err error) error {
+	e.resetHistory()
+	e.ScrollViewport()
+	return fmt.Errorf("%w: %w", ErrUndoCorrupt, err)
+}
+
+// recordingBuffer wraps the editor's buffer so that every edit, whoever makes
+// it, lands in the open undo step. Undo and redo apply their edits to the
+// wrapped buffer directly, so they are not recorded a second time.
+type recordingBuffer struct {
+	Buffer
+	e *editor
+}
+
+func (b *recordingBuffer) InsertRunesAt(row, col int, runes []rune) error {
+	cursor := b.GetCursor()
+	if err := b.Buffer.InsertRunesAt(row, col, runes); err != nil {
+		return err
+	}
+	if len(runes) > 0 {
+		b.e.recordEdit(cursor, edit{at: Position{Row: row, Col: col}, inserted: string(runes)})
+	}
+	return nil
+}
+
+func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
+	cursor := b.GetCursor()
+	removed := textAt(b.Buffer, row, col, count)
+	if err := b.Buffer.DeleteRunesAt(row, col, count); err != nil {
+		return err
+	}
+	if removed != "" {
+		b.e.recordEdit(cursor, edit{at: Position{Row: row, Col: col}, removed: removed})
+	}
+	return nil
+}
+
+// SetContent replaces the whole text, which starts a new undo history, as
+// loading a file does in Vim.
+func (b *recordingBuffer) SetContent(content []byte) {
+	b.Buffer.SetContent(content)
+	b.e.resetHistory()
+}
+
+// textAt returns the text DeleteRunesAt(row, col, count) removes from buf: up
+// to count runes from (row, col), a line break counting as one.
+func textAt(buf Buffer, row, col, count int) string {
+	if count <= 0 || row < 0 || row >= buf.LineCount() {
+		return ""
+	}
+	line := buf.GetLineRunes(row)
+	if col < 0 || col > len(line) {
+		return ""
+	}
+
+	var sb strings.Builder
+	for {
+		n := min(count, len(line)-col)
+		sb.WriteString(string(line[col : col+n]))
+		count -= n
+		row++
+		if count == 0 || row >= buf.LineCount() {
+			return sb.String()
+		}
+		sb.WriteByte('\n')
+		count--
+		line, col = buf.GetLineRunes(row), 0
+	}
+}
+
+// recordEdit adds ed to the open undo step. With no step open the edit was
+// made outside a key, so it opens a host step; cursor is where the cursor was
+// before the edit.
+func (e *editor) recordEdit(cursor Cursor, ed edit) {
+	if e.openStep == nil {
+		e.openStep = &undoStep{cursorBefore: cursor, host: true}
+	}
+	e.openStep.edits = append(e.openStep.edits, ed)
+}
+
+// openUndoStep runs before each key is dispatched. It closes a step left open
+// by host edits, then opens one for the key unless a command still in
+// progress (an insert session, say) already has one.
+func (e *editor) openUndoStep() {
+	if e.openStep != nil && e.openStep.host {
+		e.closeUndoStep()
+	}
+	if e.openStep == nil {
+		e.openStep = &undoStep{cursorBefore: e.buffer.GetCursor()}
+	}
+}
+
+// closeUndoStep ends the open step and adds it to the history, dropping any
+// redo. A step with no edits is discarded.
+func (e *editor) closeUndoStep() {
+	step := e.openStep
+	e.openStep = nil
+	if step == nil || len(step.edits) == 0 {
+		return
+	}
+	step.cursorAfter = e.buffer.GetCursor()
+
+	clear(e.undoSteps[e.undoPos:])
+	e.undoSteps = e.undoSteps[:e.undoPos]
+
+	// Extend or restart the line-undo run before undoPos moves, so
+	// undoLineStart records the position before the run's first step.
+	e.trackUndoLineRun(step)
+
+	e.undoSteps = append(e.undoSteps, *step)
+	e.undoPos++
+
+	if dropped := len(e.undoSteps) - int(e.maxHistory); dropped > 0 {
+		clear(e.undoSteps[:dropped])
+		e.undoSteps = e.undoSteps[dropped:]
+		e.undoPos -= dropped
+
+		// Shift the line-undo anchor to match; if the run's starting state has
+		// aged out of the history there is nothing left to restore.
+		if e.undoLineRow >= 0 {
+			e.undoLineStart -= dropped
+			if e.undoLineStart < 0 {
+				e.undoLineRow = -1
+			}
+		}
+	}
+}
+
+// endsUndoStep reports whether the step open for key should close once the
+// key has been handled by mode (the mode current when it arrived).
+func (e *editor) endsUndoStep(mode EditorMode, key KeyEvent) bool {
+	if s, ok := mode.(undoSyncer); ok && s.syncsUndo(key) {
+		return true
+	}
+	return e.mapDepth == 0 && e.undoIdle()
+}
+
+// undoIdle reports whether the editor is waiting for a new command: not in a
+// Vim insert session and not part way through a normal-mode command.
+func (e *editor) undoIdle() bool {
+	if e.state.Mode == InsertMode && e.state.VimMode {
+		return false
+	}
+	return !e.currentMode.OperatorPending() && !e.currentMode.AwaitingLiteral()
+}
+
+// undoSyncer is implemented by modes that end an undo step part way through
+// a session. Insert mode does so for cursor keys, as Vim does.
+type undoSyncer interface {
+	syncsUndo(key KeyEvent) bool
+}
+
+// resetHistory forgets all undo steps, for a new buffer or new content.
+func (e *editor) resetHistory() {
+	e.undoSteps = nil
+	e.undoPos = 0
+	e.openStep = nil
+	e.undoLineRow = -1
+}
+
+// SaveHistory ends the current undo step, so the next edit starts a new one.
+// The editor ends a step after every command itself, so callers rarely need
+// it.
+func (e *editor) SaveHistory() {
+	e.closeUndoStep()
+}
+
+// trackUndoLineRun maintains the line-undo run used by 'U'. A change on a
+// different row than the current run starts a fresh run anchored at the state
+// preceding it; further changes to the same row extend the run, so a single 'U'
+// undoes all of them at once — Vim's behaviour.
+func (e *editor) trackUndoLineRun(step *undoStep) {
+	preRow := step.cursorBefore.Position.Row
+	postRow := step.cursorAfter.Position.Row
+
+	// The run continues while changes keep landing on the same line. Both the
+	// pre- and post-change rows count, because operations like 'o' create the
+	// line they then edit: the command starts on one row and the change lands
+	// on the next, and Vim treats that as a single run.
+	if e.undoLineRow >= 0 && (preRow == e.undoLineRow || postRow == e.undoLineRow) {
+		return
+	}
+
+	e.undoLineRow = postRow
+	e.undoLineStart = e.undoPos
+}
+
+func (e *editor) Undo() (string, error) {
+	e.closeUndoStep()
+	if e.undoPos == 0 {
+		return "", errors.New("already at oldest change")
+	}
+
+	currentContent := e.buffer.GetCurrentContent()
+
+	// Moving through history invalidates the current line-undo run: its anchor
+	// no longer describes a trailing sequence of changes.
+	e.undoLineRow = -1
+
+	e.undoPos--
+	step := &e.undoSteps[e.undoPos]
+	if err := step.undo(e.buffer.Buffer); err != nil {
+		return "", e.undoCorrupt(err)
+	}
+
+	// Return to where the change started, clamped to the restored content.
+	cursor := step.cursorBefore
+	lineCount := e.buffer.LineCount()
+	if cursor.Position.Row >= lineCount {
+		cursor.Position.Row = max(0, lineCount-1)
+	}
+	lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
+	if cursor.Position.Col > lineLen {
+		cursor.Position.Col = lineLen
+	}
+	e.buffer.SetCursor(cursor)
+
+	e.ScrollViewport()
+
+	return currentContent, nil
+}
+
+func (e *editor) Redo() (string, error) {
+	e.closeUndoStep()
+	if e.undoPos >= len(e.undoSteps) {
+		return "", errors.New("already at newest change")
+	}
+
+	currentContent := e.buffer.GetCurrentContent()
+
+	e.undoLineRow = -1
+
+	step := &e.undoSteps[e.undoPos]
+	e.undoPos++
+	if err := step.redo(e.buffer.Buffer); err != nil {
+		return "", e.undoCorrupt(err)
+	}
+	e.buffer.SetCursor(step.cursorAfter)
+
+	e.ScrollViewport()
+
+	return currentContent, nil
+}
+
+// UndoLine implements Vim's 'U': undo all the latest changes made to a single
+// line — the line where the most recent change happened.
+//
+// The restore is applied as a *new* step rather than by moving undoPos, which
+// gives two Vim behaviours for free: 'u' undoes a 'U', and a second 'U'
+// toggles back to the changed version, because the run is re-anchored at the
+// position just before this restore.
+func (e *editor) UndoLine() (string, error) {
+	e.closeUndoStep()
+	if e.undoLineRow < 0 || e.undoLineStart < 0 || e.undoLineStart >= e.undoPos {
+		return "", ErrNoLineToRestore
+	}
+
+	currentContent := e.buffer.GetCurrentContent()
+	row := e.undoLineRow
+
+	// Revert the run through the recording buffer, so the reverting edits
+	// become the new step.
+	e.openStep = &undoStep{cursorBefore: e.buffer.GetCursor()}
+	for i := e.undoPos - 1; i >= e.undoLineStart; i-- {
+		if err := e.undoSteps[i].undo(e.buffer); err != nil {
+			return "", e.undoCorrupt(err)
+		}
+	}
+
+	// Park the cursor on the restored line, clamped to the restored content.
+	cursor := e.buffer.GetCursor()
+	cursor.Position.Row = min(row, max(0, e.buffer.LineCount()-1))
+	cursor.Position.Col = 0
+	cursor.Preferred = 0
+	e.buffer.SetCursor(cursor)
+
+	e.closeUndoStep()
+
+	// closeUndoStep re-derives the run from the step's cursors; override it so
+	// the next 'U' reverts this step.
+	if e.undoPos > 0 {
+		e.undoLineRow = row
+		e.undoLineStart = e.undoPos - 1
+	}
+
+	e.ScrollViewport()
+
+	return currentContent, nil
+}

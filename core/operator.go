@@ -21,7 +21,6 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		if err := deleteRange(buffer, start, end); err != nil {
 			return err
 		}
-		editor.SaveHistory()
 		cursor.Position = start
 		buffer.SetCursor(cursor)
 		if op == "change" {

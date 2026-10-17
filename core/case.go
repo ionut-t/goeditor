@@ -82,7 +82,6 @@ func toggleCaseChar(editor Editor, buffer Buffer, count int) *EditorError {
 	if err := applyCaseInRange(buffer, start, end, caseTransformForOp('~')); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	// Advance cursor past the toggled region (clamp to last char).
 	newCol := endCol
@@ -112,7 +111,6 @@ func applyCaseWord(editor Editor, buffer Buffer, op rune, count int) *EditorErro
 	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 	return nil
 }
 
@@ -136,7 +134,6 @@ func applyCaseWordEnd(editor Editor, buffer Buffer, op rune, count int) *EditorE
 	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 	return nil
 }
 
@@ -158,7 +155,6 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	// Cursor moves to the start of the affected range.
 	cursor.Position = startPos
@@ -183,7 +179,6 @@ func applyCaseToEndOfLine(editor Editor, buffer Buffer, op rune) *EditorError {
 	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 	return nil
 }
 
@@ -210,7 +205,6 @@ func applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorE
 		}
 	}
 
-	editor.SaveHistory()
 	return nil
 }
 
@@ -225,7 +219,6 @@ func applyCaseToBufferEnd(editor Editor, buffer Buffer, op rune) *EditorError {
 	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 	return nil
 }
 
@@ -245,7 +238,6 @@ func applyCaseToLineStart(editor Editor, buffer Buffer, op rune) *EditorError {
 	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	cursor.Position.Col = 0
 	buffer.SetCursor(cursor)
@@ -276,7 +268,6 @@ func applyCaseToFirstNonBlank(editor Editor, buffer Buffer, op rune) *EditorErro
 	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	cursor.Position.Col = firstNonBlankCol
 	buffer.SetCursor(cursor)
@@ -296,7 +287,6 @@ func applyCaseToBufferStart(editor Editor, buffer Buffer, op rune) *EditorError 
 	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	cursor.Position = Position{Row: 0, Col: 0}
 	buffer.SetCursor(cursor)
@@ -330,8 +320,6 @@ func applyCaseToTargetLine(editor Editor, buffer Buffer, op rune, targetRow int)
 		}
 	}
 
-	editor.SaveHistory()
-
 	cursor := buffer.GetCursor()
 	cursor.Position = Position{Row: targetRow, Col: 0}
 	buffer.SetCursor(cursor)
@@ -348,7 +336,6 @@ func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos,
 	if err := applyCaseInRange(buffer, startSel, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 	return nil
 }
 
@@ -421,7 +408,6 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 	if err := applyCaseInRange(buffer, startPos, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
 	}
-	editor.SaveHistory()
 
 	// Move cursor to the start of the transformed range (matches Vim).
 	cursor.Position = startPos
@@ -449,6 +435,5 @@ func applyCaseToVisualLineSelection(editor Editor, buffer Buffer, op rune, start
 		}
 	}
 
-	editor.SaveHistory()
 	return nil
 }

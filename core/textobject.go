@@ -290,8 +290,6 @@ func deleteParagraphTextObject(editor Editor, buffer Buffer, modifier rune) *Edi
 		return err
 	}
 
-	editor.SaveHistory()
-
 	newRow := startRow
 	if newRow >= buffer.LineCount() {
 		newRow = buffer.LineCount() - 1
@@ -347,7 +345,6 @@ func changeParagraphTextObject(editor Editor, buffer Buffer, modifier rune) *Edi
 
 		cursor.Position = Position{Row: startRow, Col: 0}
 		buffer.SetCursor(cursor)
-		editor.SaveHistory()
 		editor.SetInsertMode()
 		return nil
 	}
@@ -382,7 +379,6 @@ func changeParagraphTextObject(editor Editor, buffer Buffer, modifier rune) *Edi
 	}
 
 	buffer.SetCursor(cursor)
-	editor.SaveHistory()
 	editor.SetInsertMode()
 	return nil
 }
@@ -649,7 +645,6 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 		if err := deleteRange(buffer, startPos, exclusiveEnd); err != nil {
 			return err
 		}
-		editor.SaveHistory()
 
 		cursor := buffer.GetCursor()
 		cursor.Position = startPos
@@ -750,7 +745,6 @@ func bracketApplyRange(editor Editor, buffer Buffer, startPos, yankEnd, exclusiv
 		if err := deleteRange(buffer, startPos, exclusiveDeleteEnd); err != nil {
 			return err
 		}
-		editor.SaveHistory()
 
 		cursor := buffer.GetCursor()
 		cursor.Position = startPos

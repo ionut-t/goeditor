@@ -115,10 +115,6 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 	cursor.MoveToFirstNonBlank(buffer, availableWidth)
 	buffer.SetCursor(cursor)
 
-	if firstErr == nil {
-		editor.SaveHistory()
-	}
-
 	return deletedContent.String(), firstErr
 }
 
@@ -145,7 +141,6 @@ func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	if startPos != endPos {
 		err = deleteRange(buffer, startPos, endPos)
 		if err == nil {
-			editor.SaveHistory()
 			buffer.SetCursor(cursor) // Cursor stays at startPos
 		}
 	}
@@ -165,7 +160,6 @@ func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	if startPos != originalPos {
 		err := deleteRange(buffer, startPos, originalPos)
 		if err == nil {
-			editor.SaveHistory()
 			cursor.Position = startPos // Move cursor to the beginning of the deleted range
 			buffer.SetCursor(cursor)
 		}
@@ -189,7 +183,6 @@ func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
 	if startPos != exclusiveEndPos {
 		err := deleteRange(buffer, startPos, exclusiveEndPos)
 		if err == nil {
-			editor.SaveHistory()
 			buffer.SetCursor(cursor)
 		}
 		return err
@@ -251,7 +244,6 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 			cursor.Position.Col = lineLen - 1
 		}
 		buffer.SetCursor(cursor)
-		editor.SaveHistory()
 	}
 
 	return nil
@@ -269,9 +261,6 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 
 		deleteCount := lineLen - cursor.Position.Col
 		err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, deleteCount)
-		if err == nil {
-			editor.SaveHistory()
-		}
 	}
 
 	return deletedContent, err

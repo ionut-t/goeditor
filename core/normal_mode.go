@@ -916,7 +916,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		_ = cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)                               // Go to start of new line
 		buffer.SetCursor(cursor)
-		editor.SaveHistory()
 		editor.SetInsertMode()
 
 	case key.Rune == 'O': // Open line above
@@ -928,7 +927,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
 		buffer.SetCursor(cursor)
-		editor.SaveHistory()
 		editor.SetInsertMode()
 
 	case key.Rune == 'v': // Enter visual mode
@@ -984,9 +982,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		if cursor.Position.Col < lineLen { // Only delete if cursor is on a char
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count)
-			if err == nil {
-				editor.SaveHistory()
-			}
 
 			// Ensure cursor doesn't go past end of line after deletion
 			cursor = buffer.GetCursor() // Refresh cursor state
@@ -1009,7 +1004,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			if err == nil {
 				_ = cursor.MoveLeft(buffer, count, availableWidth) // Move cursor back
 				buffer.SetCursor(cursor)
-				editor.SaveHistory()
 			}
 		} else {
 			err = &EditorError{

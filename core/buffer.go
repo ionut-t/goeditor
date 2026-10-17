@@ -317,6 +317,7 @@ func (b *textBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 		// Deleting the newline + content of this line
 		if remainingToDelete >= currentLineLen+1 { // +1 for the newline
 			remainingToDelete -= (currentLineLen + 1)
+			colOnLastDeletedLine = currentLineLen // the whole line is consumed
 			currentRow++
 		} else {
 			// Deletion ends within this line
