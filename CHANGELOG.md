@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/ionut-t/goeditor/compare/v0.8.1...v0.8.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **core:** compose pre-operator and post-operator counts ([#29](https://github.com/ionut-t/goeditor/issues/29)) ([4ba0346](https://github.com/ionut-t/goeditor/commit/4ba034699b303ab90a656db5851861c6df4cfb0d))
+* **core:** empty line range on linewise change operations ([#32](https://github.com/ionut-t/goeditor/issues/32)) ([14890e7](https://github.com/ionut-t/goeditor/commit/14890e7a4944bb8bb944618de520e8f45c162c9f))
+
 ## [0.8.1](https://github.com/ionut-t/goeditor/compare/v0.8.0...v0.8.1) (2026-10-16)
 
 
