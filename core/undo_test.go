@@ -211,7 +211,7 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("SX<Esc>u undoes the substitute", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "S deletes the line instead of emptying it (gives \"Xtwo\"), and saves per inserted rune")
+		skipUntilDeltaHistory(t, "S saves after emptying the line, then per inserted rune")
 		e := newTestEditor("one\ntwo")
 		keys(e, []rune("SX")...)
 		escape(e)

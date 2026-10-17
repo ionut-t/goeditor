@@ -194,12 +194,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
-		if _, delErr := deleteLineRange(editor, buffer, startRow, endRow); delErr == nil {
-			editor.SaveHistory()
-			editor.SetInsertMode()
-		} else {
-			err = delErr
-		}
+		err = changeLineRange(editor, buffer, startRow, endRow)
 		editor.ResetPendingCount()
 		return true, err
 
