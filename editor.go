@@ -1401,12 +1401,12 @@ func (m *Model) getStatusLine() string {
 	return statusLine
 }
 
-// SetMaxHistory sets the maximum number of history entries for undo/redo.
-// This allows controlling how many undo steps are kept in memory.
+// SetMaxHistory sets how many changes can be undone, like Vim's 'undolevels'.
 // If set to 0, no history will be kept.
 // The default value is 1000.
-// If the number of history entries exceeds this limit, the oldest entries will be removed.
-// This is useful for managing memory usage in the core.
+// Once the limit is reached, making a change drops the oldest one.
+// Each change stores only the text it replaced, so memory grows with the
+// size of the edits rather than of the buffer.
 func (m *Model) SetMaxHistory(max uint32) {
 	m.editor.SetMaxHistory(max)
 }

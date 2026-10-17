@@ -20,6 +20,7 @@ var (
 	ErrNoLineToRestore    = errors.New("no line to restore")
 	ErrInvalidMapping     = errors.New("invalid mapping")
 	ErrMapRecursion       = errors.New("recursive mapping")
+	ErrUndoCorrupt        = errors.New("undo list corrupt")
 )
 
 type ErrorId int

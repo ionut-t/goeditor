@@ -124,7 +124,6 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		buffer.SetCursor(initialCursor)
 		contentDeleted, delErr := deleteLineRange(editor, buffer, startRow, endRow)
 		if delErr == nil {
-			editor.SaveHistory()
 			editor.SetNormalMode()
 			editor.DispatchSignal(DeleteSignal{content: contentDeleted})
 		} else {
@@ -151,7 +150,6 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		buffer.SetCursor(initialCursor)
 		_, err = deleteLineRange(editor, buffer, startRow, endRow)
 		if err == nil {
-			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
 		var pastedContent string

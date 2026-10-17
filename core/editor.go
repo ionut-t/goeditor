@@ -85,7 +85,7 @@ type Editor interface {
 	CancelSearch()
 
 	// History management
-	SaveHistory() // Indicate a state should be saved for undo
+	SaveHistory() // End the current undo step; the editor already does after each command
 	Undo() (string, error)
 	Redo() (string, error)
 	UndoLine() (string, error)    // Vim's 'U' — undo all recent changes on one line
@@ -120,7 +120,7 @@ type Editor interface {
 	PreviousSearchResult() Cursor
 	SearchWordUnderCursor(backwards bool) Cursor
 
-	SetMaxHistory(max uint32) // Set maximum history size for undo/redo
+	SetMaxHistory(max uint32) // Set how many changes can be undone ('undolevels')
 
 	SetExtraWordChars(chars ...rune) // Set additional characters to be considered part of words for navigation and selection
 	IsWordChar(r rune) bool          // Reports whether r is considered a word character in this editor's context

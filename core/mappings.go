@@ -361,7 +361,6 @@ func (e *editor) FlushPendingMapping() *EditorError {
 func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 	if e.mapDepth >= maxMapDepth {
 		e.clearPendingMapKeys()
-		e.mapDepth = 0
 		// lhs is the mapping being expanded at the deepest point, so it is one of
 		// the mappings in the cycle — the useful thing to put in front of whoever
 		// has to go and fix their config.
@@ -373,7 +372,15 @@ func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 	}
 
 	e.mapDepth++
-	defer func() { e.mapDepth-- }()
+	defer func() {
+		e.mapDepth--
+		// dispatchKey keeps the undo step open while a mapping feeds keys, so
+		// the whole mapping undoes as one step, as in Vim. Close it now if the
+		// mapping left the editor waiting for a new command.
+		if e.mapDepth == 0 && e.undoIdle() {
+			e.closeUndoStep()
+		}
+	}()
 
 	var firstErr *EditorError
 	for _, key := range keys {
@@ -392,16 +399,21 @@ func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 }
 
 // dispatchKey hands a key to the current mode, with the bookkeeping that has to
-// happen once per key actually delivered rather than once per HandleKey call —
-// otherwise every key of an expanded mapping would share one cursor snapshot.
+// happen once per key actually delivered rather than once per HandleKey call:
+// it opens the undo step the key's edits go into, and closes it once the
+// command is over (see undo.go).
 func (e *editor) dispatchKey(key KeyEvent) *EditorError {
-	// Snapshot cursor before any change so SaveHistory can record the pre-change position.
-	e.preChangeCursor = e.buffer.GetCursor()
+	e.openUndoStep()
 
-	err := e.currentMode.HandleKey(e, e.buffer, key)
+	mode := e.currentMode
+	err := mode.HandleKey(e, e.buffer, key)
 
 	// Update derived state AFTER handling key
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
+
+	if e.endsUndoStep(mode, key) {
+		e.closeUndoStep()
+	}
 
 	return err
 }

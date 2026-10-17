@@ -252,7 +252,6 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		if err == nil {
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
-			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
 		editor.ResetPendingCount()
@@ -278,7 +277,6 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		if err == nil {
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
-			editor.SaveHistory()
 			editor.SetNormalMode()
 		}
 		content, pasteErr := editor.PasteBefore()
@@ -308,7 +306,6 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		if err == nil {
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
-			editor.SaveHistory()
 			editor.SetInsertMode()
 		}
 		editor.ResetPendingCount()

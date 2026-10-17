@@ -19,7 +19,6 @@ func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 	if startPos != exclusiveEndPos {
 		err := deleteRange(buffer, startPos, exclusiveEndPos)
 		if err == nil {
-			editor.SaveHistory()
 			buffer.SetCursor(cursor)
 			editor.SetInsertMode()
 		}
@@ -41,7 +40,6 @@ func changeWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	if startPos != endPos {
 		err := deleteRange(buffer, startPos, endPos)
 		if err == nil {
-			editor.SaveHistory()
 			cursor.Position = startPos
 			buffer.SetCursor(cursor)
 			editor.SetInsertMode()
@@ -59,7 +57,6 @@ func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 		if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, delCount); err != nil {
 			return err
 		}
-		editor.SaveHistory()
 	}
 	buffer.SetCursor(cursor)
 	editor.SetInsertMode()
@@ -82,7 +79,6 @@ func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune) *EditorError 
 		return &EditorError{id: ErrInvalidPositionId, err: err}
 	}
 
-	editor.SaveHistory()
 	return nil
 }
 
@@ -102,7 +98,6 @@ func changeLineRange(editor Editor, buffer Buffer, startRow, endRow int) *Editor
 	cursor := buffer.GetCursor()
 	cursor.Position = Position{Row: startRow, Col: 0}
 	buffer.SetCursor(cursor)
-	editor.SaveHistory()
 	editor.SetInsertMode()
 	return nil
 }

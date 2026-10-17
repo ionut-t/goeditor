@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUndoBasic tests 'u' — undo the last change.
@@ -136,19 +137,11 @@ func TestUndoTruncatesRedo(t *testing.T) {
 	})
 }
 
-// skipUntilDeltaHistory skips an undo test that fails today. Step 3 of the
-// `.` + undo design (delta history, boundaries in dispatchKey) un-skips them.
-func skipUntilDeltaHistory(t *testing.T, why string) {
-	t.Helper()
-	t.Skipf("%s; fixed by delta undo history (step 3 of the . + undo design)", why)
-}
-
 // TestUndoStepsMatchVim pins down what one 'u' undoes, as in Vim: a whole
 // insert session, a change and the insert that follows it, and each paste or
 // visual operation are one undo step.
 func TestUndoStepsMatchVim(t *testing.T) {
 	t.Run("A world<Esc>u undoes the whole insert", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "insert mode saves history per keystroke")
 		e := newTestEditor("hello")
 		keys(e, []rune("A world")...)
 		escape(e)
@@ -159,7 +152,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("insert with Backspace, Enter and Tab is one step", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "insert mode saves history per keystroke")
 		e := newTestEditor("hello")
 		keys(e, []rune("Axy")...)
 		backspace(e)
@@ -172,7 +164,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("cwX<Esc>u undoes the delete and the insert", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "c saves after the delete, then per inserted rune")
 		e := newTestEditor("one two three")
 		keys(e, []rune("cwX")...)
 		escape(e)
@@ -191,7 +182,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("oX<Esc>u undoes the new line and its text", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "o saves after the new line, then per inserted rune")
 		e := newTestEditor("one\ntwo")
 		keys(e, []rune("oX")...)
 		escape(e)
@@ -201,7 +191,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("OX<Esc>u undoes the new line and its text", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "O saves after the new line, then per inserted rune")
 		e := newTestEditor("one\ntwo")
 		keys(e, []rune("jOX")...)
 		escape(e)
@@ -211,7 +200,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("SX<Esc>u undoes the substitute", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "S makes the emptied line and each inserted rune separate undo steps")
 		e := newTestEditor("one\ntwo")
 		keys(e, []rune("SX")...)
 		escape(e)
@@ -229,7 +217,6 @@ func TestUndoStepsMatchVim(t *testing.T) {
 	})
 
 	t.Run("3p of a line is one step", func(t *testing.T) {
-		skipUntilDeltaHistory(t, "each pasted line saves its own history step")
 		e, _ := newTestEditorWithClipboard("one")
 		keys(e, 'y', 'y', '3', 'p')
 		assert.Equal(t, "one\none\none\none", content(e))
@@ -271,5 +258,187 @@ func TestUndoStepsMatchVim(t *testing.T) {
 		assert.Equal(t, "hello", content(e))
 		keys(e, 'U') // U undoes itself
 		assert.Equal(t, "hello world", content(e))
+	})
+}
+
+// TestUndoStepBoundaries covers where an undo step ends besides a completed
+// command: cursor keys in insert mode, mappings, and edits made outside a key.
+func TestUndoStepBoundaries(t *testing.T) {
+	t.Run("a cursor key in insert mode starts a new step", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("A a")...)
+		e.HandleKey(KeyEvent{Key: KeyLeft})
+		keys(e, 'b')
+		escape(e)
+		assert.Equal(t, "hello ba", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello a", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("a mapping is one step", func(t *testing.T) {
+		e := newTestEditor("one two three four")
+		require.NoError(t, e.Map(MapNormal, ",x", "dwdw", true))
+		keys(e, ',', 'x')
+		assert.Equal(t, "three four", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "one two three four", content(e))
+	})
+
+	t.Run("steps still close after a recursive mapping is stopped", func(t *testing.T) {
+		e := newTestEditor("hello")
+		require.NoError(t, e.Map(MapNormal, "a", "b", false))
+		require.NoError(t, e.Map(MapNormal, "b", "a", false))
+		require.NotNil(t, e.HandleKey(KeyEvent{Rune: 'a'}))
+
+		keys(e, 'x', 'x')
+		keys(e, 'u')
+		assert.Equal(t, "ello", content(e))
+	})
+
+	t.Run("host edits group into one step that closes on the next key", func(t *testing.T) {
+		e := newTestEditor("hello")
+		require.NoError(t, e.GetBuffer().InsertRunesAt(0, 0, []rune("a")))
+		require.NoError(t, e.GetBuffer().InsertRunesAt(0, 0, []rune("b")))
+		keys(e, 'x')
+		assert.Equal(t, "ahello", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "bahello", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("a completion joins the insert session", func(t *testing.T) {
+		e := newTestEditor("hello ")
+		keys(e, 'A', 'w')
+		require.NoError(t, e.InsertCompletion(Completion{Text: "world"}))
+		escape(e)
+		assert.Equal(t, "hello world", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello ", content(e))
+	})
+
+	t.Run("without Vim mode every key is a step", func(t *testing.T) {
+		e := newTestEditor("x")
+		e.DisableVimMode(true)
+		keys(e, 'a', 'b')
+		assert.Equal(t, "abx", content(e))
+		_, err := e.Undo()
+		require.NoError(t, err)
+		assert.Equal(t, "ax", content(e))
+	})
+}
+
+// TestUndoHistory covers the history itself: its limit, resets, and exact
+// restoration of the text.
+func TestUndoHistory(t *testing.T) {
+	t.Run("SetMaxHistory limits the number of undoable changes", func(t *testing.T) {
+		e := newTestEditor("hello")
+		e.SetMaxHistory(2)
+		keys(e, 'x', 'x', 'x')
+		keys(e, 'u', 'u', 'u')
+		assert.Equal(t, "ello", content(e))
+	})
+
+	t.Run("SetContent on the buffer clears the history", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'x')
+		e.GetBuffer().SetContent([]byte("new"))
+		keys(e, 'u')
+		assert.Equal(t, "new", content(e))
+	})
+
+	t.Run("undo restores a trailing empty line", func(t *testing.T) {
+		e := newTestEditor("a")
+		keys(e, 'o')
+		escape(e)
+		assert.Equal(t, "a\n", content(e))
+		keys(e, 'x', 'k', 'x')
+		assert.Equal(t, "\n", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "a\n", content(e))
+	})
+
+	t.Run("a step that no longer fits the text clears the history", func(t *testing.T) {
+		e := New(nil)
+		raw := NewBufferFromBytes([]byte("a\nb\nc"))
+		e.SetBuffer(raw)
+		keys(e, 'j', 'j', 'x') // records deleting "c" on row 2
+
+		// Edit behind the recording wrapper, so row 2 no longer exists.
+		require.Nil(t, raw.DeleteRunesAt(0, 1, 3))
+		require.Equal(t, "a", content(e))
+
+		_, err := e.Undo()
+		assert.ErrorIs(t, err, ErrUndoCorrupt)
+		assert.Equal(t, "a", content(e))
+
+		_, err = e.Undo()
+		assert.EqualError(t, err, "already at oldest change", "history was cleared")
+	})
+
+	t.Run("redo after several undos replays in order", func(t *testing.T) {
+		e := newTestEditor("one two three")
+		keys(e, 'd', 'w')
+		keys(e, []rune("ifoo ")...)
+		escape(e)
+		assert.Equal(t, "foo two three", content(e))
+		keys(e, 'u', 'u')
+		assert.Equal(t, "one two three", content(e))
+		ctrlKey(e, 'r')
+		ctrlKey(e, 'r')
+		assert.Equal(t, "foo two three", content(e))
+	})
+}
+
+// TestUndoCoalescesTyping verifies an insert session is recorded as one edit
+// when each key inserts where the previous one ended, line breaks included.
+func TestUndoCoalescesTyping(t *testing.T) {
+	t.Run("typing across a line break is one edit", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("Aab")...)
+		enter(e)
+		keys(e, 'c', 'd')
+		escape(e)
+		require.Equal(t, "helloab\ncd", content(e))
+
+		ed := e.(*editor)
+		require.Len(t, ed.undoSteps, 1)
+		assert.Equal(t, []edit{{at: Position{0, 5}, inserted: "ab\ncd"}}, ed.undoSteps[0].edits)
+
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "helloab\ncd", content(e))
+	})
+
+	t.Run("an insert that does not follow the last one is a new edit", func(t *testing.T) {
+		e := newTestEditor("hello")
+		buf := e.GetBuffer()
+		require.NoError(t, buf.InsertRunesAt(0, 0, []rune("x\ny")))
+		require.NoError(t, buf.InsertRunesAt(0, 1, []rune("z"))) // inside the first insert
+		require.Equal(t, "xz\nyhello", content(e))
+
+		keys(e, 'l') // closes the host step
+		ed := e.(*editor)
+		require.Len(t, ed.undoSteps, 1)
+		assert.Len(t, ed.undoSteps[0].edits, 2)
+
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+	})
+
+	t.Run("a Backspace is not merged into the insert", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, []rune("Aab")...)
+		backspace(e)
+		keys(e, 'c')
+		escape(e)
+		require.Equal(t, "helloac", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "hello", content(e))
+		ctrlKey(e, 'r')
+		assert.Equal(t, "helloac", content(e))
 	})
 }
