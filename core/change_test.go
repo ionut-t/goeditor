@@ -434,6 +434,8 @@ func TestLinewiseChangeMatchesVim(t *testing.T) {
 		{"one|two|three", "jck", "X|three"},
 		{"one|two|three", "cG", "X"},
 		{"one|two|three", "jjcgg", "X"},
+		{"one|two|three|four", "jjcgg", "X|four"},
+		{"one|two|three|four", "jcgg", "X|three|four"},
 		{"one|two|three", "jc2G", "one|X|three"},
 		{"one|two|three", "Vjc", "X|three"},
 		{"one|two|three", "jVjc", "one|X"},
