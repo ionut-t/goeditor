@@ -154,3 +154,53 @@ func TestEditingDisabledKeepsText(t *testing.T) {
 		})
 	}
 }
+
+// TestUnboundCtrlDropsCount checks that an unbound Ctrl key drops the count
+// typed before it, as any unknown key does (3 Ctrl+A then w moves one word).
+func TestUnboundCtrlDropsCount(t *testing.T) {
+	for _, mode := range []string{"normal", "visual", "visual line"} {
+		for _, r := range "abcefghijklmnopqstvwxyz" {
+			k := Ctrl(r)
+			t.Run(mode+"/"+k.String(), func(t *testing.T) {
+				e := newTestEditor("one two three four five")
+				switch mode {
+				case "visual":
+					keys(e, 'v')
+				case "visual line":
+					keys(e, 'V')
+				}
+
+				keys(e, '3')
+				_ = e.HandleKey(k)
+				assert.Nil(t, e.GetState().PendingCount)
+
+				keys(e, 'w')
+				assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+			})
+		}
+	}
+}
+
+// TestCtrlCancelsPendingCommand checks that a Ctrl key typed part way through
+// a command cancels it, count included, rather than running as its letter
+// (d Ctrl+A w would otherwise delete a word as daw).
+func TestCtrlCancelsPendingCommand(t *testing.T) {
+	for _, pending := range []string{"d", "3d", "d3", "c", "y", "di", "da", "dg", "gu", "3gU", "g~i", "g", "3g", "z"} {
+		for _, r := range "adeguwr" {
+			k := Ctrl(r)
+			t.Run(pending+"/"+k.String(), func(t *testing.T) {
+				e := newTestEditor("one two three four five")
+				typeKeys(t, e, pending)
+				_ = e.HandleKey(k)
+				nm, ok := e.(*editor).currentMode.(*normalMode)
+				require.True(t, ok, "left normal mode")
+				assert.True(t, nm.Idle())
+				assert.Nil(t, e.GetState().PendingCount)
+
+				keys(e, 'w')
+				assert.Equal(t, "one two three four five", content(e))
+				assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+			})
+		}
+	}
+}

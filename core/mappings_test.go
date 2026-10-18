@@ -350,3 +350,71 @@ func TestMappingsListing(t *testing.T) {
 	assert.Equal(t, "<C-r>", FormatKeys(list[0].RHS))
 	assert.True(t, list[0].NoRemap)
 }
+
+// TestAltKeyIsEscapeThenKey checks that an unmapped Alt+key acts as Esc then
+// the key, as terminal Vim and Neovim do.
+func TestAltKeyIsEscapeThenKey(t *testing.T) {
+	t.Run("normal mode drops the count", func(t *testing.T) {
+		e := newTestEditor("one two three four five")
+		typeKeys(t, e, "3<M-w>")
+		assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+	})
+
+	t.Run("normal mode cancels a pending operator", func(t *testing.T) {
+		e := newTestEditor("one two three four five")
+		typeKeys(t, e, "d<M-w>")
+		assert.Equal(t, "one two three four five", content(e))
+		assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+	})
+
+	t.Run("normal mode runs the plain key", func(t *testing.T) {
+		e := newTestEditor("one two")
+		typeKeys(t, e, "<M-x>")
+		assert.Equal(t, "ne two", content(e))
+	})
+
+	t.Run("insert mode leaves insert mode first", func(t *testing.T) {
+		e := newTestEditor("one\ntwo")
+		typeKeys(t, e, "Afoo<M-j>")
+		assert.Equal(t, "onefoo\ntwo", content(e))
+		assert.True(t, e.IsNormalMode())
+		assert.Equal(t, 1, cursorPos(e).Row)
+
+		typeKeys(t, e, "u") // the insert is its own undo step
+		assert.Equal(t, "one\ntwo", content(e))
+	})
+
+	t.Run("visual mode leaves visual mode first", func(t *testing.T) {
+		e := newTestEditor("one two")
+		typeKeys(t, e, "vl<M-x>")
+		assert.True(t, e.IsNormalMode())
+		assert.Equal(t, "oe two", content(e))
+	})
+
+	t.Run("command mode is cancelled", func(t *testing.T) {
+		e := newTestEditor("one two")
+		typeKeys(t, e, ":d<M-x>")
+		assert.True(t, e.IsNormalMode())
+		assert.Equal(t, "ne two", content(e))
+	})
+
+	t.Run("r is cancelled", func(t *testing.T) {
+		e := newTestEditor("one two")
+		typeKeys(t, e, "r<M-x>")
+		assert.Equal(t, "ne two", content(e))
+	})
+
+	t.Run("dot repeats the plain key", func(t *testing.T) {
+		e := newTestEditor("one two")
+		typeKeys(t, e, "<M-x>.")
+		assert.Equal(t, "e two", content(e))
+	})
+
+	t.Run("a mapped Alt key runs its mapping", func(t *testing.T) {
+		e := newTestEditor("one two")
+		require.NoError(t, e.Map(MapNormal, "<M-x>", "dw", true))
+		typeKeys(t, e, "<M-x>")
+		assert.Equal(t, "two", content(e))
+		assert.True(t, e.IsNormalMode())
+	})
+}
