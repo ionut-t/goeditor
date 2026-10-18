@@ -1,6 +1,8 @@
 package core
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,20 +103,22 @@ func TestRepeatChangeUndo(t *testing.T) {
 		assert.Equal(t, "one two three", content(e))
 	})
 
-	t.Run("a cursor key inside the replayed insert doesn't split the step", func(t *testing.T) {
-		// Typing it splits the insert into two undo steps; replaying it doesn't.
-		e := newTestEditor("cd")
-		typeKeys(t, e, "Aab<Left>X<Esc>")
-		assert.Equal(t, "cdaXb", content(e))
+	t.Run("u undoes a repeated insert count as one step", func(t *testing.T) {
+		e := newTestEditor("abc def")
+		typeKeys(t, e, "3ix<Esc>w.")
+		assert.Equal(t, "xxxabc xxxdef", content(e))
 		typeKeys(t, e, "u")
-		assert.Equal(t, "cdab", content(e))
+		assert.Equal(t, "xxxabc def", content(e))
 		typeKeys(t, e, "u")
-		assert.Equal(t, "cd", content(e))
+		assert.Equal(t, "abc def", content(e))
+	})
 
-		typeKeys(t, e, ".")
-		assert.Equal(t, "cdaXb", content(e))
+	t.Run("u undoes a repeated visual change as one step", func(t *testing.T) {
+		e := newTestEditor("abcdef abcdef")
+		typeKeys(t, e, "vllcX<Esc>w.")
+		assert.Equal(t, "Xdef Xdef", content(e))
 		typeKeys(t, e, "u")
-		assert.Equal(t, "cd", content(e))
+		assert.Equal(t, "Xdef abcdef", content(e))
 	})
 
 	t.Run("each repeat is its own step", func(t *testing.T) {
@@ -175,4 +179,277 @@ func TestRepeatChangeSetContentForgets(t *testing.T) {
 	e.SetContent([]byte("one two"))
 	typeKeys(t, e, ".")
 	assert.Equal(t, "one two", content(e))
+}
+
+// TestRepeatInsert covers counts on i, a, I, A, o and O, and how a cursor key
+// in insert mode ends the change '.' repeats. Expected results are Vim's.
+func TestRepeatInsert(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		keys    string
+		want    string
+		cursor  Position
+	}{
+		{"3i", "ab", "3ix<Esc>", "xxxab", Position{0, 2}},
+		{"3a", "ab", "3ax<Esc>", "axxxb", Position{0, 3}},
+		{"3A", "ab", "3Ax<Esc>", "abxxx", Position{0, 4}},
+		{"3I", "  ab", "$3Ix<Esc>", "  xxxab", Position{0, 4}},
+		{"3o", "a\nz", "3ohi<Esc>", "a\nhi\nhi\nhi\nz", Position{3, 1}},
+		{"3O", "a\nz", "3Ohi<Esc>", "hi\nhi\nhi\na\nz", Position{2, 1}},
+		{"backspace is repeated", "ab", "3iab<BS>c<Esc>", "acacacab", Position{0, 5}},
+		{"enter is repeated", "b", "3ia<CR><Esc>", "a\na\na\nb", Position{3, 0}},
+		{"tab is repeated", "b", "3ia<Tab><Esc>", "a\ta\ta\tb", Position{0, 5}},
+		{"ctrl keys type nothing", "b", "3ix<C-a>y<Esc>", "xyxyxyb", Position{0, 5}},
+		{". keeps the insert count", "ab", "3ix<Esc>0.", "xxxxxxab", Position{0, 2}},
+		{"count on . replaces it", "ab", "2ix<Esc>03.", "xxxxxab", Position{0, 2}},
+		{"count on . after a plain insert", "ab", "ix<Esc>03.", "xxxxab", Position{0, 2}},
+		{". keeps the o count", "a\nz", "2ohi<Esc>j.", "a\nhi\nhi\nz\nhi\nhi", Position{5, 1}},
+		{"a cursor key drops the count", "abc", "3ifoo<Left>bar<Esc>", "fobaroabc", Position{0, 4}},
+		{"a cursor key then Esc drops the count", "abc", "3ifoo<Left><Esc>", "fooabc", Position{0, 1}},
+		{"a cursor key drops the o count", "abc", "3ohi<Left>X<Esc>", "abc\nhXi", Position{1, 1}},
+		{". repeats only what was typed after a cursor key", "cd", "Aab<Left>X<Esc>0.", "XcdaXb", Position{0, 0}},
+		{". after a cursor key typed nothing repeats what came before", "cd", "Aab<Left><Esc>0.", "cdabab", Position{0, 5}},
+		{"text typed after a cursor key repeats as i", "abc def", "vlcX<Left>Y<Esc>w.", "YXc Ydef", Position{0, 4}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.True(t, e.IsNormalMode())
+		})
+	}
+
+	t.Run("a count is not kept for an insert started another way", func(t *testing.T) {
+		e := newTestEditor("abc")
+		typeKeys(t, e, "3ix<Esc>")
+		typeKeys(t, e, "syz<Esc>")
+		assert.Equal(t, "xxyzabc", content(e))
+	})
+}
+
+// TestRepeatVisual covers '.' after a change made from visual mode: it
+// applies to the same amount of text from the cursor, and ignores a count.
+// Expected results are Vim's.
+func TestRepeatVisual(t *testing.T) {
+	const tenTwice = "abcdefghij\nabcdefghij"
+	tests := []struct {
+		name    string
+		content string
+		keys    string
+		want    string
+	}{
+		{"characters on one line", tenTwice, "v2ld.", "ghij\nabcdefghij"},
+		{"count on . is ignored", tenTwice, "lv2ldj03.", "aefghij\ndefghij"},
+		{"clamped to the line end", "abcdefghij\nab", "5lv2ldj0.", "abcdeij\n"},
+		{"several lines end on the same column", "abcdefghij\nabcdefghij\nabcdefghij\nabcdefghij", "llvjfedj0.", "abfghij\nfghij"},
+		{"end column clamped to the last line", "abcdefghij\nabcdefghij\nabcdefghij\nab", "llvjfedj0l.", "abfghij\na"},
+		{"lines", "1\n2\n3\n4\n5\n6", "Vjd.", "5\n6"},
+		{"lines ignore a count", "1\n2\n3\n4\n5\n6", "Vjd3.", "5\n6"},
+		{"lines clamped to the buffer end", "1\n2\n3\n4\n5", "jjjVkd.", "1\n2"},
+		{"change with its insert", "abcdef abcdef", "vllcX<Esc>w.", "Xdef Xdef"},
+		{"case", "abcdef abcdef", "vllUw.", "ABCdef ABCdef"},
+		{"linewise change", "abc\ndef", "VcX<Esc>j.", "X\nX"},
+		{"yank is not a change", "abcdef", "xvly<Esc>0.", "cdef"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.True(t, e.IsNormalMode())
+		})
+	}
+
+	t.Run("nothing happens with visual mode disabled", func(t *testing.T) {
+		e := newTestEditor("abcdef")
+		typeKeys(t, e, "vld")
+		e.DisableVisualMode(true)
+		typeKeys(t, e, ".")
+		assert.Equal(t, "cdef", content(e))
+		assert.True(t, e.(*editor).normalIdle())
+	})
+}
+
+// TestRepeatCompletion covers an accepted completion, which repeats as the
+// text it produced, as in Vim.
+func TestRepeatCompletion(t *testing.T) {
+	t.Run(". types the completed text", func(t *testing.T) {
+		e := newTestEditor("x")
+		typeKeys(t, e, "ofo")
+		require.NoError(t, e.InsertCompletion(Completion{Text: "foobar"}))
+		typeKeys(t, e, "<Esc>.")
+		assert.Equal(t, "x\nfoobar\nfoobar", content(e))
+	})
+
+	t.Run("an insert count repeats the completed text", func(t *testing.T) {
+		e := newTestEditor("x")
+		typeKeys(t, e, "3ofo")
+		require.NoError(t, e.InsertCompletion(Completion{Text: "foobar"}))
+		typeKeys(t, e, "<Esc>")
+		assert.Equal(t, "x\nfoobar\nfoobar\nfoobar", content(e))
+	})
+
+	t.Run("a completion after a cursor key starts the new change", func(t *testing.T) {
+		e := newTestEditor("ab cd")
+		typeKeys(t, e, "A x<Left>")
+		require.NoError(t, e.InsertCompletion(Completion{Text: "zz"}))
+		typeKeys(t, e, "<Esc>0.")
+		assert.Equal(t, "zzab cd zz", content(e))
+	})
+}
+
+// TestRepeatInsertLimit covers the cap on the text an insert count adds,
+// which keeps a mistyped count from hanging the host.
+func TestRepeatInsertLimit(t *testing.T) {
+	insertWithCount := func(t *testing.T, count, text string) (Editor, *EditorError) {
+		t.Helper()
+		e := newTestEditor("b")
+		typeKeys(t, e, count+"i"+text)
+		return e, e.HandleKey(KeyEvent{Key: KeyEscape})
+	}
+
+	t.Run("a count past the limit adds nothing more", func(t *testing.T) {
+		e, err := insertWithCount(t, "999999999", "x")
+		require.NotNil(t, err)
+		assert.Equal(t, ErrTextTooLongId, err.ID())
+		assert.True(t, errors.Is(err, ErrTextTooLong))
+		assert.Equal(t, "xb", content(e))
+		assert.True(t, e.IsNormalMode())
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("backspace within the text is worked out up front", func(t *testing.T) {
+		// Replaying 2.5 million copies of x y <BS> key by key would take
+		// minutes; the net text, x, goes in with one edit.
+		e, err := insertWithCount(t, "2500000", "xy<BS>")
+		require.Nil(t, err)
+		assert.Equal(t, 2500000+1, e.GetBuffer().LineRuneCount(0))
+	})
+
+	t.Run("backspace past the insert start replays the keys", func(t *testing.T) {
+		e := newTestEditor("abc")
+		typeKeys(t, e, "$3a<BS>x<Esc>")
+		assert.Equal(t, "abx", content(e))
+	})
+
+	t.Run("replayed keys have their own lower limit", func(t *testing.T) {
+		// Three keys a copy (Backspace, x, and the copy itself): 33333
+		// copies is the most that fits in maxReplayedKeys.
+		e := newTestEditor("abc")
+		typeKeys(t, e, "$33334a<BS>x")
+		require.Nil(t, e.HandleKey(KeyEvent{Key: KeyEscape}))
+		assert.Equal(t, "abx", content(e))
+
+		e = newTestEditor("abc")
+		typeKeys(t, e, "$33335a<BS>x")
+		err := e.HandleKey(KeyEvent{Key: KeyEscape})
+		assert.True(t, errors.Is(err, ErrTextTooLong))
+		assert.Equal(t, "abx", content(e))
+	})
+
+	t.Run("text up to the limit goes in", func(t *testing.T) {
+		// 5000000 repeats of two runes is exactly the limit.
+		e, err := insertWithCount(t, "5000001", "ab")
+		require.Nil(t, err)
+		assert.Equal(t, 2*5000001+1, e.GetBuffer().LineRuneCount(0))
+		assert.Equal(t, Position{0, 2*5000001 - 1}, cursorPos(e))
+	})
+
+	t.Run("one copy past the limit is refused", func(t *testing.T) {
+		e, err := insertWithCount(t, "5000002", "ab")
+		assert.True(t, errors.Is(err, ErrTextTooLong))
+		assert.Equal(t, "abb", content(e))
+	})
+}
+
+// TestRepeatInsertMatchesTyping checks that an insert count adds what typing
+// the keys again would, for every key insert mode can receive in a count.
+// It guards insertedText against drifting from insertMode.HandleKey.
+func TestRepeatInsertMatchesTyping(t *testing.T) {
+	keys := []KeyEvent{
+		{Rune: 'x'}, {Rune: 'é'}, {Rune: ' ', Key: KeySpace}, {Rune: 'a', Modifiers: ModCtrl},
+		{Rune: 'X', Modifiers: ModShift},
+	}
+	for code := KeyUnknown; code <= KeyInsert; code++ {
+		if code == KeyEscape || breaksInsert(KeyEvent{Key: code}) {
+			continue // they end the insert or drop its count
+		}
+		keys = append(keys, KeyEvent{Key: code})
+	}
+
+	for _, key := range keys {
+		for _, start := range []string{"i", "o", "a"} {
+			t.Run(fmt.Sprintf("%s %v", start, key), func(t *testing.T) {
+				typed := []KeyEvent{{Rune: 'a'}, key, {Rune: 'b'}}
+
+				counted := newTestEditor("pq\nrs")
+				typeKeys(t, counted, "$3"+start)
+				for _, k := range typed {
+					_ = counted.HandleKey(k)
+				}
+				_ = counted.HandleKey(KeyEvent{Key: KeyEscape})
+
+				byHand := newTestEditor("pq\nrs")
+				typeKeys(t, byHand, "$"+start)
+				for i := range 3 {
+					if i > 0 && start == "o" {
+						_ = byHand.HandleKey(KeyEvent{Key: KeyEnter})
+					}
+					for _, k := range typed {
+						_ = byHand.HandleKey(k)
+					}
+				}
+				_ = byHand.HandleKey(KeyEvent{Key: KeyEscape})
+
+				assert.Equal(t, content(byHand), content(counted))
+				assert.Equal(t, cursorPos(byHand), cursorPos(counted))
+			})
+		}
+	}
+}
+
+// TestInsertHostCursorMove covers the host moving the cursor during an
+// insert, as it does for a mouse click: like a cursor key, it ends the
+// insert for the count, for '.', and for undo, as in Vim.
+func TestInsertHostCursorMove(t *testing.T) {
+	moveTo := func(e Editor, row, col int) {
+		cursor := e.GetBuffer().GetCursor()
+		cursor.Position = Position{Row: row, Col: col}
+		e.GetBuffer().SetCursor(cursor)
+	}
+
+	t.Run("drops the count", func(t *testing.T) {
+		e := newTestEditor("ab\ncd")
+		typeKeys(t, e, "3ix")
+		moveTo(e, 1, 0)
+		typeKeys(t, e, "y<Esc>")
+		assert.Equal(t, "xab\nycd", content(e))
+	})
+
+	t.Run(". repeats only what was typed after it", func(t *testing.T) {
+		e := newTestEditor("ab\ncd")
+		typeKeys(t, e, "Ax")
+		moveTo(e, 1, 0)
+		typeKeys(t, e, "y<Esc>$.")
+		assert.Equal(t, "abx\nycyd", content(e))
+	})
+
+	t.Run("ends the undo step", func(t *testing.T) {
+		e := newTestEditor("ab\ncd")
+		typeKeys(t, e, "Ax")
+		moveTo(e, 1, 0)
+		typeKeys(t, e, "y<Esc>u")
+		assert.Equal(t, "abx\ncd", content(e))
+	})
+
+	t.Run("a host edit after a cursor key doesn't leave an empty record", func(t *testing.T) {
+		e := newTestEditor("ab\ncd")
+		typeKeys(t, e, "Ax<Left>")
+		require.NoError(t, e.GetBuffer().InsertRunesAt(1, 0, []rune("Z")))
+		typeKeys(t, e, "<Esc>j.")
+		assert.Equal(t, "abx\nZcdx", content(e))
+	})
 }

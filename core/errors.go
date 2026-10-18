@@ -21,6 +21,7 @@ var (
 	ErrInvalidMapping     = errors.New("invalid mapping")
 	ErrMapRecursion       = errors.New("recursive mapping")
 	ErrUndoCorrupt        = errors.New("undo list corrupt")
+	ErrTextTooLong        = errors.New("resulting text too long")
 )
 
 type ErrorId int
@@ -49,6 +50,7 @@ const (
 	ErrMapRecursionId
 	ErrCopyFailedId
 	ErrRenameFailedId
+	ErrTextTooLongId
 )
 
 // EditorError is an error with an ErrorId saying which operation failed. It

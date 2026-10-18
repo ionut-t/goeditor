@@ -14,6 +14,13 @@ func (m *insertMode) Enter(editor Editor, buffer Buffer) {
 // syncsUndo ends the undo step on cursor keys, as Vim does: text typed after
 // moving the cursor undoes separately from text typed before.
 func (m *insertMode) syncsUndo(key KeyEvent) bool {
+	return breaksInsert(key)
+}
+
+// breaksInsert reports whether key is a cursor key, which Vim treats as
+// ending one insert and starting another: for undo, for '.', and for the
+// count of the command that started the insert.
+func breaksInsert(key KeyEvent) bool {
 	switch key.Key {
 	case KeyLeft, KeyRight, KeyUp, KeyDown:
 		return true
@@ -46,8 +53,11 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if !editor.IsVimMode() {
 			return nil
 		}
+		if r, ok := editor.(insertRepeater); ok {
+			err = r.repeatInsert()
+		}
 		editor.SetNormalMode()
-		return nil
+		return err
 
 	case KeyBackspace:
 		if col > 0 {
@@ -162,4 +172,11 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// Ignore unknown special keys or modifiers without runes in insert mode
 		return nil
 	}
+}
+
+// insertRepeater is implemented by the editor so that insert mode can repeat
+// what was typed for a count (3ix<Esc>) without it being part of the public
+// Editor interface.
+type insertRepeater interface {
+	repeatInsert() *EditorError
 }

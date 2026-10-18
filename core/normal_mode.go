@@ -910,24 +910,22 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Mode changes
 	case key.Rune == 'i': // Insert before cursor
-		editor.SetInsertMode()
-		editor.ResetPendingCount() // Clear count if entering insert mode
+		startInsert(editor, count, false)
 
 	case key.Rune == 'I': // Insert at first non-blank
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 		buffer.SetCursor(cursor) // Update buffer's cursor
-		editor.SetInsertMode()
-		editor.ResetPendingCount() // Clear count if entering insert mode
+		startInsert(editor, count, false)
 
 	case key.Rune == 'a': // Insert after cursor
 		_ = cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
 		buffer.SetCursor(cursor)                        // Update buffer's cursor
-		editor.SetInsertMode()
+		startInsert(editor, count, false)
 
 	case key.Rune == 'A': // Insert at end of line
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Move *after* last char
 		buffer.SetCursor(cursor)                          // Update buffer's cursor
-		editor.SetInsertMode()
+		startInsert(editor, count, false)
 
 	case key.Rune == 'o': // Open line below
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
@@ -936,7 +934,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		_ = cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)                               // Go to start of new line
 		buffer.SetCursor(cursor)
-		editor.SetInsertMode()
+		startInsert(editor, count, true)
 
 	case key.Rune == 'O': // Open line above
 		cursor.MoveToLineStart()                                       // Go to start of current line
@@ -944,7 +942,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
 		buffer.SetCursor(cursor)
-		editor.SetInsertMode()
+		startInsert(editor, count, true)
 
 	case key.Rune == 'v': // Enter visual mode
 		editor.SetVisualMode()
@@ -1216,6 +1214,23 @@ func editsText(key KeyEvent) bool {
 		return true
 	}
 	return false
+}
+
+// startInsert enters insert mode for i, I, a, A, o and O, whose count
+// repeats the inserted text when the insert ends. o and O start each repeat
+// on a new line.
+func startInsert(editor Editor, count int, newLine bool) {
+	if s, ok := editor.(insertStarter); ok {
+		s.startInsert(count, newLine)
+		return
+	}
+	editor.SetInsertMode()
+}
+
+// insertStarter is implemented by the editor so that normal mode can hand an
+// insert its count without it being part of the public Editor interface.
+type insertStarter interface {
+	startInsert(count int, newLine bool)
 }
 
 // changeRepeater is implemented by the editor so that normal mode can run '.'

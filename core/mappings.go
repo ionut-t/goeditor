@@ -414,6 +414,7 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 		return e.dispatchKey(key)
 	}
 
+	e.noticeCursorMove()
 	e.openUndoStep()
 	pendingCount := e.recordKeyStart()
 
@@ -424,6 +425,7 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
 
 	e.recordKeyEnd(mode, key, pendingCount)
+	e.trackInsertCursor()
 	if e.endsUndoStep(mode, key) {
 		e.closeUndoStep()
 	}
