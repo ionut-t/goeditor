@@ -332,6 +332,31 @@ func TestUndoStepBoundaries(t *testing.T) {
 	})
 }
 
+// TestClampCursor checks that clampCursor keeps both ends of the row and
+// column inside the text.
+func TestClampCursor(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		in      Position
+		want    Position
+	}{
+		{"inside stays put", "ab\ncd", Position{1, 1}, Position{1, 1}},
+		{"just past the line end stays put", "ab\ncd", Position{0, 2}, Position{0, 2}},
+		{"row below the last line", "ab\ncd", Position{5, 1}, Position{1, 1}},
+		{"column past the line end", "ab\ncd", Position{0, 9}, Position{0, 2}},
+		{"negative row and column", "ab\ncd", Position{-1, -1}, Position{0, 0}},
+		{"empty buffer", "", Position{3, 3}, Position{0, 0}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEditor(tc.content).(*editor)
+			got := e.clampCursor(Cursor{Position: tc.in})
+			assert.Equal(t, tc.want, got.Position)
+		})
+	}
+}
+
 // TestUndoHistory covers the history itself: its limit, resets, and exact
 // restoration of the text.
 func TestUndoHistory(t *testing.T) {

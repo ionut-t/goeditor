@@ -119,17 +119,12 @@ func (e *editor) undoCorrupt(err error) error {
 	return fmt.Errorf("%w: %w", ErrUndoCorrupt, err)
 }
 
-// clampCursor moves cursor back inside the text, onto the last line and no
-// further than its end.
+// clampCursor moves cursor back inside the text: onto an existing line, and
+// no further than that line's end.
 func (e *editor) clampCursor(cursor Cursor) Cursor {
-	lineCount := e.buffer.LineCount()
-	if cursor.Position.Row >= lineCount {
-		cursor.Position.Row = max(0, lineCount-1)
-	}
+	cursor.Position.Row = max(0, min(cursor.Position.Row, e.buffer.LineCount()-1))
 	lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
-	if cursor.Position.Col > lineLen {
-		cursor.Position.Col = lineLen
-	}
+	cursor.Position.Col = max(0, min(cursor.Position.Col, lineLen))
 	return cursor
 }
 
