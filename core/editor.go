@@ -8,12 +8,12 @@ type Position struct {
 	Col int // Zero-indexed column (character position in the line)
 }
 
-// TextEdit replaces the text from Start up to End with Text. Positions count
-// runes, a line break counting as one, as Position does everywhere. Undo, redo
-// and 'U' report what they changed as a list of TextEdits: apply them in order,
-// each one's positions referring to the text left by the edit before it. That
-// ordering matches LSP's didChange, but LSP counts columns in UTF-16 code units
-// by default, so convert the columns before sending edits to a language server.
+// TextEdit replaces the text from Start up to End with Text. As in Position,
+// Row is the line and Col counts runes within it. Undo, redo and 'U' report
+// what they changed as a list of TextEdits: apply them in order, each one's
+// positions referring to the text left by the edit before it. That ordering
+// matches LSP's didChange, but LSP counts columns in UTF-16 code units by
+// default, so convert the columns before sending edits to a language server.
 type TextEdit struct {
 	Start, End Position
 	Text       string

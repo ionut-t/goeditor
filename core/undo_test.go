@@ -380,6 +380,26 @@ func TestUndoHistory(t *testing.T) {
 		assert.EqualError(t, err, "already at oldest change", "history was cleared")
 	})
 
+	t.Run("a U that no longer fits the text leaves no step open", func(t *testing.T) {
+		e := New(nil)
+		raw := NewBufferFromBytes([]byte("a\nb\nc"))
+		e.SetBuffer(raw)
+		keys(e, 'j', 'j', 'x') // starts a U run on row 2
+
+		// Edit behind the recording wrapper, so row 2 no longer exists.
+		require.Nil(t, raw.DeleteRunesAt(0, 1, 3))
+
+		_, err := e.UndoLine()
+		assert.ErrorIs(t, err, ErrUndoCorrupt)
+		assert.Nil(t, e.(*editor).openStep)
+
+		// The next change is a step of its own.
+		keys(e, 'g', 'g', 'x')
+		assert.Equal(t, "", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "a", content(e))
+	})
+
 	t.Run("redo after several undos replays in order", func(t *testing.T) {
 		e := newTestEditor("one two three")
 		keys(e, 'd', 'w')
