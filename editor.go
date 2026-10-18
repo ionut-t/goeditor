@@ -327,16 +327,18 @@ type DeleteMsg struct {
 	Content string
 }
 
+// UndoMsg, RedoMsg and UndoLineMsg carry the edits applied to the buffer, in
+// order (see core.TextEdit).
 type UndoMsg struct {
-	ContentBefore string
+	Edits []core.TextEdit
 }
 
 type RedoMsg struct {
-	ContentBefore string
+	Edits []core.TextEdit
 }
 
 type UndoLineMsg struct {
-	ContentBefore string
+	Edits []core.TextEdit
 }
 
 type SearchResultsMsg struct {
@@ -1105,7 +1107,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		if err != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return ErrorMsg{ID: err.ID(), Error: err.Error()}
+				return ErrorMsg{ID: err.ID(), Error: err}
 			})
 		}
 
@@ -1234,7 +1236,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		// the held keys are still waiting.
 		if err := m.editor.TimeoutPendingMapping(msg.token); err != nil {
 			cmds = append(cmds, func() tea.Msg {
-				return ErrorMsg{ID: err.ID(), Error: err.Error()}
+				return ErrorMsg{ID: err.ID(), Error: err}
 			})
 		}
 
@@ -1457,13 +1459,13 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 			return DeleteMsg{Content: signal.Value()}
 
 		case core.UndoSignal:
-			return UndoMsg{ContentBefore: signal.Value()}
+			return UndoMsg{Edits: signal.Value()}
 
 		case core.RedoSignal:
-			return RedoMsg{ContentBefore: signal.Value()}
+			return RedoMsg{Edits: signal.Value()}
 
 		case core.UndoLineSignal:
-			return UndoLineMsg{ContentBefore: signal.Value()}
+			return UndoLineMsg{Edits: signal.Value()}
 
 		case core.EnterSearchModeSignal:
 			return enterSearchMode{backwards: signal.Backwards}

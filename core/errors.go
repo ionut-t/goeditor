@@ -51,16 +51,30 @@ const (
 	ErrRenameFailedId
 )
 
+// EditorError is an error with an ErrorId saying which operation failed. It
+// wraps the underlying error, so errors.Is and errors.As see through it.
 type EditorError struct {
 	id  ErrorId
 	err error
 }
 
-func (e EditorError) ID() ErrorId {
+func (e *EditorError) ID() ErrorId {
 	return e.id
 }
 
-func (e EditorError) Error() error {
+func (e *EditorError) Error() string {
+	if e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+// Err returns the underlying error.
+func (e *EditorError) Err() error {
+	return e.err
+}
+
+func (e *EditorError) Unwrap() error {
 	return e.err
 }
 

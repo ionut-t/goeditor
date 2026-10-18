@@ -51,42 +51,50 @@ func (s *undoStep) flushTyped() {
 	}
 }
 
-// undo reverts the step's edits, last first. An error means the buffer no
-// longer matches the history — it was edited behind the recording wrapper —
-// and leaves the step part applied.
-func (s *undoStep) undo(buf Buffer) error {
+// undo reverts the step's edits, last first, appending what it applied to
+// applied. An error means the buffer no longer matches the history — it was
+// edited behind the recording wrapper — and leaves the step part applied.
+func (s *undoStep) undo(buf Buffer, applied []TextEdit) ([]TextEdit, error) {
+	var err error
 	for _, ed := range slices.Backward(s.edits) {
-		if err := replaceAt(buf, ed.at, ed.inserted, ed.removed); err != nil {
-			return err
+		if applied, err = replaceAt(buf, ed.at, ed.inserted, ed.removed, applied); err != nil {
+			return applied, err
 		}
 	}
-	return nil
+	return applied, nil
 }
 
-// redo re-applies the step's edits in order, failing as undo does.
-func (s *undoStep) redo(buf Buffer) error {
+// redo re-applies the step's edits in order, as undo does.
+func (s *undoStep) redo(buf Buffer, applied []TextEdit) ([]TextEdit, error) {
+	var err error
 	for _, ed := range s.edits {
-		if err := replaceAt(buf, ed.at, ed.removed, ed.inserted); err != nil {
-			return err
+		if applied, err = replaceAt(buf, ed.at, ed.removed, ed.inserted, applied); err != nil {
+			return applied, err
 		}
 	}
-	return nil
+	return applied, nil
 }
 
-// replaceAt replaces the text old, starting at position at, with text. It is
-// the primitive undo and redo share.
-func replaceAt(buf Buffer, at Position, old, text string) error {
+// replaceAt replaces the text old, starting at position at, with text, and
+// appends the replacement to applied as a TextEdit. It is the primitive undo
+// and redo share. If the insert fails after the delete succeeded, the delete
+// alone is appended, so applied still describes the text.
+func replaceAt(buf Buffer, at Position, old, text string, applied []TextEdit) ([]TextEdit, error) {
 	n := utf8.RuneCountInString(old)
 	if err := buf.DeleteRunesAt(at.Row, at.Col, n); err != nil {
-		return fmt.Errorf("deleting %d runes at %d:%d: %w", n, at.Row, at.Col, err.Error())
+		return applied, fmt.Errorf("deleting %d runes at %d:%d: %w", n, at.Row, at.Col, err)
 	}
+	end := insertEnd(at, old)
 	if text != "" {
 		if err := buf.InsertRunesAt(at.Row, at.Col, []rune(text)); err != nil {
-			return fmt.Errorf("inserting %d runes at %d:%d: %w",
+			if old != "" {
+				applied = append(applied, TextEdit{Start: at, End: end})
+			}
+			return applied, fmt.Errorf("inserting %d runes at %d:%d: %w",
 				utf8.RuneCountInString(text), at.Row, at.Col, err)
 		}
 	}
-	return nil
+	return append(applied, TextEdit{Start: at, End: end, Text: text}), nil
 }
 
 // insertEnd returns where text ends once inserted at position at.
@@ -284,13 +292,6 @@ func (e *editor) resetHistory() {
 	e.undoLineRow = -1
 }
 
-// SaveHistory ends the current undo step, so the next edit starts a new one.
-// The editor ends a step after every command itself, so callers rarely need
-// it.
-func (e *editor) SaveHistory() {
-	e.closeUndoStep()
-}
-
 // trackUndoLineRun maintains the line-undo run used by 'U'. A change on a
 // different row than the current run starts a fresh run anchored at the state
 // preceding it; further changes to the same row extend the run, so a single 'U'
@@ -311,13 +312,14 @@ func (e *editor) trackUndoLineRun(step *undoStep) {
 	e.undoLineStart = e.undoPos
 }
 
-func (e *editor) Undo() (string, error) {
+// Undo reverts the latest undo step and returns the edits it applied. If the
+// step no longer fits the text it fails with ErrUndoCorrupt, returning the
+// edits it applied before the failure, which still describe the text.
+func (e *editor) Undo() ([]TextEdit, error) {
 	e.closeUndoStep()
 	if e.undoPos == 0 {
-		return "", errors.New("already at oldest change")
+		return nil, errors.New("already at oldest change")
 	}
-
-	currentContent := e.buffer.GetCurrentContent()
 
 	// Moving through history invalidates the current line-undo run: its anchor
 	// no longer describes a trailing sequence of changes.
@@ -325,8 +327,9 @@ func (e *editor) Undo() (string, error) {
 
 	e.undoPos--
 	step := &e.undoSteps[e.undoPos]
-	if err := step.undo(e.buffer.Buffer); err != nil {
-		return "", e.undoCorrupt(err)
+	edits, err := step.undo(e.buffer.Buffer, nil)
+	if err != nil {
+		return edits, e.undoCorrupt(err)
 	}
 
 	// Return to where the change started, clamped to the restored content.
@@ -343,53 +346,56 @@ func (e *editor) Undo() (string, error) {
 
 	e.ScrollViewport()
 
-	return currentContent, nil
+	return edits, nil
 }
 
-func (e *editor) Redo() (string, error) {
+// Redo re-applies the undo step after the current one and returns the edits
+// it applied, failing as Undo does.
+func (e *editor) Redo() ([]TextEdit, error) {
 	e.closeUndoStep()
 	if e.undoPos >= len(e.undoSteps) {
-		return "", errors.New("already at newest change")
+		return nil, errors.New("already at newest change")
 	}
-
-	currentContent := e.buffer.GetCurrentContent()
 
 	e.undoLineRow = -1
 
 	step := &e.undoSteps[e.undoPos]
 	e.undoPos++
-	if err := step.redo(e.buffer.Buffer); err != nil {
-		return "", e.undoCorrupt(err)
+	edits, err := step.redo(e.buffer.Buffer, nil)
+	if err != nil {
+		return edits, e.undoCorrupt(err)
 	}
 	e.buffer.SetCursor(step.cursorAfter)
 
 	e.ScrollViewport()
 
-	return currentContent, nil
+	return edits, nil
 }
 
 // UndoLine implements Vim's 'U': undo all the latest changes made to a single
-// line — the line where the most recent change happened.
+// line — the line where the most recent change happened. It returns the edits
+// it applied, failing as Undo does.
 //
 // The restore is applied as a *new* step rather than by moving undoPos, which
 // gives two Vim behaviours for free: 'u' undoes a 'U', and a second 'U'
 // toggles back to the changed version, because the run is re-anchored at the
 // position just before this restore.
-func (e *editor) UndoLine() (string, error) {
+func (e *editor) UndoLine() ([]TextEdit, error) {
 	e.closeUndoStep()
 	if e.undoLineRow < 0 || e.undoLineStart < 0 || e.undoLineStart >= e.undoPos {
-		return "", ErrNoLineToRestore
+		return nil, ErrNoLineToRestore
 	}
 
-	currentContent := e.buffer.GetCurrentContent()
 	row := e.undoLineRow
 
 	// Revert the run through the recording buffer, so the reverting edits
 	// become the new step.
 	e.openStep = &undoStep{cursorBefore: e.buffer.GetCursor()}
+	var edits []TextEdit
 	for i := e.undoPos - 1; i >= e.undoLineStart; i-- {
-		if err := e.undoSteps[i].undo(e.buffer); err != nil {
-			return "", e.undoCorrupt(err)
+		var err error
+		if edits, err = e.undoSteps[i].undo(e.buffer, edits); err != nil {
+			return edits, e.undoCorrupt(err)
 		}
 	}
 
@@ -411,5 +417,5 @@ func (e *editor) UndoLine() (string, error) {
 
 	e.ScrollViewport()
 
-	return currentContent, nil
+	return edits, nil
 }

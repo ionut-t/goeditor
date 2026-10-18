@@ -809,13 +809,16 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		cursor, moveErr = editor.ScrollHalfPage(key.IsCtrl('d'), scrollCount)
 
 	case key.IsCtrl('r'): // Redo
-		if content, redoErr := editor.Redo(); redoErr != nil {
+		edits, redoErr := editor.Redo()
+		if len(edits) > 0 {
+			// Sent even on failure: a partial redo still changed the text.
+			editor.DispatchSignal(RedoSignal{edits: edits})
+		}
+		if redoErr != nil {
 			err = &EditorError{
 				id:  ErrRedoFailedId,
 				err: redoErr,
 			}
-		} else {
-			editor.DispatchSignal(RedoSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 
@@ -1165,13 +1168,16 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 	case key.Rune == 'u': // Undo
-		if content, undoErr := editor.Undo(); undoErr != nil {
+		edits, undoErr := editor.Undo()
+		if len(edits) > 0 {
+			// Sent even on failure: a partial undo still changed the text.
+			editor.DispatchSignal(UndoSignal{edits: edits})
+		}
+		if undoErr != nil {
 			err = &EditorError{
 				id:  ErrUndoFailedId,
 				err: undoErr,
 			}
-		} else {
-			editor.DispatchSignal(UndoSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 
@@ -1180,13 +1186,16 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 
-		if content, undoErr := editor.UndoLine(); undoErr != nil {
+		edits, undoErr := editor.UndoLine()
+		if len(edits) > 0 {
+			// Sent even on failure: a partial undo still changed the text.
+			editor.DispatchSignal(UndoLineSignal{edits: edits})
+		}
+		if undoErr != nil {
 			err = &EditorError{
 				id:  ErrUndoLineFailedId,
 				err: undoErr,
 			}
-		} else {
-			editor.DispatchSignal(UndoLineSignal{contentBefore: content})
 		}
 		skipCursorUpdate = true
 

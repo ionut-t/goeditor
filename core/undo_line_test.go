@@ -177,7 +177,7 @@ func TestUndoLineDispatchesSignal(t *testing.T) {
 		}
 	}
 	if assert.NotNil(t, got, "expected an UndoLineSignal") {
-		assert.Equal(t, "ello", got.Value(), "signal carries the content before the restore")
+		assert.Equal(t, []TextEdit{{Text: "h"}}, got.Value(), "signal carries the edits applied")
 	}
 }
 

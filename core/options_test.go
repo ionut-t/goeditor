@@ -100,8 +100,8 @@ func TestSetMapLeader(t *testing.T) {
 		require.Nil(t, runCommand(t, e, "set mapleader=<Space>"))
 		require.Nil(t, runCommand(t, e, "nnoremap <leader>d dw"))
 
-		e.HandleKey(KeyEvent{Key: KeySpace, Rune: ' '})
-		e.HandleKey(KeyEvent{Rune: 'd'})
+		_ = e.HandleKey(KeyEvent{Key: KeySpace, Rune: ' '})
+		_ = e.HandleKey(KeyEvent{Rune: 'd'})
 		assert.Equal(t, "world", content(e))
 	})
 

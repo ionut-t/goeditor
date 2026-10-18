@@ -13,7 +13,7 @@ func typeKeys(t *testing.T, e Editor, notation string) {
 	events, err := ParseKeys(notation, e.MapLeader())
 	require.NoError(t, err)
 	for _, k := range events {
-		e.HandleKey(k)
+		_ = e.HandleKey(k)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestMapMultiKeyLHS(t *testing.T) {
 		assert.Equal(t, "hello", content(e), "'j' is held pending disambiguation")
 
 		// FlushPendingMapping is what a 'timeoutlen' timer would call.
-		e.FlushPendingMapping()
+		_ = e.FlushPendingMapping()
 		assert.Equal(t, "jhello", content(e))
 	})
 

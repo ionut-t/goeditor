@@ -1,6 +1,8 @@
 package core
 
 import (
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -120,7 +122,7 @@ func TestRedoBasic(t *testing.T) {
 		// normalizeKey maps the legacy constants onto the canonical form, so
 		// consumers constructing them keep working.
 		e := newTestEditor("hello")
-		e.HandleKey(KeyEvent{Key: KeyCtrlU})
+		_ = e.HandleKey(KeyEvent{Key: KeyCtrlU})
 		assert.Equal(t, "hello", content(e))
 	})
 }
@@ -267,7 +269,7 @@ func TestUndoStepBoundaries(t *testing.T) {
 	t.Run("a cursor key in insert mode starts a new step", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, []rune("A a")...)
-		e.HandleKey(KeyEvent{Key: KeyLeft})
+		_ = e.HandleKey(KeyEvent{Key: KeyLeft})
 		keys(e, 'b')
 		escape(e)
 		assert.Equal(t, "hello ba", content(e))
@@ -378,6 +380,26 @@ func TestUndoHistory(t *testing.T) {
 		assert.EqualError(t, err, "already at oldest change", "history was cleared")
 	})
 
+	t.Run("a U that no longer fits the text leaves no step open", func(t *testing.T) {
+		e := New(nil)
+		raw := NewBufferFromBytes([]byte("a\nb\nc"))
+		e.SetBuffer(raw)
+		keys(e, 'j', 'j', 'x') // starts a U run on row 2
+
+		// Edit behind the recording wrapper, so row 2 no longer exists.
+		require.Nil(t, raw.DeleteRunesAt(0, 1, 3))
+
+		_, err := e.UndoLine()
+		assert.ErrorIs(t, err, ErrUndoCorrupt)
+		assert.Nil(t, e.(*editor).openStep)
+
+		// The next change is a step of its own.
+		keys(e, 'g', 'g', 'x')
+		assert.Equal(t, "", content(e))
+		keys(e, 'u')
+		assert.Equal(t, "a", content(e))
+	})
+
 	t.Run("redo after several undos replays in order", func(t *testing.T) {
 		e := newTestEditor("one two three")
 		keys(e, 'd', 'w')
@@ -442,3 +464,167 @@ func TestUndoCoalescesTyping(t *testing.T) {
 		assert.Equal(t, "helloac", content(e))
 	})
 }
+
+// applyEdits applies edits to text in order, as a host tracking the buffer
+// would.
+func applyEdits(text string, edits []TextEdit) string {
+	runes := []rune(text)
+	offset := func(p Position) int {
+		i := 0
+		for row := 0; row < p.Row; row++ {
+			for runes[i] != '\n' {
+				i++
+			}
+			i++
+		}
+		return i + p.Col
+	}
+	for _, te := range edits {
+		start, end := offset(te.Start), offset(te.End)
+		runes = slices.Concat(runes[:start], []rune(te.Text), runes[end:])
+	}
+	return string(runes)
+}
+
+// TestUndoReturnsEdits checks that the edits undo, redo and 'U' return take
+// the text as it was before them to the text they leave.
+func TestUndoReturnsEdits(t *testing.T) {
+	undo := func(e Editor) ([]TextEdit, error) { return e.Undo() }
+	redo := func(e Editor) ([]TextEdit, error) { return e.Redo() }
+	undoLine := func(e Editor) ([]TextEdit, error) { return e.UndoLine() }
+
+	tests := []struct {
+		name    string
+		content string
+		setup   func(e Editor)
+		apply   func(e Editor) ([]TextEdit, error)
+	}{
+		{"undo x", "hello", func(e Editor) { keys(e, 'x') }, undo},
+		{"undo dd in the middle", "one\ntwo\nthree", func(e Editor) { keys(e, 'j', 'd', 'd') }, undo},
+		{"undo dd of the last line", "one\ntwo", func(e Editor) { keys(e, 'j', 'd', 'd') }, undo},
+		{"undo J", "one\ntwo", func(e Editor) { keys(e, 'J') }, undo},
+		{"undo o", "one\ntwo", func(e Editor) { keys(e, []rune("onew")...); escape(e) }, undo},
+		{"undo cw", "one two", func(e Editor) { keys(e, []rune("cwfoo")...); escape(e) }, undo},
+		{"undo typing across lines", "héllo", func(e Editor) {
+			keys(e, []rune("Aé")...)
+			enter(e)
+			keys(e, 'ü')
+			backspace(e)
+			escape(e)
+		}, undo},
+		{"undo a mapping that edits twice", "one two three", func(e Editor) {
+			require.NoError(t, e.Map(MapNormal, ",x", "dwdw", true))
+			keys(e, ',', 'x')
+		}, undo},
+		{"redo dd", "one\ntwo\nthree", func(e Editor) { keys(e, 'j', 'd', 'd', 'u') }, redo},
+		{"redo cw", "one two", func(e Editor) { keys(e, []rune("cwfoo")...); escape(e); keys(e, 'u') }, redo},
+		{"U after several changes", "one two three", func(e Editor) { keys(e, 'x', 'w', 'd', 'w', 'x') }, undoLine},
+		{"U after o", "one\ntwo", func(e Editor) { keys(e, []rune("onew")...); escape(e) }, undoLine},
+		{"U twice", "hello", func(e Editor) { keys(e, 'x', 'x', 'U') }, undoLine},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEditor(tc.content)
+			tc.setup(e)
+			before := content(e)
+
+			edits, err := tc.apply(e)
+			require.NoError(t, err)
+			require.NotEmpty(t, edits)
+			assert.Equal(t, content(e), applyEdits(before, edits))
+		})
+	}
+
+	t.Run("edits describe the change exactly", func(t *testing.T) {
+		e := newTestEditor("one two")
+		keys(e, []rune("cwfoo")...)
+		escape(e)
+
+		edits, err := e.Undo()
+		require.NoError(t, err)
+		assert.Equal(t, []TextEdit{
+			{Start: Position{0, 0}, End: Position{0, 3}, Text: ""},
+			{Start: Position{0, 0}, End: Position{0, 0}, Text: "one"},
+		}, edits)
+
+		edits, err = e.Redo()
+		require.NoError(t, err)
+		assert.Equal(t, []TextEdit{
+			{Start: Position{0, 0}, End: Position{0, 3}, Text: ""},
+			{Start: Position{0, 0}, End: Position{0, 0}, Text: "foo"},
+		}, edits)
+	})
+
+	t.Run("a step that fails part way returns the edits it applied", func(t *testing.T) {
+		e := New(nil)
+		raw := NewBufferFromBytes([]byte("a\nb\nc"))
+		e.SetBuffer(raw)
+		require.NoError(t, e.GetBuffer().InsertRunesAt(2, 0, []rune("x")))
+		require.NoError(t, e.GetBuffer().InsertRunesAt(0, 0, []rune("y")))
+		keys(e, 'l') // closes the host step: two edits, undone row 0 first
+
+		// Edit behind the recording wrapper, so row 2 no longer exists.
+		require.Nil(t, raw.DeleteRunesAt(1, 1, 3))
+		before := content(e)
+		require.Equal(t, "ya\nb", before)
+		drainSignals(e)
+
+		err := e.HandleKey(KeyEvent{Rune: 'u'})
+		assert.ErrorIs(t, err, ErrUndoCorrupt)
+		assert.Equal(t, "a\nb", content(e))
+
+		var undo *UndoSignal
+		for s := nextSignal(e); s != nil; s = nextSignal(e) {
+			if sig, ok := s.(UndoSignal); ok {
+				undo = &sig
+			}
+		}
+		if assert.NotNil(t, undo, "expected an UndoSignal for the partial undo") {
+			assert.Equal(t, []TextEdit{{End: Position{0, 1}}}, undo.Value())
+			assert.Equal(t, content(e), applyEdits(before, undo.Value()))
+		}
+	})
+
+	t.Run("a replacement whose insert fails reports the delete", func(t *testing.T) {
+		buf := failingInsertBuffer{NewBufferFromBytes([]byte("hello"))}
+		applied, err := replaceAt(buf, Position{0, 0}, "he", "HE", nil)
+		assert.ErrorIs(t, err, errInsertFailed)
+		assert.Equal(t, "llo", buf.GetCurrentContent())
+		assert.Equal(t, []TextEdit{{End: Position{0, 2}}}, applied)
+	})
+
+	t.Run("nothing to undo returns no edits", func(t *testing.T) {
+		e := newTestEditor("hello")
+		edits, err := e.Undo()
+		assert.Error(t, err)
+		assert.Nil(t, edits)
+	})
+
+	t.Run("u and Ctrl-R dispatch the edits", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'x')
+		drainSignals(e)
+
+		keys(e, 'u')
+		ctrlKey(e, 'r')
+		var got []Signal
+		for s := nextSignal(e); s != nil; s = nextSignal(e) {
+			switch s.(type) {
+			case UndoSignal, RedoSignal:
+				got = append(got, s)
+			}
+		}
+		assert.Equal(t, []Signal{
+			UndoSignal{edits: []TextEdit{{Text: "h"}}},
+			RedoSignal{edits: []TextEdit{{End: Position{0, 1}}}},
+		}, got)
+	})
+}
+
+var errInsertFailed = errors.New("insert failed")
+
+// failingInsertBuffer is a Buffer whose inserts always fail.
+type failingInsertBuffer struct{ Buffer }
+
+func (failingInsertBuffer) InsertRunesAt(int, int, []rune) error { return errInsertFailed }

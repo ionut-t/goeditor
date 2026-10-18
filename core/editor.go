@@ -8,6 +8,17 @@ type Position struct {
 	Col int // Zero-indexed column (character position in the line)
 }
 
+// TextEdit replaces the text from Start up to End with Text. As in Position,
+// Row is the line and Col counts runes within it. Undo, redo and 'U' report
+// what they changed as a list of TextEdits: apply them in order, each one's
+// positions referring to the text left by the edit before it. That ordering
+// matches LSP's didChange, but LSP counts columns in UTF-16 code units by
+// default, so convert the columns before sending edits to a language server.
+type TextEdit struct {
+	Start, End Position
+	Text       string
+}
+
 // SelectionType indicates the selection status of a position
 type SelectionType int
 
@@ -84,14 +95,13 @@ type Editor interface {
 	ExecuteSearch(query string, searchOptions SearchOptions)
 	CancelSearch()
 
-	// History management
-	SaveHistory() // End the current undo step; the editor already does after each command
-	Undo() (string, error)
-	Redo() (string, error)
-	UndoLine() (string, error)    // Vim's 'U' — undo all recent changes on one line
-	PasteAfter() (string, error)  // Paste from clipboard after/below cursor
-	PasteBefore() (string, error) // Paste from clipboard before/above cursor
-	Copy(op copyType) error       // Copy to clipboard
+	// History management. Undo, Redo and UndoLine return the edits they applied.
+	Undo() ([]TextEdit, error)
+	Redo() ([]TextEdit, error)
+	UndoLine() ([]TextEdit, error) // Vim's 'U' — undo all recent changes on one line
+	PasteAfter() (string, error)   // Paste from clipboard after/below cursor
+	PasteBefore() (string, error)  // Paste from clipboard before/above cursor
+	Copy(op copyType) error        // Copy to clipboard
 
 	// Viewport scrolling. State.TopLine is the first line in the window; the UI
 	// draws from it and supplies line heights so wrapped lines count in rows.
