@@ -107,6 +107,7 @@ m.WithTheme(theme)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
 - **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
 - **Undo/Redo**: `u` (undo), `Ctrl+R` (redo), `U` (undo all recent changes on the last-changed line)
+- **Repeat**: `.` repeats the last normal-mode change, including the text typed in its insert; a count replaces the change's count (`3.`), except on insert commands (`i`, `a`, `o`, …), which don't take counts yet. Changes made through visual, command-line or search mode are not repeated yet
 - **Copy/Paste**: `y` (yank), `p` / `P` (paste)
 
 ### Insert Mode

@@ -79,6 +79,26 @@ func showPrefix(editor Editor, r rune) {
 	editor.UpdateCommand(string(r))
 }
 
+// maxCount is the largest count Vim accepts. Counts that would grow past it
+// are clamped to it, so a long run of digits can't overflow.
+const maxCount = 999999999
+
+// appendCountDigit returns count n with digit d typed after it.
+func appendCountDigit(n, d int) int {
+	if n > (maxCount-d)/10 {
+		return maxCount
+	}
+	return n*10 + d
+}
+
+// mulCount multiplies two counts, as [count]op[count]motion does.
+func mulCount(a, b int) int {
+	if b != 0 && a > maxCount/b {
+		return maxCount
+	}
+	return a * b
+}
+
 // accumulateCount adds a digit key to State.PendingCount and reports whether
 // the key was consumed. '0' only counts once a count has started; on its own
 // it is a motion.
@@ -90,10 +110,11 @@ func accumulateCount(editor Editor, key KeyEvent) bool {
 	if key.Rune < '0' || key.Rune > '9' || (key.Rune == '0' && state.PendingCount == nil) {
 		return false
 	}
-	n := int(key.Rune - '0')
+	n := 0
 	if state.PendingCount != nil {
-		n += *state.PendingCount * 10
+		n = *state.PendingCount
 	}
+	n = appendCountDigit(n, int(key.Rune-'0'))
 	state.PendingCount = &n
 	editor.SetState(state)
 	return true

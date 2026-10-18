@@ -37,6 +37,30 @@ func TestReplaceChar(t *testing.T) {
 		assert.Equal(t, "hello\n\nworld", content(e))
 	})
 
+	t.Run("count replaces that many chars, cursor on the last", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '3', 'r', 'X')
+		assert.Equal(t, "XXXlo", content(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		assert.Nil(t, e.GetState().PendingCount)
+	})
+
+	t.Run("count past the line end replaces nothing", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, 'l', 'l', '4', 'r', 'X')
+		assert.Equal(t, "hello", content(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		assert.Nil(t, e.GetState().PendingCount)
+	})
+
+	t.Run("count too large to fit replaces nothing", func(t *testing.T) {
+		e := newTestEditor("hello")
+		typeKeys(t, e, "l99999999999999999999rX")
+		assert.Equal(t, "hello", content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+		assert.Nil(t, e.GetState().PendingCount)
+	})
+
 	t.Run("undo restores original char", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, 'r', 'X')

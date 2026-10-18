@@ -191,6 +191,13 @@ type editor struct {
 	// The last f/F/t/T search, shared by normal, visual and visual-line mode
 	// so ; and , still repeat it after a mode switch, as in Vim.
 	charSearch lastCharSearch
+
+	// Repeat ('.', see repeat.go). editCount counts recorded edits, so a
+	// command can tell whether it changed the text.
+	repeat    repeatRecord
+	recording commandRecording
+	replaying bool
+	editCount int
 }
 
 // New creates a new editor instance
@@ -360,6 +367,7 @@ func (e *editor) SetBuffer(buffer Buffer) {
 	}
 	e.buffer = &recordingBuffer{Buffer: buffer, e: e}
 	e.resetHistory()                                      // A new buffer starts a new undo history
+	e.resetRepeat()                                       // and forgets the change '.' repeats
 	e.UpdateStatus(fmt.Sprintf("-- %s --", e.state.Mode)) // Update status
 	e.state.TopLine = 0                                   // A new buffer starts at the top
 	e.ScrollViewport()

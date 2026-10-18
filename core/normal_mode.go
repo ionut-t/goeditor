@@ -163,11 +163,12 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 	m.cmd.literal = literalNone
 	editor.UpdateCommand("")
 
+	count := max(takeCount(editor), 1)
 	if key.Key == KeyEscape || key.Rune == 0 {
 		return nil
 	}
 
-	return replaceCharUnderCursor(editor, buffer, key.Rune)
+	return replaceCharUnderCursor(editor, buffer, key.Rune, count)
 }
 
 // handlePrefix runs the key that completes a g or z prefix.
@@ -1213,6 +1214,17 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 		skipCursorUpdate = true
 
+	case key.Rune == '.': // Repeat the last change, with count replacing its count
+		n := takeCount(editor) // even when editing is off, so it can't reach the next command
+		countWasPending = false
+		if !state.WithInsertMode {
+			return nil
+		}
+		if r, ok := editor.(changeRepeater); ok {
+			err = r.repeatChange(n)
+		}
+		skipCursorUpdate = true
+
 	case key.Key == KeyBackspace: // Delete character before cursor
 		moveErr = cursor.MoveLeft(buffer, count, availableWidth)
 
@@ -1243,6 +1255,12 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	return err // Return other errors
+}
+
+// changeRepeater is implemented by the editor so that normal mode can run '.'
+// without it being part of the public Editor interface.
+type changeRepeater interface {
+	repeatChange(count int) *EditorError
 }
 
 // operatorName maps a d/y/c rune to its operation name string.
@@ -1312,7 +1330,7 @@ func (m *normalMode) composeOperatorCount(editor Editor) {
 	m.cmd.count1 = 0
 	state := editor.GetState()
 	if state.PendingCount != nil {
-		n *= *state.PendingCount
+		n = mulCount(n, *state.PendingCount)
 	}
 	state.PendingCount = &n
 	editor.SetState(state)
