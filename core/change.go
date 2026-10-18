@@ -63,22 +63,30 @@ func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 	return nil
 }
 
-func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune) *EditorError {
+func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
 
-	if lineLen == 0 || cursor.Position.Col >= lineLen {
+	// Vim replaces nothing when the line has fewer than count characters left.
+	if count > lineLen-cursor.Position.Col {
 		return nil
 	}
 
-	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, 1); err != nil {
+	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count); err != nil {
 		return err
 	}
 
-	if err := buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune{ch}); err != nil {
+	runes := make([]rune, count)
+	for i := range runes {
+		runes[i] = ch
+	}
+	if err := buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, runes); err != nil {
 		return &EditorError{id: ErrInvalidPositionId, err: err}
 	}
 
+	// The cursor ends on the last replaced character.
+	cursor.Position.Col += count - 1
+	buffer.SetCursor(cursor)
 	return nil
 }
 

@@ -401,9 +401,10 @@ func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 // dispatchKey hands a key to the current mode, with the bookkeeping that has to
 // happen once per key actually delivered rather than once per HandleKey call:
 // it opens the undo step the key's edits go into, and closes it once the
-// command is over (see undo.go).
+// command is over (see undo.go), and records the key for '.' (see repeat.go).
 func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 	e.openUndoStep()
+	pendingCount := e.recordKeyStart()
 
 	mode := e.currentMode
 	err := mode.HandleKey(e, e.buffer, key)
@@ -411,6 +412,7 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 	// Update derived state AFTER handling key
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
 
+	e.recordKeyEnd(mode, key, pendingCount)
 	if e.endsUndoStep(mode, key) {
 		e.closeUndoStep()
 	}

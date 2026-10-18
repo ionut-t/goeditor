@@ -159,11 +159,12 @@ func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 	return nil
 }
 
-// SetContent replaces the whole text, which starts a new undo history, as
-// loading a file does in Vim.
+// SetContent replaces the whole text, which starts a new undo history and
+// forgets the change '.' repeats, as loading a file does in Vim.
 func (b *recordingBuffer) SetContent(content []byte) {
 	b.Buffer.SetContent(content)
 	b.e.resetHistory()
+	b.e.resetRepeat()
 }
 
 // textAt returns the text DeleteRunesAt(row, col, count) removes from buf: up
@@ -196,6 +197,7 @@ func textAt(buf Buffer, row, col, count int) string {
 // made outside a key, so it opens a host step; cursor is where the cursor was
 // before the edit.
 func (e *editor) recordEdit(cursor Cursor, ed edit) {
+	e.editCount++
 	if e.openStep == nil {
 		e.openStep = &undoStep{cursorBefore: cursor, host: true}
 	}
@@ -273,6 +275,10 @@ func (e *editor) closeUndoStep() {
 // endsUndoStep reports whether the step open for key should close once the
 // key has been handled by mode (the mode current when it arrived).
 func (e *editor) endsUndoStep(mode EditorMode, key KeyEvent) bool {
+	// A '.' replay is one step, closed by the key that started it.
+	if e.replaying {
+		return false
+	}
 	if s, ok := mode.(undoSyncer); ok && s.syncsUndo(key) {
 		return true
 	}
@@ -388,6 +394,10 @@ func (e *editor) UndoLine() ([]TextEdit, error) {
 	}
 
 	row := e.undoLineRow
+
+	// U changes the text through the recording buffer, but '.' doesn't
+	// repeat it.
+	e.noRepeat()
 
 	// Revert the run through the recording buffer, so the reverting edits
 	// become the new step.
