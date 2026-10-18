@@ -20,6 +20,16 @@ func TestNormalModePendingState(t *testing.T) {
 		{name: "nothing typed", keys: "", idle: true},
 		{name: "count alone", keys: "2", idle: true},
 		{name: "completed command", keys: "dw", idle: true},
+		// The count before an operator is set aside until the motion; it
+		// must not outlive the command.
+		{name: "completed command with counts", keys: "2d3w", idle: true},
+		{name: "completed operator gg with count", keys: "2dgg", idle: true},
+		{name: "completed operator ge with count", keys: "2dge", idle: true},
+		{name: "completed char search with count", keys: "2dft", idle: true},
+		{name: "completed text object with count", keys: "2diw", idle: true},
+		{name: "completed case operator with count", keys: "2gUw", idle: true},
+		{name: "completed case operator gg with count", keys: "2gUgg", idle: true},
+		{name: "completed case text object with count", keys: "2gUiw", idle: true},
 		{name: "operator", keys: "d", operatorPending: true},
 		{name: "operator with counts", keys: "2d3", operatorPending: true},
 		{name: "operator and g", keys: "dg", operatorPending: true},
