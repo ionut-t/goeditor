@@ -92,3 +92,24 @@ func TestCaseOperatorGEscapeCancels(t *testing.T) {
 	assert.Equal(t, "one two\nthree", content(e))
 	assert.Equal(t, Position{0, 0}, cursorPos(e))
 }
+
+// TestEditingDisabledDropsCount checks that a refused edit drops the count
+// typed before it, so the next command doesn't pick it up (3x then w).
+func TestEditingDisabledDropsCount(t *testing.T) {
+	for _, k := range "IaAoOxXDr~sSJCdcpPU" {
+		t.Run(string(k), func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard("one two three four five")
+			keys(e, 'x', 'y', 'w') // a change for U to undo and text for p/P to paste
+			e.DisableInsertMode(true)
+			before := content(e)
+
+			keys(e, '3', k)
+			assert.Nil(t, e.GetState().PendingCount)
+			assert.False(t, e.IsInsertMode())
+
+			keys(e, 'w')
+			assert.Equal(t, Position{Row: 0, Col: 3}, cursorPos(e))
+			assert.Equal(t, before, content(e))
+		})
+	}
+}

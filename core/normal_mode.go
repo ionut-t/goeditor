@@ -806,6 +806,13 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		// We do this reset *after* the switch statement below
 	}
 
+	// Refuse edits up front, dropping the count as Vim does, so a refused 3x
+	// can't leave its count for the next command.
+	if !state.WithInsertMode && editsText(key) {
+		editor.ResetPendingCount()
+		return nil
+	}
+
 	// --- Handle Single-Key Commands or Start of Sequences ---
 	col := cursor.Position.Col // Use Column from cursor
 	var moveErr error
@@ -898,34 +905,22 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.ResetPendingCount() // Clear count if entering insert mode
 
 	case key.Rune == 'I': // Insert at first non-blank
-		if !state.WithInsertMode {
-			return nil
-		}
 		cursor.MoveToFirstNonBlank(buffer, availableWidth)
 		buffer.SetCursor(cursor) // Update buffer's cursor
 		editor.SetInsertMode()
 		editor.ResetPendingCount() // Clear count if entering insert mode
 
 	case key.Rune == 'a': // Insert after cursor
-		if !state.WithInsertMode {
-			return nil
-		}
 		_ = cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
 		buffer.SetCursor(cursor)                        // Update buffer's cursor
 		editor.SetInsertMode()
 
 	case key.Rune == 'A': // Insert at end of line
-		if !state.WithInsertMode {
-			return nil
-		}
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Move *after* last char
 		buffer.SetCursor(cursor)                          // Update buffer's cursor
 		editor.SetInsertMode()
 
 	case key.Rune == 'o': // Open line below
-		if !state.WithInsertMode {
-			return nil
-		}
 		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
 		buffer.SetCursor(cursor)
 		_ = buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
@@ -935,9 +930,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.SetInsertMode()
 
 	case key.Rune == 'O': // Open line above
-		if !state.WithInsertMode {
-			return nil
-		}
 		cursor.MoveToLineStart()                                       // Go to start of current linavailableWidthe
 		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
@@ -993,10 +985,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Editing commands (single key or start of sequence)
 	case key.Rune == 'x': // Delete character under cursor
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		if cursor.Position.Col < lineLen { // Only delete if cursor is on a char
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count)
@@ -1013,10 +1001,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete character before cursor
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		if cursor.Position.Col > 0 {
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
 			if err == nil {
@@ -1031,35 +1015,20 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 	case key.Rune == 'D': // Delete to end of line (equivalent to d$)
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		var deletedContent string
 		deletedContent, err = deleteToEndOfLine(editor, buffer)
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 
 	case key.Rune == 'r': // Replace character under cursor
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		m.cmd.literal = literalReplace
 		editor.UpdateCommand("r")
 		return nil
 
 	case key.Rune == '~': // Toggle case of count characters under/after cursor
-		if !state.WithInsertMode {
-			return nil
-		}
 		err = toggleCaseChar(editor, buffer, count)
 		skipCursorUpdate = true
 
 	case key.Rune == 's': // Substitute character(s) — like 'cl'
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		endCol := min(cursor.Position.Col+count, lineLen)
 		err = applyOperatorToRange(editor, buffer, "change", cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
@@ -1069,32 +1038,16 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'S': // Substitute line(s) — like 'cc'
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		err = changeLines(editor, buffer, count)
 		skipCursorUpdate = true
 
 	case key.Rune == 'J': // Join lines
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		err = joinLines(editor, buffer, count)
 		skipCursorUpdate = true
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		err = changeToEndOfLine(editor, buffer)
 	case key.Rune == 'd': // Start 'delete' operation
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		m.cmd.op = key.Rune
 		m.startOperatorCount(editor)
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
@@ -1102,10 +1055,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'c': // Start 'change' operation
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		m.cmd.op = key.Rune
 		m.startOperatorCount(editor)
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
@@ -1118,10 +1067,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil // Wait for the next key (motion)
 
 	case key.Rune == 'p':
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		content, pasteErr := editor.PasteAfter()
 
 		if strings.HasSuffix(content, "\n") {
@@ -1151,10 +1096,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 	case key.Rune == 'P':
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		content, pasteErr := editor.PasteBefore()
 
 		if strings.HasSuffix(content, "\n") {
@@ -1197,10 +1138,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'U': // Undo all recent changes on the last-changed line
-		if !state.WithInsertMode {
-			return nil
-		}
-
 		edits, undoErr := editor.UndoLine()
 		if len(edits) > 0 {
 			// Sent even on failure: a partial undo still changed the text.
@@ -1255,6 +1192,20 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	return err // Return other errors
+}
+
+// editsText reports whether key is a normal-mode command that changes the text
+// or enters insert mode, so it is refused when editing is disabled. Ctrl keys
+// are excluded: Ctrl+D and Ctrl+R carry 'd' and 'r' in Rune.
+func editsText(key KeyEvent) bool {
+	if key.Modifiers&ModCtrl != 0 {
+		return false
+	}
+	switch key.Rune {
+	case 'I', 'a', 'A', 'o', 'O', 'x', 'X', 'D', 'r', '~', 's', 'S', 'J', 'C', 'd', 'c', 'p', 'P', 'U':
+		return true
+	}
+	return false
 }
 
 // changeRepeater is implemented by the editor so that normal mode can run '.'
