@@ -30,6 +30,20 @@ func TestNormalModePendingState(t *testing.T) {
 		{name: "completed case operator with count", keys: "2gUw", idle: true},
 		{name: "completed case operator gg with count", keys: "2gUgg", idle: true},
 		{name: "completed case text object with count", keys: "2gUiw", idle: true},
+		// Cancelled commands (\x1b = Esc) must not leave anything behind either.
+		{name: "operator escape with count", keys: "2d\x1b", idle: true},
+		{name: "operator count escape", keys: "2d3\x1b", idle: true},
+		{name: "operator invalid motion with count", keys: "2dq", idle: true},
+		{name: "operator g invalid key with count", keys: "2dgx", idle: true},
+		{name: "operator g escape with count", keys: "2dg\x1b", idle: true},
+		{name: "operator modifier escape with count", keys: "2di\x1b", idle: true},
+		{name: "operator invalid text object with count", keys: "2diz", idle: true},
+		{name: "operator char search escape with count", keys: "2df\x1b", idle: true},
+		{name: "case operator escape with count", keys: "2gU\x1b", idle: true},
+		{name: "case operator invalid motion with count", keys: "2gUq", idle: true},
+		{name: "case operator g invalid key with count", keys: "2gUgx", idle: true},
+		{name: "case operator modifier escape with count", keys: "2gUi\x1b", idle: true},
+		{name: "replace escape", keys: "r\x1b", idle: true},
 		{name: "operator", keys: "d", operatorPending: true},
 		{name: "operator with counts", keys: "2d3", operatorPending: true},
 		{name: "operator and g", keys: "dg", operatorPending: true},
@@ -47,7 +61,13 @@ func TestNormalModePendingState(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newTestEditor("one two three")
-			keys(e, []rune(tt.keys)...)
+			for _, r := range tt.keys {
+				if r == '\x1b' {
+					escape(e)
+				} else {
+					keys(e, r)
+				}
+			}
 
 			m, ok := e.GetMode().(*normalMode)
 			require.True(t, ok)
