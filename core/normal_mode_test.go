@@ -118,7 +118,7 @@ func readOnlyKeys() []KeyEvent {
 // typed before it, so the next command doesn't pick it up (3x then w).
 func TestEditingDisabledDropsCount(t *testing.T) {
 	refused := []KeyEvent{Ctrl('r')}
-	for _, r := range "IaAoOxXDr~sSJCdcpPuU" {
+	for _, r := range "iIaAoOxXDr~sSJCdcpPuU." {
 		refused = append(refused, KeyEvent{Rune: r})
 	}
 	for _, k := range refused {

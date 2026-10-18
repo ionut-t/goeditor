@@ -930,7 +930,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.SetInsertMode()
 
 	case key.Rune == 'O': // Open line above
-		cursor.MoveToLineStart()                                       // Go to start of current linavailableWidthe
+		cursor.MoveToLineStart()                                       // Go to start of current line
 		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
 		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
@@ -1203,7 +1203,7 @@ func editsText(key KeyEvent) bool {
 		return key.IsCtrl('r')
 	}
 	switch key.Rune {
-	case 'I', 'a', 'A', 'o', 'O', 'x', 'X', 'D', 'r', '~', 's', 'S', 'J', 'C', 'd', 'c', 'p', 'P', 'u', 'U':
+	case 'i', 'I', 'a', 'A', 'o', 'O', 'x', 'X', 'D', 'r', '~', 's', 'S', 'J', 'C', 'd', 'c', 'p', 'P', 'u', 'U':
 		return true
 	}
 	return false
