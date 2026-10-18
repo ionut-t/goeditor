@@ -180,3 +180,27 @@ func TestUnboundCtrlDropsCount(t *testing.T) {
 		}
 	}
 }
+
+// TestCtrlCancelsPendingCommand checks that a Ctrl key typed part way through
+// a command cancels it, count included, rather than running as its letter
+// (d Ctrl+A w would otherwise delete a word as daw).
+func TestCtrlCancelsPendingCommand(t *testing.T) {
+	for _, pending := range []string{"d", "3d", "d3", "c", "y", "di", "da", "dg", "gu", "3gU", "g~i", "g", "3g", "z"} {
+		for _, r := range "adeguwr" {
+			k := Ctrl(r)
+			t.Run(pending+"/"+k.String(), func(t *testing.T) {
+				e := newTestEditor("one two three four five")
+				typeKeys(t, e, pending)
+				_ = e.HandleKey(k)
+				nm, ok := e.(*editor).currentMode.(*normalMode)
+				require.True(t, ok, "left normal mode")
+				assert.True(t, nm.Idle())
+				assert.Nil(t, e.GetState().PendingCount)
+
+				keys(e, 'w')
+				assert.Equal(t, "one two three four five", content(e))
+				assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+			})
+		}
+	}
+}

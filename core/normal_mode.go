@@ -90,6 +90,14 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	case literalReplace:
 		return m.handleReplaceKey(editor, buffer, key)
 	}
+	// A Ctrl key never completes a pending command. Normalisation puts its
+	// letter in Rune, so it would otherwise run as that letter (d Ctrl+A as
+	// da). Vim cancels the whole command, count included.
+	if key.Modifiers&ModCtrl != 0 && !m.Idle() {
+		m.clearPendingState(editor)
+		editor.UpdateCommand("")
+		return nil
+	}
 	if prefix := m.cmd.prefix.take(); prefix != 0 {
 		if m.cmd.hasCaseOp() {
 			return m.handleCaseGKey(editor, buffer, key)
