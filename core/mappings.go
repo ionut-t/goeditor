@@ -403,6 +403,17 @@ func (e *editor) feedKeys(lhs, keys []KeyEvent, remap bool) *EditorError {
 // it opens the undo step the key's edits go into, and closes it once the
 // command is over (see undo.go), and records the key for '.' (see repeat.go).
 func (e *editor) dispatchKey(key KeyEvent) *EditorError {
+	// An unmapped Alt+key acts as Esc then the key, in every mode. Terminals
+	// send Alt+x as ESC x, so this is what Vim does there; Neovim does the
+	// same when it can tell them apart.
+	if key.Modifiers&ModAlt != 0 && key.Rune != 0 {
+		if err := e.dispatchKey(KeyEvent{Key: KeyEscape}); err != nil {
+			return err
+		}
+		key.Modifiers &^= ModAlt
+		return e.dispatchKey(key)
+	}
+
 	e.openUndoStep()
 	pendingCount := e.recordKeyStart()
 
