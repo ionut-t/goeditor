@@ -154,3 +154,29 @@ func TestEditingDisabledKeepsText(t *testing.T) {
 		})
 	}
 }
+
+// TestUnboundCtrlDropsCount checks that an unbound Ctrl key drops the count
+// typed before it, as any unknown key does (3 Ctrl+A then w moves one word).
+func TestUnboundCtrlDropsCount(t *testing.T) {
+	for _, mode := range []string{"normal", "visual", "visual line"} {
+		for _, r := range "abcefghijklmnopqstvwxyz" {
+			k := Ctrl(r)
+			t.Run(mode+"/"+k.String(), func(t *testing.T) {
+				e := newTestEditor("one two three four five")
+				switch mode {
+				case "visual":
+					keys(e, 'v')
+				case "visual line":
+					keys(e, 'V')
+				}
+
+				keys(e, '3')
+				_ = e.HandleKey(k)
+				assert.Nil(t, e.GetState().PendingCount)
+
+				keys(e, 'w')
+				assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
+			})
+		}
+	}
+}

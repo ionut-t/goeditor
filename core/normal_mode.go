@@ -844,7 +844,8 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	case key.Modifiers&ModCtrl != 0:
 		// Unbound Ctrl combination — swallow it rather than letting it reach the
-		// plain-letter commands below.
+		// plain-letter commands below. Like any unknown key, it drops the count.
+		editor.ResetPendingCount()
 		return nil
 
 	// Movement keys
