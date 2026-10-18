@@ -263,6 +263,20 @@ func TestRepeatVisual(t *testing.T) {
 		})
 	}
 
+	t.Run("the span is the one the operator used, whatever the host set", func(t *testing.T) {
+		// The operator deletes from the mode's anchor; State.VisualStart is
+		// only a copy the host can overwrite.
+		e := newTestEditor("abcdefgh")
+		typeKeys(t, e, "lvl")
+		state := e.GetState()
+		state.VisualStart = Position{Row: 0, Col: 7}
+		e.SetState(state)
+		typeKeys(t, e, "d")
+		assert.Equal(t, "adefgh", content(e))
+		typeKeys(t, e, ".")
+		assert.Equal(t, "afgh", content(e))
+	})
+
 	t.Run("nothing happens with visual mode disabled", func(t *testing.T) {
 		e := newTestEditor("abcdef")
 		typeKeys(t, e, "vld")

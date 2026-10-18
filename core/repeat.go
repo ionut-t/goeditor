@@ -68,12 +68,6 @@ type insertSession struct {
 	tracking bool
 }
 
-// idler is implemented by modes that can tell whether a command is part way
-// typed, count aside.
-type idler interface {
-	Idle() bool
-}
-
 // recordKeyStart runs before a key is dispatched. It starts a recording when
 // the key begins a new normal-mode command, and returns State.PendingCount
 // for recordKeyEnd.
@@ -225,13 +219,20 @@ func (e *editor) saveRepeat(keys []KeyEvent) {
 // visual mode with no command part way typed, so that the next key may be an
 // operator applied to it.
 func (e *editor) idleVisualSpan() (visualSpan, bool) {
-	if e.state.Mode != VisualMode && e.state.Mode != VisualLineMode {
+	// The anchor is read from the mode, which its operators use, rather
+	// than from State.VisualStart, which the host may set.
+	var anchor Position
+	var idle bool
+	switch m := e.currentMode.(type) {
+	case *visualMode:
+		anchor, idle = m.startPos, m.Idle()
+	case *visualLineMode:
+		anchor, idle = m.startPos, m.Idle()
+	}
+	if !idle || e.state.PendingCount != nil {
 		return visualSpan{}, false
 	}
-	if m, ok := e.currentMode.(idler); !ok || !m.Idle() || e.state.PendingCount != nil {
-		return visualSpan{}, false
-	}
-	start, end := NormalizeSelection(e.state.VisualStart, e.buffer.GetCursor().Position)
+	start, end := NormalizeSelection(anchor, e.buffer.GetCursor().Position)
 	span := visualSpan{mode: e.state.Mode, lines: end.Row - start.Row + 1, cols: end.Col}
 	if span.lines == 1 {
 		span.cols = end.Col - start.Col + 1
@@ -252,7 +253,7 @@ func (e *editor) selectSpan(span visualSpan) bool {
 		return false
 	}
 
-	row := min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1)
+	row := max(0, min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1))
 	col := cursor.Position.Col
 	if span.mode == VisualMode {
 		col = span.cols
@@ -324,13 +325,32 @@ func (e *editor) repeatInsert() *EditorError {
 	if err := e.buffer.InsertRunesAt(at.Row, at.Col, all); err != nil {
 		return &EditorError{id: ErrInvalidPositionId, err: err}
 	}
-	cursor.Position = insertEnd(at, string(all))
+	cursor.Position = runesEnd(at, all)
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
 	return nil
 }
 
-// replayInsert types the insert's keys again, repeats times.
+// runesEnd returns where text ends once inserted at position at, like
+// insertEnd, without converting a long insertion to a string.
+func runesEnd(at Position, text []rune) Position {
+	last := -1
+	lines := 0
+	for i, r := range text {
+		if r == '\n' {
+			last, lines = i, lines+1
+		}
+	}
+	if last < 0 {
+		return Position{Row: at.Row, Col: at.Col + len(text)}
+	}
+	return Position{Row: at.Row + lines, Col: len(text) - last - 1}
+}
+
+// replayInsert types the insert's keys again, repeats times. Errors are
+// ignored, as when the keys are typed (Backspace at the start of the buffer
+// fails and typing goes on) and as Vim's replay only beeps: stopping would
+// leave a part-made repeat.
 func (e *editor) replayInsert(repeats int) *EditorError {
 	s := &e.insert
 	if n := len(s.keys) + 1; n > maxReplayedKeys/repeats {
