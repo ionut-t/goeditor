@@ -1195,14 +1195,15 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 }
 
 // editsText reports whether key is a normal-mode command that changes the text
-// or enters insert mode, so it is refused when editing is disabled. Ctrl keys
-// are excluded: Ctrl+D and Ctrl+R carry 'd' and 'r' in Rune.
+// or enters insert mode, so it is refused when editing is disabled. Undo and
+// redo count as edits, as in Vim with 'nomodifiable'. Ctrl keys are checked
+// first: Ctrl+D and Ctrl+U carry 'd' and 'u' in Rune but only scroll.
 func editsText(key KeyEvent) bool {
 	if key.Modifiers&ModCtrl != 0 {
-		return false
+		return key.IsCtrl('r')
 	}
 	switch key.Rune {
-	case 'I', 'a', 'A', 'o', 'O', 'x', 'X', 'D', 'r', '~', 's', 'S', 'J', 'C', 'd', 'c', 'p', 'P', 'U':
+	case 'I', 'a', 'A', 'o', 'O', 'x', 'X', 'D', 'r', '~', 's', 'S', 'J', 'C', 'd', 'c', 'p', 'P', 'u', 'U':
 		return true
 	}
 	return false
