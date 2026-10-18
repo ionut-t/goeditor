@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.0](https://github.com/ionut-t/goeditor/compare/v0.8.2...v0.9.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** hosts must update for the new undo API.
+    - `Undo`, `Redo` and `UndoLine` return `[]core.TextEdit` instead of the buffer content.
+    - `UndoSignal`/`RedoSignal`/`UndoLineSignal.Value()` return `[]TextEdit`.
+    - `UndoMsg`/`RedoMsg`/`UndoLineMsg` carry `Edits` instead of `ContentBefore` (call `GetCurrentContent()` if you need the text).
+    - `SaveHistory()` is removed: the editor closes undo steps itself.
+    - `*EditorError` now implements `error`, so `Error()` returns a `string`; use `Err()` for the wrapped error.
+    - `ErrorMsg.Error` holds the `*core.EditorError` itself rather than the error it wraps. The message is the same, and `errors.Is`/`errors.As` reach the wrapped error.
+
+### Features
+
+* **core:** return text edits from undo, redo and undo-line ([bca0f96](https://github.com/ionut-t/goeditor/commit/bca0f96c0470f22edf46250d8c9d414ae2292f85))
+* **undo:** implement delta-based undo and redo system ([#33](https://github.com/ionut-t/goeditor/issues/33)) ([71de9ef](https://github.com/ionut-t/goeditor/commit/71de9ef1abc08b10044d50a3cdfe74543cc3b564))
+
+
+### Bug Fixes
+
+* **undo:** keep cursor inside the text after a corrupt undo ([#36](https://github.com/ionut-t/goeditor/issues/36)) ([968fd86](https://github.com/ionut-t/goeditor/commit/968fd8686f4177035a0d3b585c4e4545a9b88248))
+
 ## [0.8.2](https://github.com/ionut-t/goeditor/compare/v0.8.1...v0.8.2) (2026-10-17)
 
 
