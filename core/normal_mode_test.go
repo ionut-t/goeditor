@@ -92,3 +92,65 @@ func TestCaseOperatorGEscapeCancels(t *testing.T) {
 	assert.Equal(t, "one two\nthree", content(e))
 	assert.Equal(t, Position{0, 0}, cursorPos(e))
 }
+
+// newReadOnlyEditor returns an editor with editing disabled after a change to
+// undo (u, U), a change to redo (Ctrl+R) and a yank to paste (p, P).
+func newReadOnlyEditor() Editor {
+	e, _ := newTestEditorWithClipboard("one two three four five")
+	keys(e, 'x', 'x', 'u', 'y', 'w')
+	e.DisableInsertMode(true)
+	return e
+}
+
+// readOnlyKeys is every printable key and every Ctrl+letter.
+func readOnlyKeys() []KeyEvent {
+	var all []KeyEvent
+	for r := rune(' ' + 1); r < 0x7f; r++ {
+		all = append(all, KeyEvent{Rune: r})
+	}
+	for r := 'a'; r <= 'z'; r++ {
+		all = append(all, Ctrl(r))
+	}
+	return all
+}
+
+// TestEditingDisabledDropsCount checks that a refused edit drops the count
+// typed before it, so the next command doesn't pick it up (3x then w).
+func TestEditingDisabledDropsCount(t *testing.T) {
+	refused := []KeyEvent{Ctrl('r')}
+	for _, r := range "iIaAoOxXDr~sSJCdcpPuU." {
+		refused = append(refused, KeyEvent{Rune: r})
+	}
+	for _, k := range refused {
+		t.Run(k.String(), func(t *testing.T) {
+			e := newReadOnlyEditor()
+			before := content(e)
+
+			keys(e, '3')
+			_ = e.HandleKey(k)
+			assert.Nil(t, e.GetState().PendingCount)
+			assert.False(t, e.IsInsertMode())
+
+			keys(e, 'w')
+			assert.Equal(t, Position{Row: 0, Col: 3}, cursorPos(e))
+			assert.Equal(t, before, content(e))
+		})
+	}
+}
+
+// TestEditingDisabledKeepsText sends every key with editing disabled, so a
+// new editing command that isn't in editsText fails here.
+func TestEditingDisabledKeepsText(t *testing.T) {
+	for _, k := range readOnlyKeys() {
+		t.Run(k.String(), func(t *testing.T) {
+			e := newReadOnlyEditor()
+			before := content(e)
+
+			keys(e, '3')
+			_ = e.HandleKey(k)
+			keys(e, 'w') // completes f/t/r/g/z/d/c/y prefixes
+			assert.Equal(t, before, content(e))
+			assert.False(t, e.IsInsertMode())
+		})
+	}
+}
