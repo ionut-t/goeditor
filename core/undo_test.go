@@ -375,6 +375,7 @@ func TestUndoHistory(t *testing.T) {
 		_, err := e.Undo()
 		assert.ErrorIs(t, err, ErrUndoCorrupt)
 		assert.Equal(t, "a", content(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e), "cursor moved back inside the text")
 
 		_, err = e.Undo()
 		assert.EqualError(t, err, "already at oldest change", "history was cleared")
@@ -394,7 +395,7 @@ func TestUndoHistory(t *testing.T) {
 		assert.Nil(t, e.(*editor).openStep)
 
 		// The next change is a step of its own.
-		keys(e, 'g', 'g', 'x')
+		keys(e, 'x')
 		assert.Equal(t, "", content(e))
 		keys(e, 'u')
 		assert.Equal(t, "a", content(e))

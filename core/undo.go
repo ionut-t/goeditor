@@ -114,8 +114,23 @@ func insertEnd(at Position, text string) Position {
 // history, as Vim does on E438.
 func (e *editor) undoCorrupt(err error) error {
 	e.resetHistory()
+	e.buffer.SetCursor(e.clampCursor(e.buffer.GetCursor()))
 	e.ScrollViewport()
 	return fmt.Errorf("%w: %w", ErrUndoCorrupt, err)
+}
+
+// clampCursor moves cursor back inside the text, onto the last line and no
+// further than its end.
+func (e *editor) clampCursor(cursor Cursor) Cursor {
+	lineCount := e.buffer.LineCount()
+	if cursor.Position.Row >= lineCount {
+		cursor.Position.Row = max(0, lineCount-1)
+	}
+	lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
+	if cursor.Position.Col > lineLen {
+		cursor.Position.Col = lineLen
+	}
+	return cursor
 }
 
 // recordingBuffer wraps the editor's buffer so that every edit, whoever makes
@@ -333,16 +348,7 @@ func (e *editor) Undo() ([]TextEdit, error) {
 	}
 
 	// Return to where the change started, clamped to the restored content.
-	cursor := step.cursorBefore
-	lineCount := e.buffer.LineCount()
-	if cursor.Position.Row >= lineCount {
-		cursor.Position.Row = max(0, lineCount-1)
-	}
-	lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
-	if cursor.Position.Col > lineLen {
-		cursor.Position.Col = lineLen
-	}
-	e.buffer.SetCursor(cursor)
+	e.buffer.SetCursor(e.clampCursor(step.cursorBefore))
 
 	e.ScrollViewport()
 
