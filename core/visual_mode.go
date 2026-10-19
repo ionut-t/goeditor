@@ -274,14 +274,14 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			// Vim leaves the cursor at the start of the selection. The rest
 			// stays selected as a yank highlight, as after yw.
 			start, end := NormalizeSelection(m.startPos, cursor.Position)
+			cursor.Position = start
+			cursor.Preferred = start.Col
+			buffer.SetCursor(cursor)
 			editor.SetNormalMode()
 			state = editor.GetState()
 			state.VisualStart = end
 			state.YankSelection = SelectionCharacter
 			editor.SetState(state)
-			cursor.Position = start
-			cursor.Preferred = start.Col
-			buffer.SetCursor(cursor)
 		}
 		editor.ResetPendingCount()
 		return true, err
