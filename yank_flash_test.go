@@ -8,11 +8,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// memClipboard keeps yanks in memory, so tests neither need nor overwrite
+// the system clipboard (CI runners have none).
+type memClipboard struct{ content string }
+
+func (c *memClipboard) Write(text string) error { c.content = text; return nil }
+func (c *memClipboard) Read() (string, error)   { return c.content, nil }
+
 // TestYankFlashClear checks the timer that ends the yank highlight: it clears
 // what a yank left selected, and leaves alone a visual mode entered since.
 func TestYankFlashClear(t *testing.T) {
 	newModel := func() Model {
-		m := New(40, 10)
+		m := New(40, 10, WithClipboard(&memClipboard{}))
 		m.Focus()
 		m.SetContent("abcdef")
 		return m
