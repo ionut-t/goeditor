@@ -59,10 +59,24 @@ func (c *Cursor) MoveRight(buffer Buffer, count int) error {
 }
 
 // MoveUp moves the cursor up by count lines, to the Preferred column or the
-// end of the line if it is shorter. Preferred is kept, so a later vertical
-// move onto a longer line goes back to it, as Vim's curswant. A count past
-// the first line stops there and returns ErrStartOfBuffer.
+// last character of the line if it is shorter. Preferred is kept, so a later
+// vertical move onto a longer line goes back to it, as Vim's curswant. A count
+// past the first line stops there and returns ErrStartOfBuffer.
 func (c *Cursor) MoveUp(buffer Buffer, count int) error {
+	return c.moveUp(buffer, count, false)
+}
+
+// MoveDown moves the cursor down by count lines, to the Preferred column or
+// the last character of the line if it is shorter. Preferred is kept, so a
+// later vertical move onto a longer line goes back to it, as Vim's curswant. A
+// count past the last line stops there and returns ErrEndOfBuffer.
+func (c *Cursor) MoveDown(buffer Buffer, count int) error {
+	return c.moveDown(buffer, count, false)
+}
+
+// moveUp is MoveUp. With pastEnd, as in insert and visual mode, a shorter line
+// puts the cursor after its last character instead of on it.
+func (c *Cursor) moveUp(buffer Buffer, count int, pastEnd bool) error {
 	if c.Position.Row <= 0 {
 		return ErrStartOfBuffer
 	}
@@ -72,16 +86,14 @@ func (c *Cursor) MoveUp(buffer Buffer, count int) error {
 		err = ErrStartOfBuffer
 	}
 	c.Position.Row -= max(count, 0)
-	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
+	c.Position.Col = min(c.Preferred, lastCol(buffer, c.Position.Row, pastEnd))
 	c.clampCol(buffer) // Preferred is exported, so it can be negative
 	return err
 }
 
-// MoveDown moves the cursor down by count lines, to the Preferred column or
-// the end of the line if it is shorter. Preferred is kept, so a later vertical
-// move onto a longer line goes back to it, as Vim's curswant. A count past
-// the last line stops there and returns ErrEndOfBuffer.
-func (c *Cursor) MoveDown(buffer Buffer, count int) error {
+// moveDown is MoveDown. With pastEnd, as in insert and visual mode, a shorter
+// line puts the cursor after its last character instead of on it.
+func (c *Cursor) moveDown(buffer Buffer, count int, pastEnd bool) error {
 	lastRow := buffer.LineCount() - 1
 	if c.Position.Row >= lastRow {
 		return ErrEndOfBuffer
@@ -92,7 +104,7 @@ func (c *Cursor) MoveDown(buffer Buffer, count int) error {
 		err = ErrEndOfBuffer
 	}
 	c.Position.Row += max(count, 0)
-	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
+	c.Position.Col = min(c.Preferred, lastCol(buffer, c.Position.Row, pastEnd))
 	c.clampCol(buffer) // Preferred is exported, so it can be negative
 	return err
 }

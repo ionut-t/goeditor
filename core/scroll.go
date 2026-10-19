@@ -256,10 +256,12 @@ func (e *editor) ScrollHalfPage(down bool, count int) (Cursor, error) {
 	}
 
 	// row is within the buffer, so neither move can hit its end and fail.
+	// Visual mode, like j and k there, can stop after the last character.
+	pastEnd := e.IsVisualMode() || e.IsVisualLineMode()
 	if delta := row - cursor.Position.Row; delta > 0 {
-		_ = cursor.MoveDown(e.buffer, delta)
+		_ = cursor.moveDown(e.buffer, delta, pastEnd)
 	} else if delta < 0 {
-		_ = cursor.MoveUp(e.buffer, -delta)
+		_ = cursor.moveUp(e.buffer, -delta, pastEnd)
 	}
 	return cursor, nil
 }

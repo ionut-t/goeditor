@@ -63,7 +63,7 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 // HandleKey dispatches each incoming key to the appropriate handler.
 func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
-		editor.SetNormalMode()
+		exitVisualToNormal(editor, buffer)
 		return nil
 	}
 
@@ -262,22 +262,22 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 
 	switch key.Key {
 	case KeyDown:
-		_ = cursor.MoveDown(buffer, moveCount)
+		_ = cursor.moveDown(buffer, moveCount, true)
 		movementAttempted = true
 	case KeyUp:
-		moveErr = cursor.MoveUp(buffer, moveCount)
+		moveErr = cursor.moveUp(buffer, moveCount, true)
 		movementAttempted = true
 	case KeyPageDown:
 		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
-		moveErr = cursor.MoveDown(buffer, moveCount)
+		moveErr = cursor.moveDown(buffer, moveCount, true)
 		movementAttempted = true
 	case KeyPageUp:
 		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
-		moveErr = cursor.MoveUp(buffer, moveCount)
+		moveErr = cursor.moveUp(buffer, moveCount, true)
 		movementAttempted = true
 	default:
 		switch {
