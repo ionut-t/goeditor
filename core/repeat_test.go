@@ -330,6 +330,7 @@ func TestRepeatInsertLimit(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, ErrTextTooLongId, err.ID())
 		assert.True(t, errors.Is(err, ErrTextTooLong))
+		assert.Equal(t, "resulting text too long: 999999998 copies of 1 rune", err.Error())
 		assert.Equal(t, "xb", content(e))
 		assert.True(t, e.IsNormalMode())
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
@@ -361,6 +362,7 @@ func TestRepeatInsertLimit(t *testing.T) {
 		typeKeys(t, e, "$33335a<BS>x")
 		err := e.HandleKey(KeyEvent{Key: KeyEscape})
 		assert.True(t, errors.Is(err, ErrTextTooLong))
+		assert.Equal(t, "resulting text too long: 33334 copies of 3 keys", err.Error())
 		assert.Equal(t, "abx", content(e))
 	})
 

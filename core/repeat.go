@@ -316,7 +316,7 @@ func (e *editor) repeatInsert() *EditorError {
 		return nil
 	}
 	if len(text) > maxRepeatedInsert/repeats {
-		return textTooLong(repeats, len(text))
+		return textTooLong(repeats, len(text), "rune")
 	}
 
 	all := slices.Repeat(text, repeats)
@@ -354,7 +354,7 @@ func runesEnd(at Position, text []rune) Position {
 func (e *editor) replayInsert(repeats int) *EditorError {
 	s := &e.insert
 	if n := len(s.keys) + 1; n > maxReplayedKeys/repeats {
-		return textTooLong(repeats, n)
+		return textTooLong(repeats, n, "key")
 	}
 	for range repeats {
 		if s.newLine {
@@ -367,10 +367,15 @@ func (e *editor) replayInsert(repeats int) *EditorError {
 	return nil
 }
 
-func textTooLong(repeats, size int) *EditorError {
+// textTooLong reports an insert count refused for its size: repeats copies
+// of size units (runes inserted, or keys replayed).
+func textTooLong(repeats, size int, unit string) *EditorError {
+	if size != 1 {
+		unit += "s"
+	}
 	return &EditorError{
 		id:  ErrTextTooLongId,
-		err: fmt.Errorf("%w: %d copies of %d", ErrTextTooLong, repeats, size),
+		err: fmt.Errorf("%w: %d copies of %d %s", ErrTextTooLong, repeats, size, unit),
 	}
 }
 
