@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.0](https://github.com/ionut-t/goeditor/compare/v0.10.1...v0.11.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Removed the deprecated KeyCtrlD, KeyCtrlU, KeyCtrlN, KeyCtrlP, KeyCtrlY and KeyCtrlE key codes (use Ctrl('d') or KeyEvent{Rune: 'd', Modifiers: ModCtrl}), Cursor.ScrollUp and Cursor.ScrollDown (use Editor.ScrollHalfPage), and Highlighter.InvalidateLine (use InvalidateCache).
+* **core:** Cursor motion methods no longer take an availableWidth parameter. This affects MoveLeft, MoveRight, MoveUp, MoveDown, MoveDownToFirstNonBlank, MoveLeftOrUp, MoveRightOrDown, MoveToLineEnd, MoveToAfterLineEnd, MoveToFirstNonBlank, MoveToBufferEnd, MoveWordForward, MoveWordBackward, MoveWordToEnd and MoveWordToEndBackward.
+
+### Bug Fixes
+
+* **core:** keep the full column for j and k ([ccd80ff](https://github.com/ionut-t/goeditor/commit/ccd80ffe503c879d5c5e60bef5cb8cc9792b8c3b))
+
+
+### Code Refactoring
+
+* remove deprecated APIs and constants ([80f54aa](https://github.com/ionut-t/goeditor/commit/80f54aa5c5f26d164219c42a630247ea41e0305d))
+
 ## [0.10.1](https://github.com/ionut-t/goeditor/compare/v0.10.0...v0.10.1) (2026-10-19)
 
 
