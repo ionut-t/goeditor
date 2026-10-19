@@ -126,12 +126,12 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// Let's ignore them for now.
 
 	case KeyLeft:
-		_ = cursor.MoveLeftOrUp(buffer, 1, col)
+		_ = cursor.MoveLeftOrUp(buffer, 1, availableWidth)
 		buffer.SetCursor(cursor)
 		return nil
 
 	case KeyRight:
-		_ = cursor.MoveRightOrDown(buffer, 1, col)
+		_ = cursor.MoveRightOrDown(buffer, 1, availableWidth)
 		buffer.SetCursor(cursor)
 		return nil
 

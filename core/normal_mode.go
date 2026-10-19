@@ -822,7 +822,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	// --- Handle Single-Key Commands or Start of Sequences ---
-	col := cursor.Position.Col // Use Column from cursor
 	var moveErr error
 
 	switch {
@@ -858,13 +857,13 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Movement keys
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = cursor.MoveLeftOrUp(buffer, count, col)
+		moveErr = cursor.MoveLeftOrUp(buffer, count, availableWidth)
 	case key.Rune == 'j' || key.Key == KeyDown:
 		moveErr = cursor.MoveDown(buffer, count, availableWidth)
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
-		moveErr = cursor.MoveRightOrDown(buffer, count, col)
+		moveErr = cursor.MoveRightOrDown(buffer, count, availableWidth)
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)
 	case key.Rune == '}':
