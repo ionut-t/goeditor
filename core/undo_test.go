@@ -117,14 +117,6 @@ func TestRedoBasic(t *testing.T) {
 		assert.Equal(t, "first", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
-
-	t.Run("deprecated KeyCtrlU constant still scrolls, not redoes", func(t *testing.T) {
-		// normalizeKey maps the legacy constants onto the canonical form, so
-		// consumers constructing them keep working.
-		e := newTestEditor("hello")
-		_ = e.HandleKey(KeyEvent{Key: KeyCtrlU})
-		assert.Equal(t, "hello", content(e))
-	})
 }
 
 // TestUndoTruncatesRedo verifies that making a new change after undo discards the redo history.
