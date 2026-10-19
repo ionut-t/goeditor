@@ -29,6 +29,11 @@ func (m *visualMode) AwaitingLiteral() bool { return m.charSearch.waitingForChar
 
 func (m *visualMode) OperatorPending() bool { return false }
 
+// Idle reports whether no command is part way typed, count aside.
+func (m *visualMode) Idle() bool {
+	return !m.charSearch.waitingForChar && m.pendingModifier == 0 && m.pending.prefix == 0
+}
+
 func (m *visualMode) Enter(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("-- VISUAL --")
 	editor.UpdateCommand("")

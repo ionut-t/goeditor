@@ -107,7 +107,8 @@ m.WithTheme(theme)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
 - **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
 - **Undo/Redo**: `u` (undo), `Ctrl+R` (redo), `U` (undo all recent changes on the last-changed line)
-- **Repeat**: `.` repeats the last normal-mode change, including the text typed in its insert; a count replaces the change's count (`3.`), except on insert commands (`i`, `a`, `o`, …), which don't take counts yet. Changes made through visual, command-line or search mode are not repeated yet
+- **Repeat**: `.` repeats the last change, including the text typed in its insert (a cursor key in insert mode starts a new change, as in Vim); a count replaces the change's count (`3.`). A change made from visual mode repeats on the same amount of text from the cursor. Changes made through command-line or search mode are not repeated yet
+- **Insert counts**: `3ix<Esc>`, and likewise `a`, `I`, `A`, `o`, `O`, insert the text three times. A count that would add more than 10 million characters is refused with `ErrTextTooLong`, since a key handler can't be interrupted the way Vim's Ctrl-C stops a long insert
 - **Copy/Paste**: `y` (yank), `p` / `P` (paste)
 
 ### Insert Mode

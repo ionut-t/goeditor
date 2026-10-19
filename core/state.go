@@ -198,6 +198,7 @@ type editor struct {
 	recording commandRecording
 	replaying bool
 	editCount int
+	insert    insertSession
 }
 
 // New creates a new editor instance
@@ -300,6 +301,9 @@ func (e *editor) setMode(modeName Mode) {
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter
+	if modeName == InsertMode {
+		e.resetInsert()
+	}
 }
 
 func (e *editor) SetNormalMode() {
@@ -465,6 +469,8 @@ func (e *editor) InsertCompletion(completion Completion) error {
 	}
 
 	e.buffer.SetCursor(cursor)
+	e.recordCompletion(wordBefore, completion.Text)
+	e.trackInsertCursor()
 
 	return nil
 }
