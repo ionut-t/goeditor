@@ -32,7 +32,7 @@ func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 		}
 		buffer.SetCursor(cursor)
 	case 'e':
-		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.GetState().AvailableWidth, editor.IsWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.IsWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
@@ -60,8 +60,6 @@ func applyVisualMotion(
 	key KeyEvent,
 	count int,
 ) (movementAttempted bool, earlyReturn bool, moveErr error) {
-	state := editor.GetState()
-	availableWidth := state.AvailableWidth
 	scrollCount := count // 0 keeps 'scroll'; an explicit count, even 1, sets it
 	lineCount := count   // 0 sends G to the last line; a count sends it to that line
 	count = max(count, 1)
@@ -74,10 +72,10 @@ func applyVisualMotion(
 	case key.Modifiers&ModCtrl != 0:
 		// Unbound Ctrl combination — ignore rather than fall through.
 	case key.Rune == 'j' || key.Key == KeyDown:
-		moveErr = cursor.MoveDown(buffer, count, availableWidth)
+		moveErr = cursor.MoveDown(buffer, count)
 		movementAttempted = true
 	case key.Rune == 'k' || key.Key == KeyUp:
-		moveErr = cursor.MoveUp(buffer, count, availableWidth)
+		moveErr = cursor.MoveUp(buffer, count)
 		movementAttempted = true
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)
@@ -89,25 +87,25 @@ func applyVisualMotion(
 		cursor.MoveToLineStart()
 		movementAttempted = true
 	case key.Rune == '$' || key.Key == KeyEnd:
-		cursor.MoveToLineEnd(buffer, availableWidth)
+		cursor.MoveToLineEnd(buffer)
 		movementAttempted = true
 	case key.Rune == '^':
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)
+		cursor.MoveToFirstNonBlank(buffer)
 		movementAttempted = true
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 		movementAttempted = true
 	case key.Rune == 'G':
-		cursor.moveToLine(buffer, lineCount, availableWidth)
+		cursor.moveToLine(buffer, lineCount)
 		movementAttempted = true
 	case key.Key == KeyEnter:
-		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count, availableWidth)
+		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count)
 		movementAttempted = true
 	case key.Rune == ';':
 		repeatCharSearch(cs, editor, buffer, count, false)

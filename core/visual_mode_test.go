@@ -132,7 +132,6 @@ func TestVisualYankEndsVisual(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {
 			e, _ := newTestEditorWithClipboard(text)
-			setWidth(e, 80)
 			typeKeys(t, e, tt.keys)
 			assert.True(t, e.IsNormalMode())
 			assert.Equal(t, tt.want, cursorPos(e))
@@ -154,7 +153,6 @@ func TestVisualYankEndsVisual(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.keys, func(t *testing.T) {
 				e, _ := newTestEditorWithClipboard(text)
-				setWidth(e, 80)
 				typeKeys(t, e, tt.keys)
 				assert.Equal(t, tt.want, e.GetState().YankSelection)
 				for _, p := range tt.on {

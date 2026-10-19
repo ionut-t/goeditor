@@ -99,9 +99,8 @@ func applyCaseWord(editor Editor, buffer Buffer, op rune, count int) *EditorErro
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
 	endPos := tempCursor.Position // exclusive end (start of next word)
 
 	if startPos == endPos {
@@ -120,11 +119,10 @@ func applyCaseWordEnd(editor Editor, buffer Buffer, op rune, count int) *EditorE
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 	// MoveWordToEnd lands on the last character (inclusive); move one right for exclusive end.
-	_ = tempCursor.MoveRight(buffer, 1, availableWidth)
+	_ = tempCursor.MoveRight(buffer, 1)
 	endPos := tempCursor.Position // exclusive
 
 	if startPos == endPos {
@@ -143,9 +141,8 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	cursor := buffer.GetCursor()
 	endPos := cursor.Position // exclusive end
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 	startPos := tempCursor.Position
 
 	if startPos == endPos {
@@ -251,7 +248,7 @@ func applyCaseToFirstNonBlank(editor Editor, buffer Buffer, op rune) *EditorErro
 	cursor := buffer.GetCursor()
 
 	tempCursor := cursor
-	tempCursor.MoveToFirstNonBlank(buffer, editor.GetState().AvailableWidth)
+	tempCursor.MoveToFirstNonBlank(buffer)
 	firstNonBlankCol := tempCursor.Position.Col
 
 	curCol := cursor.Position.Col

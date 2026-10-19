@@ -62,8 +62,6 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 		}
 	}
 
-	availableWidth := editor.GetState().AvailableWidth
-
 	// Collect content in top-to-bottom order before deleting
 	var deletedContent strings.Builder
 
@@ -112,7 +110,7 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 	cursor.Position.Row = newRow
 	buffer.SetCursor(cursor)
 	cursor = buffer.GetCursor()
-	cursor.MoveToFirstNonBlank(buffer, availableWidth)
+	cursor.MoveToFirstNonBlank(buffer)
 	buffer.SetCursor(cursor)
 
 	return deletedContent.String(), firstErr
@@ -133,9 +131,8 @@ func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
 	endPos := tempCursor.Position
 
 	if startPos != endPos {
@@ -152,9 +149,8 @@ func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	originalPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 	startPos := tempCursor.Position
 
 	if startPos != originalPos {
@@ -172,12 +168,11 @@ func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 	// MoveWordToEnd lands on the last char of the word (inclusive), so move one right
 	// to get the exclusive end for deleteRange.
-	_ = tempCursor.MoveRight(buffer, 1, availableWidth)
+	_ = tempCursor.MoveRight(buffer, 1)
 	exclusiveEndPos := tempCursor.Position
 
 	if startPos != exclusiveEndPos {

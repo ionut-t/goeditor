@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -87,7 +88,6 @@ func runWhichwrapCases(t *testing.T, tests []whichwrapCase, setup func(Editor)) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newTestEditor(tt.content)
-			setWidth(e, 80)
 			if setup != nil {
 				setup(e)
 			}
@@ -160,7 +160,6 @@ func TestWhichwrap(t *testing.T) {
 
 	t.Run("<BS> across lines keeps the column for j", func(t *testing.T) {
 		e := newTestEditor("abc\nabcdef\nabcdef")
-		setWidth(e, 80)
 		keys(e, 'j')
 		_ = e.HandleKey(bs)
 		keys(e, 'j')
@@ -184,14 +183,12 @@ func TestMoveDown(t *testing.T) {
 
 	t.Run("preserves column when moving down", func(t *testing.T) {
 		e := newTestEditor("hello\nworld")
-		setWidth(e, 80)
 		keys(e, '$', 'j') // $→col4 (Preferred=4); j→col4 on "world"
 		assert.Equal(t, Position{1, 4}, cursorPos(e))
 	})
 
 	t.Run("clamps column to shorter line", func(t *testing.T) {
 		e := newTestEditor("hello\nhi")
-		setWidth(e, 80)
 		// $ → col 4, Preferred=4; j → target col 4, lineLen("hi")=2, clamps to lineLen=2
 		keys(e, '$', 'j')
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
@@ -232,21 +229,18 @@ func TestHorizontalMoveKeepsColumnForVertical(t *testing.T) {
 
 	t.Run("normal: llj", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, 'l', 'l', 'j')
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
 	})
 
 	t.Run("normal: 5llj", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, '5', 'l', 'l', 'j')
 		assert.Equal(t, Position{1, 6}, cursorPos(e))
 	})
 
 	t.Run("normal: Right Right j", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		_ = e.HandleKey(KeyEvent{Key: KeyRight})
 		_ = e.HandleKey(KeyEvent{Key: KeyRight})
 		keys(e, 'j')
@@ -255,34 +249,63 @@ func TestHorizontalMoveKeepsColumnForVertical(t *testing.T) {
 
 	t.Run("visual: llvjd", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, 'l', 'l', 'v', 'j', 'd')
 		assert.Equal(t, "abdefghij", content(e))
 	})
 
 	t.Run("visual: vllj", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, 'v', 'l', 'l', 'j')
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
 	})
 
 	t.Run("visual line: Vllj", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, 'V', 'l', 'l', 'j')
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
 	})
 
 	t.Run("insert: Right Right Down", func(t *testing.T) {
 		e := newTestEditor(text)
-		setWidth(e, 80)
 		keys(e, 'i')
 		_ = e.HandleKey(KeyEvent{Key: KeyRight})
 		_ = e.HandleKey(KeyEvent{Key: KeyRight})
 		_ = e.HandleKey(KeyEvent{Key: KeyDown})
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
 	})
+}
+
+// TestPreferredIsFullColumn checks that j/k go back to the full column the
+// last horizontal motion left, whatever the width the host renders at, as
+// Vim's curswant. Expected positions are from Vim 9.2.
+func TestPreferredIsFullColumn(t *testing.T) {
+	down := KeyEvent{Key: KeyDown}
+	const long = "abcdefghijklmno\nabcdefghijklmno"
+	tests := []whichwrapCase{
+		{"l past the wrap width", long, keySeq("12lj"), Position{1, 12}, ""},
+		{"h count past the start", "abcdef\nabcdef", keySeq("$9hj"), Position{1, 0}, ""},
+		{"l count past the end", long, keySeq("5l20lj"), Position{1, 14}, ""},
+		{"shorter line keeps the column", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10ljj"), Position{2, 10}, ""},
+		{"empty line keeps the column", "abcdefghijkl\n\nabcdefghijkl", keySeq("10ljj"), Position{2, 10}, ""},
+		{"k keeps the column", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10ljk"), Position{0, 10}, ""},
+		{"w", "aaaaaaaaaaaa bbb\naaaaaaaaaaaaaaaa", keySeq("wj"), Position{1, 13}, ""},
+		{"visual d", long, keySeq("12lvjd"), Position{0, 12}, "abcdefghijklno"},
+		{"visual line", long, keySeq("12lVjlk"), Position{0, 13}, ""},
+		{"insert Down", long, keySeq("12li", down, "x"), Position{1, 13}, "abcdefghijklmno\nabcdefghijklxmno"},
+		{"k count past the top", "ab\nabcdefghijkl\nabcdefghijkl", keySeq("jj10l5kj"), Position{1, 10}, ""},
+		{"j count past the end", "abcdefghijkl\nabcdefghijkl\nab", keySeq("10l5jk"), Position{1, 10}, ""},
+		{"insert Down onto a shorter line", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10li", down, "x"), Position{1, 3}, "abcdefghijkl\nabx\nabcdefghijkl"},
+		{"insert Down past a shorter line", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10li", down, down, "x"), Position{2, 11}, "abcdefghijkl\nab\nabcdefghijxkl"},
+	}
+	for _, width := range []int{0, 10, 80} {
+		t.Run(fmt.Sprintf("width %d", width), func(t *testing.T) {
+			runWhichwrapCases(t, tests, func(e Editor) {
+				s := e.GetState()
+				s.AvailableWidth = width
+				e.SetState(s)
+			})
+		})
+	}
 }
 
 // TestMoveAcrossLines checks SetMoveAcrossLines against Vim with

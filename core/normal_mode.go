@@ -196,7 +196,6 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	state := editor.GetState()
 	pendingCount := state.PendingCount
 	cursor := buffer.GetCursor()
-	availableWidth := state.AvailableWidth
 
 	if key.Key == KeyEscape {
 		m.cmd.op = 0
@@ -230,12 +229,12 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		}
 
 		tempCursor := cursor
-		_ = tempCursor.MoveWordToEndBackward(buffer, geCount, availableWidth, isWordChar)
+		_ = tempCursor.MoveWordToEndBackward(buffer, geCount, isWordChar)
 
 		// ge is inclusive: the character under the cursor is part of the range,
 		// so move the exclusive end one character right.
 		endCursor := cursor
-		_ = endCursor.MoveRight(buffer, 1, availableWidth)
+		_ = endCursor.MoveRight(buffer, 1)
 
 		return applyOperatorToRange(editor, buffer, op, tempCursor.Position, endCursor.Position)
 	}
@@ -279,12 +278,12 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		}
 		buffer.SetCursor(cursor)
 	case 'e': // ge — end of previous word
-		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, availableWidth, editor.IsWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, editor.IsWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
 	case 'E': // gE — end of previous WORD
-		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, availableWidth, isBigWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, isBigWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
@@ -596,7 +595,6 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	count = max(count, 1)
 
 	cursor := buffer.GetCursor()
-	availableWidth := editor.GetState().AvailableWidth
 
 	// Handle motion keys after the operator (op is delete/yank/change):
 	//
@@ -693,7 +691,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 
 	case 'h': // dh, yh, ch — count characters left of the cursor
 		tempCursor := cursor
-		_ = tempCursor.MoveLeft(buffer, count, availableWidth)
+		_ = tempCursor.MoveLeft(buffer, count)
 		err = applyOperatorToRange(editor, buffer, op, tempCursor.Position, cursor.Position)
 		actionTaken = true
 
@@ -709,7 +707,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 
 	case '^': // d^, y^, c^ — to first non-blank of line
 		tempCursor := cursor
-		tempCursor.MoveToFirstNonBlank(buffer, availableWidth)
+		tempCursor.MoveToFirstNonBlank(buffer)
 		err = applyOperatorToRange(editor, buffer, op, tempCursor.Position, cursor.Position)
 		actionTaken = true
 
@@ -728,24 +726,24 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'W': // dW, yW, cW — WORD forward (cW changes to end of WORD, like cE)
 		tempCursor := cursor
 		if op == "change" {
-			_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, isBigWordChar)
-			_ = tempCursor.MoveRight(buffer, 1, availableWidth)
+			_ = tempCursor.MoveWordToEnd(buffer, count, isBigWordChar)
+			_ = tempCursor.MoveRight(buffer, 1)
 		} else {
-			_ = tempCursor.MoveWordForward(buffer, count, availableWidth, isBigWordChar)
+			_ = tempCursor.MoveWordForward(buffer, count, isBigWordChar)
 		}
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
 
 	case 'E': // dE, yE, cE — to end of WORD (inclusive)
 		tempCursor := cursor
-		_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, isBigWordChar)
-		_ = tempCursor.MoveRight(buffer, 1, availableWidth)
+		_ = tempCursor.MoveWordToEnd(buffer, count, isBigWordChar)
+		_ = tempCursor.MoveRight(buffer, 1)
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
 
 	case 'B': // dB, yB, cB — WORD backward
 		tempCursor := cursor
-		_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, isBigWordChar)
+		_ = tempCursor.MoveWordBackward(buffer, count, isBigWordChar)
 		err = applyOperatorToRange(editor, buffer, op, tempCursor.Position, cursor.Position)
 		actionTaken = true
 
@@ -787,7 +785,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	var err *EditorError
 	state := editor.GetState()
 	pendingCount := state.PendingCount
-	availableWidth := state.AvailableWidth
 	skipCursorUpdate := false
 	cursor := buffer.GetCursor()
 
@@ -857,33 +854,33 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Movement keys
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = moveLeft(editor, &cursor, buffer, count, availableWidth)
+		moveErr = moveLeft(editor, &cursor, buffer, count)
 	case key.Key == KeyBackspace:
-		moveErr = cursor.MoveLeftOrUp(buffer, count, availableWidth)
+		moveErr = cursor.MoveLeftOrUp(buffer, count)
 	case key.Rune == 'j' || key.Key == KeyDown:
-		moveErr = cursor.MoveDown(buffer, count, availableWidth)
+		moveErr = cursor.MoveDown(buffer, count)
 	case key.Rune == 'k' || key.Key == KeyUp:
-		moveErr = cursor.MoveUp(buffer, count, availableWidth)
+		moveErr = cursor.MoveUp(buffer, count)
 	case key.Rune == 'l' || key.Key == KeyRight:
-		moveErr = moveRight(editor, &cursor, buffer, count, availableWidth)
+		moveErr = moveRight(editor, &cursor, buffer, count)
 	case key.Key == KeySpace:
-		moveErr = cursor.MoveRightOrDown(buffer, count, availableWidth)
+		moveErr = cursor.MoveRightOrDown(buffer, count)
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)
 	case key.Rune == '}':
 		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, editor.IsWordChar)
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 	case key.Rune == 'W':
-		moveErr = cursor.MoveWordForward(buffer, count, availableWidth, isBigWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, isBigWordChar)
 	case key.Rune == 'E':
-		moveErr = cursor.MoveWordToEnd(buffer, count, availableWidth, isBigWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, isBigWordChar)
 	case key.Rune == 'B':
-		moveErr = cursor.MoveWordBackward(buffer, count, availableWidth, isBigWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, isBigWordChar)
 	case key.Rune == '%': // Jump to the matching bracket
 		if target, ok := findMatchingBracket(buffer, cursor.Position); ok {
 			cursor.Position = target
@@ -891,9 +888,9 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == '0':
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
-		cursor.MoveToLineEnd(buffer, availableWidth) // Move to last char
+		cursor.MoveToLineEnd(buffer) // Move to last char
 	case key.Rune == '^' || key.Key == KeyHome:
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)
+		cursor.MoveToFirstNonBlank(buffer)
 	case key.Rune == 'g':
 		m.cmd.prefix.start('g')
 		showPrefix(editor, 'g')
@@ -907,35 +904,35 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if countWasPending {
 			lineCount = count
 		}
-		cursor.moveToLine(buffer, lineCount, availableWidth)
+		cursor.moveToLine(buffer, lineCount)
 	case key.Key == KeyEnter: // Move down count lines to first non-blank
-		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count, availableWidth)
+		moveErr = cursor.MoveDownToFirstNonBlank(buffer, count)
 
 	// Mode changes
 	case key.Rune == 'i': // Insert before cursor
 		startInsert(editor, count, false)
 
 	case key.Rune == 'I': // Insert at first non-blank
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)
+		cursor.MoveToFirstNonBlank(buffer)
 		buffer.SetCursor(cursor) // Update buffer's cursor
 		startInsert(editor, count, false)
 
 	case key.Rune == 'a': // Insert after cursor
-		_ = cursor.MoveRight(buffer, 1, availableWidth) // Move one right (allows append at end of line)
-		buffer.SetCursor(cursor)                        // Update buffer's cursor
+		_ = cursor.MoveRight(buffer, 1) // Move one right (allows append at end of line)
+		buffer.SetCursor(cursor)        // Update buffer's cursor
 		startInsert(editor, count, false)
 
 	case key.Rune == 'A': // Insert at end of line
-		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Move *after* last char
-		buffer.SetCursor(cursor)                          // Update buffer's cursor
+		cursor.MoveToAfterLineEnd(buffer) // Move *after* last char
+		buffer.SetCursor(cursor)          // Update buffer's cursor
 		startInsert(editor, count, false)
 
 	case key.Rune == 'o': // Open line below
-		cursor.MoveToAfterLineEnd(buffer, availableWidth) // Go to end of current line
+		cursor.MoveToAfterLineEnd(buffer) // Go to end of current line
 		buffer.SetCursor(cursor)
 		_ = buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
-		_ = cursor.MoveDown(buffer, 1, availableWidth)                                   // Move cursor down
-		cursor.MoveToFirstNonBlank(buffer, availableWidth)                               // Go to start of new line
+		_ = cursor.MoveDown(buffer, 1)                                                   // Move cursor down
+		cursor.MoveToFirstNonBlank(buffer)                                               // Go to start of new line
 		buffer.SetCursor(cursor)
 		startInsert(editor, count, true)
 
@@ -943,7 +940,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		cursor.MoveToLineStart()                                       // Go to start of current line
 		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
-		cursor.MoveToFirstNonBlank(buffer, availableWidth) // Ensure col=0 on the new line
+		cursor.MoveToFirstNonBlank(buffer) // Ensure col=0 on the new line
 		buffer.SetCursor(cursor)
 		startInsert(editor, count, true)
 
@@ -1014,7 +1011,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if cursor.Position.Col > 0 {
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
 			if err == nil {
-				_ = cursor.MoveLeft(buffer, count, availableWidth) // Move cursor back
+				_ = cursor.MoveLeft(buffer, count) // Move cursor back
 				buffer.SetCursor(cursor)
 			}
 		} else {
@@ -1093,7 +1090,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			skipCursorUpdate = true
 		} else {
 			count = len(content)
-			_ = cursor.MoveRight(buffer, count, availableWidth)
+			_ = cursor.MoveRight(buffer, count)
 		}
 
 		if pasteErr != nil {
@@ -1121,7 +1118,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			skipCursorUpdate = true
 		} else {
 			count = len(content)
-			_ = cursor.MoveRight(buffer, count, availableWidth)
+			_ = cursor.MoveRight(buffer, count)
 		}
 
 		if pasteErr != nil {

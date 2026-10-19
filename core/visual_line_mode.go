@@ -256,43 +256,42 @@ func (m *visualLineMode) selectionRows(cursorRow int) (startRow, endRow int) {
 func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
-	availableWidth := state.AvailableWidth
 	var moveErr error
 	movementAttempted := false
 	moveCount := max(count, 1)
 
 	switch key.Key {
 	case KeyDown:
-		_ = cursor.MoveDown(buffer, moveCount, availableWidth)
+		_ = cursor.MoveDown(buffer, moveCount)
 		movementAttempted = true
 	case KeyUp:
-		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
+		moveErr = cursor.MoveUp(buffer, moveCount)
 		movementAttempted = true
 	case KeyPageDown:
 		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
-		moveErr = cursor.MoveDown(buffer, moveCount, availableWidth)
+		moveErr = cursor.MoveDown(buffer, moveCount)
 		movementAttempted = true
 	case KeyPageUp:
 		if count <= 1 {
 			moveCount = state.ViewportHeight
 		}
-		moveErr = cursor.MoveUp(buffer, moveCount, availableWidth)
+		moveErr = cursor.MoveUp(buffer, moveCount)
 		movementAttempted = true
 	default:
 		switch {
 		case key.Rune == 'h' || key.Key == KeyLeft:
-			moveErr = moveLeft(editor, &cursor, buffer, 1, availableWidth)
+			moveErr = moveLeft(editor, &cursor, buffer, 1)
 			movementAttempted = true
 		case key.Rune == 'l' || key.Key == KeyRight:
-			moveErr = moveRight(editor, &cursor, buffer, 1, availableWidth)
+			moveErr = moveRight(editor, &cursor, buffer, 1)
 			movementAttempted = true
 		case key.Key == KeyBackspace:
-			moveErr = cursor.MoveLeftOrUp(buffer, 1, availableWidth)
+			moveErr = cursor.MoveLeftOrUp(buffer, 1)
 			movementAttempted = true
 		case key.Key == KeySpace:
-			moveErr = cursor.MoveRightOrDown(buffer, 1, availableWidth)
+			moveErr = cursor.MoveRightOrDown(buffer, 1)
 			movementAttempted = true
 		default:
 			var earlyReturn bool

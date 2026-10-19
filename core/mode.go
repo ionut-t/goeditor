@@ -134,19 +134,19 @@ func takeCount(editor Editor) int {
 // moveLeft is h and <Left> in normal and visual mode. They stay on the line,
 // as with Vim's default 'whichwrap', unless the editor's MoveAcrossLines
 // option is on.
-func moveLeft(editor Editor, c *Cursor, buffer Buffer, count, availableWidth int) error {
+func moveLeft(editor Editor, c *Cursor, buffer Buffer, count int) error {
 	if editor.MoveAcrossLines() {
-		return c.MoveLeftOrUp(buffer, count, availableWidth)
+		return c.MoveLeftOrUp(buffer, count)
 	}
-	return c.MoveLeft(buffer, count, availableWidth)
+	return c.MoveLeft(buffer, count)
 }
 
 // moveRight is l and <Right> in normal and visual mode. They stop on the last
 // character, as with Vim's default 'whichwrap', unless the editor's
 // MoveAcrossLines option is on.
-func moveRight(editor Editor, c *Cursor, buffer Buffer, count, availableWidth int) error {
+func moveRight(editor Editor, c *Cursor, buffer Buffer, count int) error {
 	if editor.MoveAcrossLines() {
-		return c.MoveRightOrDown(buffer, count, availableWidth)
+		return c.MoveRightOrDown(buffer, count)
 	}
-	return c.moveRightToLastChar(buffer, count, availableWidth)
+	return c.moveRightToLastChar(buffer, count)
 }

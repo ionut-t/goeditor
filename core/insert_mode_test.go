@@ -323,7 +323,6 @@ func TestInsertEscapeStepsBack(t *testing.T) {
 
 	t.Run("updates the preferred column for j", func(t *testing.T) {
 		e := newTestEditor("abc\nabcdef")
-		setWidth(e, 80)
 		keys(e, 'A')
 		escape(e)
 		keys(e, 'j')
