@@ -85,22 +85,6 @@ func TestTokeniseOutOfRangeIsNoOp(t *testing.T) {
 	assert.Nil(t, h.GetTokensForLine(0, lines))
 }
 
-func TestInvalidateLineRemovesOnlyThatLine(t *testing.T) {
-	h := New("go", "monokai")
-	lines := []string{"x := 1", "y := 2", "z := 3"}
-	h.Tokenise(lines, 0, len(lines))
-
-	require.NotNil(t, h.GetTokensForLine(0, lines))
-	require.NotNil(t, h.GetTokensForLine(1, lines))
-	require.NotNil(t, h.GetTokensForLine(2, lines))
-
-	h.InvalidateLine(1)
-
-	assert.NotNil(t, h.GetTokensForLine(0, lines))
-	assert.Nil(t, h.GetTokensForLine(1, lines))
-	assert.NotNil(t, h.GetTokensForLine(2, lines))
-}
-
 func TestInvalidateCacheClearsTokensKeepsStyles(t *testing.T) {
 	h := New("go", "monokai")
 	lines := []string{"x := 1", "y := 2"}
@@ -124,7 +108,7 @@ func TestInvalidateCacheClearsTokensKeepsStyles(t *testing.T) {
 // TestTokeniseSkipsReTokenisingAlreadyCachedLines proves the incremental
 // caching optimisation: calling Tokenise again for a range that is already
 // fully cached must not re-tokenise, even if the underlying `lines` slice
-// changed in the meantime (a caller is expected to InvalidateLine first).
+// changed in the meantime (a caller is expected to InvalidateCache first).
 func TestTokeniseSkipsReTokenisingAlreadyCachedLines(t *testing.T) {
 	h := New("go", "monokai")
 	original := []string{"x := 1", "y := 2"}
@@ -144,7 +128,7 @@ func TestTokeniseSkipsReTokenisingAlreadyCachedLines(t *testing.T) {
 		reconstructed.WriteString(tok.Value)
 	}
 	assert.Equal(t, original[0], reconstructed.String(),
-		"Tokenise should have skipped re-tokenising an already-cached range, so stale (original) tokens should remain until InvalidateLine is called")
+		"Tokenise should have skipped re-tokenising an already-cached range, so stale (original) tokens should remain until InvalidateCache is called")
 }
 
 func TestTokeniseCachesOnlyTheRequestedRange(t *testing.T) {
@@ -205,7 +189,7 @@ func TestGetStyleForTokenIsCachedAndConsistent(t *testing.T) {
 }
 
 // TestHighlighterCacheAccessIsRace-free exercises Tokenise, GetTokensForLine,
-// GetStyleForToken and the Invalidate* methods concurrently. Run with
+// GetStyleForToken and InvalidateCache concurrently. Run with
 // `go test -race` to catch data races on the internal caches guarded by
 // cacheMutex/styleCacheMutex.
 func TestHighlighterCacheAccessIsRaceFree(t *testing.T) {
@@ -229,9 +213,6 @@ func TestHighlighterCacheAccessIsRaceFree(t *testing.T) {
 					for _, tok := range tokens {
 						h.GetStyleForToken(tok.Type)
 					}
-				}
-				if i%7 == 0 {
-					h.InvalidateLine(start)
 				}
 				if i%11 == 0 {
 					h.InvalidateCache()
