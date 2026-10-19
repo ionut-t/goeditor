@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -251,4 +252,61 @@ func TestPasteLinewiseOverSelection(t *testing.T) {
 		assert.Equal(t, "one\none", content(e))
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
 	})
+}
+
+type failClipboard struct{}
+
+func (failClipboard) Write(string) error    { return nil }
+func (failClipboard) Read() (string, error) { return "", errors.New("no clipboard") }
+
+// TestPasteWithoutClipboard checks p and P when the clipboard can't be read,
+// or there is none. Vim (nothing in the register, E353) still deletes a visual
+// selection, leaves the cursor on a character, and j then uses the column it
+// ends on. Expected values are from Vim 9.2.
+func TestPasteWithoutClipboard(t *testing.T) {
+	const text = "hello world\nsecond line long\n  third\nfourth line"
+	tests := []struct {
+		name   string
+		keys   string
+		text   string
+		want   Position
+		afterJ Position
+	}{
+		{"$vp", "$vp", "hello worl\nsecond line long\n  third\nfourth line", Position{0, 9}, Position{1, 9}},
+		{"$vP", "$vP", "hello worl\nsecond line long\n  third\nfourth line", Position{0, 9}, Position{1, 9}},
+		{"lvlp", "lvlp", "hlo world\nsecond line long\n  third\nfourth line", Position{0, 1}, Position{1, 1}},
+		{"jlllvjp", "jlllvjp", "hello world\nsecird\nfourth line", Position{1, 3}, Position{2, 3}},
+		{"Vp", "Vp", "second line long\n  third\nfourth line", Position{0, 0}, Position{1, 0}},
+		{"lllVp", "lllVp", "second line long\n  third\nfourth line", Position{0, 0}, Position{1, 0}},
+		{"jVp", "jVp", "hello world\n  third\nfourth line", Position{1, 2}, Position{2, 2}},
+		{"jjjVp last line", "jjjVp", "hello world\nsecond line long\n  third", Position{2, 2}, Position{2, 2}},
+		{"jlllVjP", "jlllVjP", "hello world\nfourth line", Position{1, 0}, Position{1, 0}},
+		{"normal p", "lllp", text, Position{0, 3}, Position{1, 3}},
+		{"normal P", "lllP", text, Position{0, 3}, Position{1, 3}},
+	}
+	clipboards := []struct {
+		name string
+		cb   Clipboard
+	}{
+		{"failing", failClipboard{}},
+		{"nil", nil},
+	}
+	for _, c := range clipboards {
+		for _, tt := range tests {
+			t.Run(c.name+"/"+tt.name, func(t *testing.T) {
+				e := New(c.cb)
+				e.SetContent([]byte(text))
+				var err error
+				for _, r := range tt.keys {
+					err = e.HandleKey(KeyEvent{Rune: r})
+				}
+				assert.Error(t, err)
+				assert.True(t, e.IsNormalMode())
+				assert.Equal(t, tt.text, content(e))
+				assert.Equal(t, tt.want, cursorPos(e))
+				keys(e, 'j')
+				assert.Equal(t, tt.afterJ, cursorPos(e))
+			})
+		}
+	}
 }

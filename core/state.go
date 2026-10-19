@@ -877,10 +877,23 @@ func (e *editor) onSearchResultFound(pos Position) {
 	e.buffer.SetCursor(cursor)
 }
 
-func (e *editor) PasteAfter() (string, error) {
+// readClipboard returns the clipboard's content, or an error if there is no
+// clipboard or it can't be read.
+func (e *editor) readClipboard() (string, error) {
+	if e.clipboard == nil {
+		return "", errors.New("clipboard handler not set")
+	}
 	content, err := e.clipboard.Read()
 	if err != nil {
 		return "", fmt.Errorf("failed to read clipboard: %w", err)
+	}
+	return content, nil
+}
+
+func (e *editor) PasteAfter() (string, error) {
+	content, err := e.readClipboard()
+	if err != nil {
+		return "", err
 	}
 
 	cursor := e.buffer.GetCursor()
@@ -909,9 +922,9 @@ func (e *editor) PasteAfter() (string, error) {
 }
 
 func (e *editor) PasteBefore() (string, error) {
-	content, err := e.clipboard.Read()
+	content, err := e.readClipboard()
 	if err != nil {
-		return "", fmt.Errorf("failed to read clipboard: %w", err)
+		return "", err
 	}
 
 	cursor := e.buffer.GetCursor()

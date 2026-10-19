@@ -174,6 +174,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if err == nil {
 			editor.SetNormalMode()
 		}
+		afterDelete := buffer.GetCursor()
 		var pastedContent string
 		var pasteErr error
 		if startRow < buffer.LineCount() {
@@ -195,6 +196,10 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			pastedContent, pasteErr = editor.PasteAfter()
 		}
 		if pasteErr != nil {
+			// The selection stays deleted; the cursor stays where the
+			// deletion left it, not where the paste would have gone.
+			buffer.SetCursor(afterDelete)
+			endFailedPaste(buffer)
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,

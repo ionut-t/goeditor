@@ -302,6 +302,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		}
 		content, pasteErr := editor.PasteBefore()
 		if pasteErr != nil {
+			endFailedPaste(buffer)
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
