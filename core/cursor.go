@@ -190,51 +190,110 @@ func (c *Cursor) MoveDownToFirstNonBlank(buffer Buffer, count int, availableWidt
 	return err
 }
 
-// MoveLeftOrUp moves the cursor left or up based on the current column and visual width
+// MoveLeftOrUp moves the cursor left by count characters, going to the last
+// character of the line above from the start of a line, as Vim's <BS> with the
+// default 'whichwrap'. Each line break counts as one character. It moves as far
+// as it can and returns ErrStartOfBuffer if it reaches the start of the buffer.
 func (c *Cursor) MoveLeftOrUp(buffer Buffer, count, availableWidth int) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
-	// Check if cursor is visually at the start of a wrapped line (but not logical start)
-	if c.Position.Col > 0 && (c.Position.Col%availableWidth == 0) {
-		// Visually at start of a wrapped segment, move left logically
-		return c.MoveLeft(buffer, count, availableWidth)
-	} else if c.Position.Col > 0 {
-		// Not at visual start, simple move left
-		return c.MoveLeft(buffer, count, availableWidth)
-	} else {
-		// At logical start (Col == 0), try moving up
-		if err := c.MoveUp(buffer, count, availableWidth); err != nil {
-			return err // Return error if already at buffer start
+	var err error
+	for range count {
+		if c.Position.Col > 0 {
+			c.Position.Col--
+		} else if c.Position.Row > 0 {
+			c.Position.Row--
+			c.Position.Col = max(buffer.LineRuneCount(c.Position.Row)-1, 0)
+		} else {
+			err = ErrStartOfBuffer
+			break
 		}
-		// If moved up successfully, move to end of the new line
-		c.MoveToLineEnd(buffer, availableWidth) // Pass width to update Preferred correctly
-		return nil
 	}
+	c.Preferred = c.Position.Col % availableWidth
+	return err
 }
 
-// MoveRightOrDown moves the cursor right or down based on the current column and visual width
+// MoveRightOrDown moves the cursor right by count characters, going to the
+// start of the line below from the last character of a line, as Vim's <Space>
+// with the default 'whichwrap'. Each line break counts as one character. It
+// moves as far as it can and returns ErrEndOfBuffer if it reaches the last
+// character of the buffer.
 func (c *Cursor) MoveRightOrDown(buffer Buffer, count, availableWidth int) error {
 	if availableWidth <= 0 {
 		availableWidth = 1
 	}
-	lineLen := buffer.LineRuneCount(c.Position.Row)
-	// Check if cursor is visually at the end of a wrapped line (but not logical end)
-	if c.Position.Col < lineLen && ((c.Position.Col+1)%availableWidth == 0) {
-		// Visually at end of a wrapped segment, move right logically
-		return c.MoveRight(buffer, count, availableWidth)
-	} else if c.Position.Col < lineLen {
-		// Not at visual end, simple move right
-		return c.MoveRight(buffer, count, availableWidth)
-	} else {
-		// At logical end (Col == lineLen), try moving down
-		if err := c.MoveDown(buffer, count, availableWidth); err != nil {
-			return err // Return error if already at buffer end
+	var err error
+	for range count {
+		if c.Position.Col < buffer.LineRuneCount(c.Position.Row)-1 {
+			c.Position.Col++
+		} else if c.Position.Row < buffer.LineCount()-1 {
+			c.Position.Row++
+			c.Position.Col = 0
+		} else {
+			err = ErrEndOfBuffer
+			break
 		}
-		// If moved down successfully, move to start of the new line
-		c.MoveToLineStart()
-		return nil
 	}
+	c.Preferred = c.Position.Col % availableWidth
+	return err
+}
+
+// moveRightToLastChar moves the cursor right by count characters, stopping on
+// the last character of the line, as Vim's l in normal and visual mode. It
+// moves as far as it can and returns ErrEndOfLine if it reaches that character.
+func (c *Cursor) moveRightToLastChar(buffer Buffer, count, availableWidth int) error {
+	if availableWidth <= 0 {
+		availableWidth = 1
+	}
+	var err error
+	last := max(buffer.LineRuneCount(c.Position.Row)-1, 0)
+	if c.Position.Col+count > last {
+		count = max(last-c.Position.Col, 0)
+		err = ErrEndOfLine
+	}
+	c.Position.Col += count
+	c.Preferred = c.Position.Col % availableWidth
+	return err
+}
+
+// moveLeftOrUpInsert is moveLeftOrUp for insert mode, where the cursor can sit
+// after the last character: from the start of a line it goes after the last
+// character of the line above, as Vim's insert-mode <Left> with '[' in
+// 'whichwrap'.
+func (c *Cursor) moveLeftOrUpInsert(buffer Buffer, availableWidth int) error {
+	if availableWidth <= 0 {
+		availableWidth = 1
+	}
+	if c.Position.Col > 0 {
+		c.Position.Col--
+	} else if c.Position.Row > 0 {
+		c.Position.Row--
+		c.Position.Col = buffer.LineRuneCount(c.Position.Row)
+	} else {
+		return ErrStartOfBuffer
+	}
+	c.Preferred = c.Position.Col % availableWidth
+	return nil
+}
+
+// moveRightOrDownInsert is MoveRightOrDown for insert mode, where the cursor
+// can sit after the last character: from there it goes to the start of the
+// line below, as Vim's insert-mode <Right> with ']' in 'whichwrap'.
+func (c *Cursor) moveRightOrDownInsert(buffer Buffer, availableWidth int) error {
+	if availableWidth <= 0 {
+		availableWidth = 1
+	}
+	if c.Position.Col < buffer.LineRuneCount(c.Position.Row) {
+		c.Position.Col++
+	} else if c.Position.Row < buffer.LineCount()-1 {
+		c.Position.Row++
+		c.Position.Col = 0
+	} else {
+		return ErrEndOfBuffer
+	}
+	c.Preferred = c.Position.Col % availableWidth
+	return nil
 }
 
 // MoveToLineStart moves the cursor to the start of the current line (col 0)

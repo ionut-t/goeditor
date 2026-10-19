@@ -125,13 +125,23 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// For a basic Vim clone, often these do nothing or exit insert mode.
 		// Let's ignore them for now.
 
+	// Left and Right stay on the line, as with Vim's default 'whichwrap',
+	// unless MoveAcrossLines is on or the editor is a plain text box.
 	case KeyLeft:
-		_ = cursor.MoveLeftOrUp(buffer, 1, availableWidth)
+		if editor.MoveAcrossLines() || !editor.IsVimMode() {
+			_ = cursor.moveLeftOrUpInsert(buffer, availableWidth)
+		} else {
+			_ = cursor.MoveLeft(buffer, 1, availableWidth)
+		}
 		buffer.SetCursor(cursor)
 		return nil
 
 	case KeyRight:
-		_ = cursor.MoveRightOrDown(buffer, 1, availableWidth)
+		if editor.MoveAcrossLines() || !editor.IsVimMode() {
+			_ = cursor.moveRightOrDownInsert(buffer, availableWidth)
+		} else {
+			_ = cursor.MoveRight(buffer, 1, availableWidth)
+		}
 		buffer.SetCursor(cursor)
 		return nil
 

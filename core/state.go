@@ -182,6 +182,9 @@ type editor struct {
 	mapTimeoutLen time.Duration
 	mapPendingGen MapToken
 
+	// moveAcrossLines lets h, l and the arrow keys cross line boundaries.
+	moveAcrossLines bool
+
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
 	lineHeightFunc    LineHeightFunc

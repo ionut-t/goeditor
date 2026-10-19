@@ -283,9 +283,15 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 	default:
 		switch {
 		case key.Rune == 'h' || key.Key == KeyLeft:
+			moveErr = moveLeft(editor, &cursor, buffer, 1, availableWidth)
+			movementAttempted = true
+		case key.Rune == 'l' || key.Key == KeyRight:
+			moveErr = moveRight(editor, &cursor, buffer, 1, availableWidth)
+			movementAttempted = true
+		case key.Key == KeyBackspace:
 			moveErr = cursor.MoveLeftOrUp(buffer, 1, availableWidth)
 			movementAttempted = true
-		case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
+		case key.Key == KeySpace:
 			moveErr = cursor.MoveRightOrDown(buffer, 1, availableWidth)
 			movementAttempted = true
 		default:

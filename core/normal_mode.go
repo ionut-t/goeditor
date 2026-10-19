@@ -857,12 +857,16 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Movement keys
 	case key.Rune == 'h' || key.Key == KeyLeft:
+		moveErr = moveLeft(editor, &cursor, buffer, count, availableWidth)
+	case key.Key == KeyBackspace:
 		moveErr = cursor.MoveLeftOrUp(buffer, count, availableWidth)
 	case key.Rune == 'j' || key.Key == KeyDown:
 		moveErr = cursor.MoveDown(buffer, count, availableWidth)
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count, availableWidth)
-	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
+	case key.Rune == 'l' || key.Key == KeyRight:
+		moveErr = moveRight(editor, &cursor, buffer, count, availableWidth)
+	case key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count, availableWidth)
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)
@@ -1167,9 +1171,6 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			err = r.repeatChange(n)
 		}
 		skipCursorUpdate = true
-
-	case key.Key == KeyBackspace: // Delete character before cursor
-		moveErr = cursor.MoveLeft(buffer, count, availableWidth)
 
 	default:
 		// Unknown key - clear pending state if an unrecognized key is pressed

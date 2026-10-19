@@ -367,8 +367,12 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 
 	switch {
 	case key.Rune == 'h' || key.Key == KeyLeft:
+		moveErr = moveLeft(editor, &cursor, buffer, max(count, 1), availableWidth)
+	case key.Rune == 'l' || key.Key == KeyRight:
+		moveErr = moveRight(editor, &cursor, buffer, max(count, 1), availableWidth)
+	case key.Key == KeyBackspace:
 		moveErr = cursor.MoveLeftOrUp(buffer, max(count, 1), availableWidth)
-	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
+	case key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, max(count, 1), availableWidth)
 	default:
 		var earlyReturn bool
