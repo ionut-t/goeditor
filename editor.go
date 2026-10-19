@@ -478,12 +478,10 @@ func New(width, height int, opts ...Option) Model {
 // WithClipboard sets a custom clipboard implementation on the editor.
 // By default the system clipboard is used via github.com/atotto/clipboard.
 // Use this to supply an OSC 52 implementation for headless/SSH environments.
-// A nil cb keeps the system clipboard.
+// A nil cb disables the clipboard: yank and paste return an error.
 func WithClipboard(cb core.Clipboard) Option {
 	return func(c *modelConfig) {
-		if cb != nil {
-			c.clipboard = cb
-		}
+		c.clipboard = cb
 	}
 }
 

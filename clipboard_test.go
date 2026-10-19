@@ -3,17 +3,33 @@ package goeditor
 import (
 	"testing"
 
+	"github.com/ionut-t/goeditor/core"
 	"github.com/stretchr/testify/assert"
 )
 
-// TestWithClipboardNil checks that WithClipboard(nil) keeps the system
-// clipboard instead of leaving the editor with none.
+// TestWithClipboardNil checks that WithClipboard(nil) disables the clipboard:
+// yank and paste return an error instead of panicking.
 func TestWithClipboardNil(t *testing.T) {
-	cfg := &modelConfig{clipboard: &clipboardImpl{}}
-	WithClipboard(nil)(cfg)
-	assert.IsType(t, &clipboardImpl{}, cfg.clipboard)
+	newModel := func() Model {
+		m := New(40, 10, WithClipboard(nil))
+		m.Focus()
+		m.SetContent("hello\nworld")
+		return m
+	}
 
-	cb := &memClipboard{}
-	WithClipboard(cb)(cfg)
-	assert.Same(t, cb, cfg.clipboard)
+	for _, keys := range []string{"yy", "p", "P", "vy", "$vp", "Vp"} {
+		t.Run(keys, func(t *testing.T) {
+			m := newModel()
+			e := m.GetEditor()
+			var err error
+			for _, r := range keys {
+				err = e.HandleKey(core.KeyEvent{Rune: r})
+			}
+			assert.Error(t, err)
+		})
+	}
+
+	t.Run("through the model", func(t *testing.T) {
+		assert.NotPanics(t, func() { typeText("yyp$vpVp")(newModel()) })
+	})
 }
