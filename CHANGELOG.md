@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.1](https://github.com/ionut-t/goeditor/compare/v0.10.0...v0.10.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **core:** match Vim's whichwrap for h, l and arrow keys ([#46](https://github.com/ionut-t/goeditor/issues/46)) ([bb95689](https://github.com/ionut-t/goeditor/commit/bb95689f6e62b28e29f87ef3e7502822bd0a5e02))
+* **core:** pass available width during horizontal cursor movements ([#43](https://github.com/ionut-t/goeditor/issues/43)) ([102f5f4](https://github.com/ionut-t/goeditor/commit/102f5f4addc6a31b1b43e226b2196a53704c69d5))
+* **visual:** exit visual mode and update cursor position after yank ([#45](https://github.com/ionut-t/goeditor/issues/45)) ([63ea7b7](https://github.com/ionut-t/goeditor/commit/63ea7b7d2c4e1514d5cb1d21701ab58cecfeca18))
+
 ## [0.10.0](https://github.com/ionut-t/goeditor/compare/v0.9.0...v0.10.0) (2026-10-19)
 
 
