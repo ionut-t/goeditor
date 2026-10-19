@@ -146,3 +146,14 @@ func exitVisualToNormal(editor Editor, buffer Buffer) {
 	cursor.Preferred = cursor.Position.Col
 	buffer.SetCursor(cursor)
 }
+
+// endFailedPaste is visual p or P when the clipboard can't be read. The
+// selection is already deleted, as Vim does on E353, so the cursor goes onto
+// the last character if the deletion left it after the end of the line, and
+// j and k go back to the column it ends on.
+func endFailedPaste(buffer Buffer) {
+	cursor := buffer.GetCursor()
+	cursor.Position.Col = min(cursor.Position.Col, lastCol(buffer, cursor.Position.Row, false))
+	cursor.Preferred = cursor.Position.Col
+	buffer.SetCursor(cursor)
+}

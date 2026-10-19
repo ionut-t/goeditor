@@ -878,6 +878,9 @@ func (e *editor) onSearchResultFound(pos Position) {
 }
 
 func (e *editor) PasteAfter() (string, error) {
+	if e.clipboard == nil {
+		return "", errors.New("clipboard handler not set")
+	}
 	content, err := e.clipboard.Read()
 	if err != nil {
 		return "", fmt.Errorf("failed to read clipboard: %w", err)
@@ -909,6 +912,9 @@ func (e *editor) PasteAfter() (string, error) {
 }
 
 func (e *editor) PasteBefore() (string, error) {
+	if e.clipboard == nil {
+		return "", errors.New("clipboard handler not set")
+	}
 	content, err := e.clipboard.Read()
 	if err != nil {
 		return "", fmt.Errorf("failed to read clipboard: %w", err)
