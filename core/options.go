@@ -121,7 +121,9 @@ func (e *editor) SetMapTimeout(enabled bool) {
 }
 
 // MapTimeoutEnabled reports the 'timeout' setting.
-func (e *editor) MapTimeoutEnabled() bool { return e.mapTimeout }
+func (e *editor) MapTimeoutEnabled() bool {
+	return e.mapTimeout
+}
 
 // SetMapTimeoutLen sets 'timeoutlen', how long an ambiguous mapping waits.
 func (e *editor) SetMapTimeoutLen(d time.Duration) {
@@ -132,7 +134,21 @@ func (e *editor) SetMapTimeoutLen(d time.Duration) {
 }
 
 // MapTimeoutLen reports the 'timeoutlen' setting.
-func (e *editor) MapTimeoutLen() time.Duration { return e.mapTimeoutLen }
+func (e *editor) MapTimeoutLen() time.Duration {
+	return e.mapTimeoutLen
+}
+
+// SetMoveAcrossLines sets whether h, l and the arrow keys cross line
+// boundaries in normal, visual and insert mode, like adding <,>,[,],h,l to
+// Vim's 'whichwrap'. It is off by default, matching Vim.
+func (e *editor) SetMoveAcrossLines(enabled bool) {
+	e.moveAcrossLines = enabled
+}
+
+// MoveAcrossLines reports the SetMoveAcrossLines setting.
+func (e *editor) MoveAcrossLines() bool {
+	return e.moveAcrossLines
+}
 
 func unknownOptionError(name string) *EditorError {
 	return &EditorError{

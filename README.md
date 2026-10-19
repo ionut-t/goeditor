@@ -66,6 +66,10 @@ m.ShowRelativeLineNumbers(true)
 // Hide line numbers entirely
 m.HideLineNumbers(true)
 
+// Let h, l and the arrow keys move to the previous/next line at a line
+// boundary, like Vim's `:set whichwrap+=<,>,[,],h,l` (off by default)
+m.SetMoveAcrossLines(true)
+
 // Set placeholder text
 m.SetPlaceholder("Start typing...")
 
@@ -97,7 +101,7 @@ m.WithTheme(theme)
 
 ### Normal Mode
 
-- **Movement**: `h`, `j`, `k`, `l` or arrow keys
+- **Movement**: `h`, `j`, `k`, `l` or arrow keys. As with Vim's default `'whichwrap'`, only `<BS>` and `<Space>` cross line boundaries; `SetMoveAcrossLines(true)` makes `h`, `l` and the arrow keys cross them too
 - **Word movement**: `w`, `b`, `e`, `ge` and WORD variants `W`, `B`, `E`, `gE`
 - **Line movement**: `0` (start), `$` (end), `^` (first non-blank)
 - **Document movement**: `gg` (first line), `G` (last line), `{` / `}` (paragraph), `%` (matching bracket)
@@ -250,6 +254,7 @@ HideStatusLine(hide bool)
 SetCommandLineHeight(height int) // 0 shares the status line's row
 
 // Cursor Control
+SetMoveAcrossLines(enabled bool) // h, l and arrows cross line boundaries
 SetCursorPosition(row, col int) error
 SetCursorPositionEnd() error
 SetCursorMode(mode CursorMode)

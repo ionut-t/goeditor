@@ -7,7 +7,7 @@ import (
 )
 
 // TestMoveLeft tests 'h' — move left one character.
-// At column 0 it wraps to the end of the previous line (MoveLeftOrUp).
+// Like Vim's default 'whichwrap', it doesn't leave the line.
 func TestMoveLeft(t *testing.T) {
 	t.Run("moves left within line", func(t *testing.T) {
 		e := newTestEditor("hello")
@@ -15,10 +15,10 @@ func TestMoveLeft(t *testing.T) {
 		assert.Equal(t, Position{0, 1}, cursorPos(e))
 	})
 
-	t.Run("at col 0 wraps to end of previous line", func(t *testing.T) {
+	t.Run("at col 0 stays on the line", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
-		keys(e, 'j', 'h') // j → row 1 col 0; h wraps to row 0 end
-		assert.Equal(t, Position{0, 4}, cursorPos(e))
+		keys(e, 'j', 'h')
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
 	})
 
 	t.Run("at start of buffer stays put", func(t *testing.T) {
@@ -32,10 +32,16 @@ func TestMoveLeft(t *testing.T) {
 		keys(e, '$', '3', 'h') // $ → col 4; 3h → col 1
 		assert.Equal(t, Position{0, 1}, cursorPos(e))
 	})
+
+	t.Run("count past col 0 stops on col 0", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', '9', 'h')
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
 }
 
 // TestMoveRight tests 'l' — move right one character.
-// At end of line it wraps to start of the next line (MoveRightOrDown).
+// Like Vim's default 'whichwrap', it stops on the last character of the line.
 func TestMoveRight(t *testing.T) {
 	t.Run("moves right within line", func(t *testing.T) {
 		e := newTestEditor("hello")
@@ -43,24 +49,122 @@ func TestMoveRight(t *testing.T) {
 		assert.Equal(t, Position{0, 2}, cursorPos(e))
 	})
 
-	t.Run("at end of line wraps to start of next line", func(t *testing.T) {
-		// "a" has lineLen=1: first 'l' moves to col=1 (=lineLen), second wraps down.
+	t.Run("at end of line stays on the last char", func(t *testing.T) {
 		e := newTestEditor("a\nb")
 		keys(e, 'l', 'l')
-		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
-	t.Run("at end of last line stays at lineLen", func(t *testing.T) {
-		// 'l' can advance to col=lineLen (one past last char), but no further on the last line.
+	t.Run("at end of last line stays on the last char", func(t *testing.T) {
 		e := newTestEditor("hello")
-		keys(e, '$', 'l', 'l') // $→col4; l→col5; l→stays col5 (ErrEndOfBuffer)
-		assert.Equal(t, Position{0, 5}, cursorPos(e))
+		keys(e, '$', 'l', 'l')
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
 	})
 
 	t.Run("count: 3l", func(t *testing.T) {
 		e := newTestEditor("hello")
 		keys(e, '3', 'l')
 		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+
+	t.Run("count past the end stops on the last char", func(t *testing.T) {
+		e := newTestEditor("abc")
+		keys(e, 'l', '5', 'l')
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+}
+
+type whichwrapCase struct {
+	name    string
+	content string
+	keys    []KeyEvent
+	want    Position
+	text    string // buffer after the keys; empty to skip the check
+}
+
+func runWhichwrapCases(t *testing.T, tests []whichwrapCase, setup func(Editor)) {
+	t.Helper()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			setWidth(e, 80)
+			if setup != nil {
+				setup(e)
+			}
+			for _, k := range tt.keys {
+				_ = e.HandleKey(k)
+			}
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+		})
+	}
+}
+
+func whichwrapKeys() (left, right, space, bs, esc KeyEvent) {
+	return KeyEvent{Key: KeyLeft}, KeyEvent{Key: KeyRight}, KeyEvent{Key: KeySpace, Rune: ' '},
+		KeyEvent{Key: KeyBackspace}, KeyEvent{Key: KeyEscape}
+}
+
+// keySeq builds a key sequence from strings (one rune per key) and KeyEvents.
+func keySeq(parts ...any) []KeyEvent {
+	var evs []KeyEvent
+	for _, p := range parts {
+		switch p := p.(type) {
+		case string:
+			for _, c := range p {
+				evs = append(evs, KeyEvent{Rune: c})
+			}
+		case KeyEvent:
+			evs = append(evs, p)
+		}
+	}
+	return evs
+}
+
+// TestWhichwrap checks h/l, the arrow keys, <Space> and <BS> at line
+// boundaries against Vim's default 'whichwrap' (b,s): only <BS> and <Space>
+// cross lines, in normal and visual mode. Expected positions are from Vim 9.2.
+func TestWhichwrap(t *testing.T) {
+	left, right, space, bs, esc := whichwrapKeys()
+	seq := keySeq
+
+	tests := []whichwrapCase{
+		{"normal jh", "abc\ndef", seq("jh"), Position{1, 0}, ""},
+		{"normal j<Left>", "abc\ndef", seq("j", left), Position{1, 0}, ""},
+		{"normal $l", "abc\ndef", seq("$l"), Position{0, 2}, ""},
+		{"normal $<Right>", "abc\ndef", seq("$", right), Position{0, 2}, ""},
+		{"normal $<Space>", "abc\ndef", seq("$", space), Position{1, 0}, ""},
+		{"normal j<BS>", "abc\ndef", seq("j", bs), Position{0, 2}, ""},
+		{"normal <BS> at start of buffer", "abc\ndef", seq(bs), Position{0, 0}, ""},
+		{"normal <Space> at end of buffer", "abc\ndef", seq("j$", space), Position{1, 2}, ""},
+		{"normal $4<Space> crosses an empty line", "abc\n\ndef\nghi", seq("$4", space), Position{2, 2}, ""},
+		{"normal $2<Space>", "abc\n\ndef\nghi", seq("$2", space), Position{2, 0}, ""},
+		{"normal G3<BS>", "abc\n\ndef\nghi", seq("G3", bs), Position{2, 0}, ""},
+		{"normal jj<BS><BS> crosses an empty line", "abc\n\ndef\nghi", seq("jj", bs, bs), Position{0, 2}, ""},
+		{"insert ji<Left>", "abc\ndef", seq("ji", left), Position{1, 0}, ""},
+		{"insert A<Right>", "abc\ndef", seq("A", right), Position{0, 3}, ""},
+		{"insert A<Right>x", "abc\ndef", seq("A", right, "x", esc), Position{0, 3}, "abcx\ndef"},
+		{"visual jvh", "abc\ndef", seq("jvh"), Position{1, 0}, ""},
+		{"visual $vl", "abc\ndef", seq("$vl"), Position{0, 2}, ""},
+		{"visual $v3l", "abc\ndef", seq("$v3l"), Position{0, 2}, ""},
+		{"visual jjv<BS>d", "abc\n\ndef\nghi", seq("jjv", bs, "d"), Position{1, 0}, "abc\nef\nghi"},
+		{"visual $v<Space>", "abc\ndef", seq("$v", space), Position{1, 0}, ""},
+		{"visual line jVh", "abc\ndef", seq("jVh"), Position{1, 0}, ""},
+		{"visual line $Vl", "abc\ndef", seq("$Vl"), Position{0, 2}, ""},
+		{"visual line jV<BS>", "abc\ndef", seq("jV", bs), Position{0, 2}, ""},
+		{"visual line $V<Space>", "abc\ndef", seq("$V", space), Position{1, 0}, ""},
+	}
+	runWhichwrapCases(t, tests, nil)
+
+	t.Run("<BS> across lines keeps the column for j", func(t *testing.T) {
+		e := newTestEditor("abc\nabcdef\nabcdef")
+		setWidth(e, 80)
+		keys(e, 'j')
+		_ = e.HandleKey(bs)
+		keys(e, 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
 	})
 }
 
@@ -178,6 +282,54 @@ func TestHorizontalMoveKeepsColumnForVertical(t *testing.T) {
 		_ = e.HandleKey(KeyEvent{Key: KeyRight})
 		_ = e.HandleKey(KeyEvent{Key: KeyDown})
 		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+}
+
+// TestMoveAcrossLines checks SetMoveAcrossLines against Vim with
+// ':set whichwrap=b,s,<,>,[,],h,l'. Expected positions are from Vim 9.2.
+func TestMoveAcrossLines(t *testing.T) {
+	left, right, space, bs, esc := whichwrapKeys()
+	seq := keySeq
+	const text = "abc\n\ndef"
+
+	runWhichwrapCases(t, []whichwrapCase{
+		{"normal jjh", text, seq("jjh"), Position{1, 0}, ""},
+		{"normal jj<Left>", text, seq("jj", left), Position{1, 0}, ""},
+		{"normal $l", text, seq("$l"), Position{1, 0}, ""},
+		{"normal $<Right>", text, seq("$", right), Position{1, 0}, ""},
+		{"normal $3l", text, seq("$3l"), Position{2, 1}, ""},
+		{"normal G$l at end of buffer", text, seq("G$l"), Position{2, 2}, ""},
+		{"normal <Space> and <BS> unchanged", text, seq("$", space, space, bs), Position{1, 0}, ""},
+		{"insert A<Right>x", text, seq("A", right, "x", esc), Position{1, 0}, "abc\nx\ndef"},
+		{"insert A<Right><Right>x", text, seq("A", right, right, "x", esc), Position{2, 0}, "abc\n\nxdef"},
+		{"insert jji<Left>x", text, seq("jji", left, "x", esc), Position{1, 0}, "abc\nx\ndef"},
+		{"insert jji<Left><Left>x", text, seq("jji", left, left, "x", esc), Position{0, 3}, "abcx\n\ndef"},
+		{"visual jjvh", text, seq("jjvh"), Position{1, 0}, ""},
+		{"visual $vl", text, seq("$vl"), Position{1, 0}, ""},
+		{"visual line jjVhd", text, seq("jjVhd"), Position{0, 0}, "abc"},
+	}, func(e Editor) { e.SetMoveAcrossLines(true) })
+
+	t.Run("off by default", func(t *testing.T) {
+		e := newTestEditor(text)
+		assert.False(t, e.MoveAcrossLines())
+	})
+
+	t.Run("can be turned off again", func(t *testing.T) {
+		e := newTestEditor(text)
+		e.SetMoveAcrossLines(true)
+		e.SetMoveAcrossLines(false)
+		keys(e, '$', 'l')
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	// Without Vim mode the editor is a plain text box, where the arrow keys
+	// cross lines as in any other editor.
+	runWhichwrapCases(t, []whichwrapCase{
+		{"non-vim <Left> at col 0", text, seq(right, right, right, right, right, left, "x"), Position{1, 1}, "abc\nx\ndef"},
+		{"non-vim <Right> at end of line", text, seq(right, right, right, right, "x"), Position{1, 1}, "abc\nx\ndef"},
+	}, func(e Editor) {
+		e.DisableVimMode(true)
+		e.SetInsertMode()
 	})
 }
 

@@ -81,6 +81,12 @@ type Editor interface {
 	SetMapTimeoutLen(d time.Duration)
 	MapTimeoutLen() time.Duration
 
+	// Whether h, l and the arrow keys cross line boundaries, as Vim's
+	// ':set whichwrap+=<,>,[,],h,l'. Off by default, matching Vim, where only
+	// <BS> and <Space> do.
+	SetMoveAcrossLines(enabled bool)
+	MoveAcrossLines() bool
+
 	TriggerCompletion(triggerKind CompletionTriggerKind, triggerChar string) CompletionContext
 	InsertCompletion(completion Completion) error
 

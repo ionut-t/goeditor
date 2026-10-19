@@ -807,6 +807,14 @@ func (m *Model) SetMapTimeout(enabled bool) {
 	m.editor.SetMapTimeout(enabled)
 }
 
+// SetMoveAcrossLines sets whether h, l and the arrow keys move to the previous
+// or next line at a line boundary, like adding <,>,[,],h,l to Vim's
+// 'whichwrap'. It is off by default, matching Vim, where only <BS> and <Space>
+// cross lines. With Vim mode disabled, the arrow keys always cross lines.
+func (m *Model) SetMoveAcrossLines(enabled bool) {
+	m.editor.SetMoveAcrossLines(enabled)
+}
+
 // mapTimeoutCmd starts the 'timeoutlen' timer when the editor is holding keys
 // that a later key could still turn into a longer mapping. The core has no
 // timers of its own, so nothing else will resolve them.
