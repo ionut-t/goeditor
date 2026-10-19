@@ -349,14 +349,14 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 // is 0 when none was typed.
 func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	col := cursor.Position.Col
+	availableWidth := editor.GetState().AvailableWidth
 	var moveErr error
 
 	switch {
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = cursor.MoveLeftOrUp(buffer, max(count, 1), col)
+		moveErr = cursor.MoveLeftOrUp(buffer, max(count, 1), availableWidth)
 	case key.Rune == 'l' || key.Key == KeyRight || key.Key == KeySpace:
-		moveErr = cursor.MoveRightOrDown(buffer, max(count, 1), col)
+		moveErr = cursor.MoveRightOrDown(buffer, max(count, 1), availableWidth)
 	default:
 		var earlyReturn bool
 		_, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)

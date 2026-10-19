@@ -121,6 +121,66 @@ func TestMoveUp(t *testing.T) {
 	})
 }
 
+// TestHorizontalMoveKeepsColumnForVertical checks that l/Right set the
+// preferred column the next j/k uses, in every mode that binds them.
+func TestHorizontalMoveKeepsColumnForVertical(t *testing.T) {
+	const text = "abcdefghij\nabcdefghij"
+
+	t.Run("normal: llj", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, 'l', 'l', 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
+	t.Run("normal: 5llj", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, '5', 'l', 'l', 'j')
+		assert.Equal(t, Position{1, 6}, cursorPos(e))
+	})
+
+	t.Run("normal: Right Right j", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		_ = e.HandleKey(KeyEvent{Key: KeyRight})
+		_ = e.HandleKey(KeyEvent{Key: KeyRight})
+		keys(e, 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
+	t.Run("visual: llvjd", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, 'l', 'l', 'v', 'j', 'd')
+		assert.Equal(t, "abdefghij", content(e))
+	})
+
+	t.Run("visual: vllj", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, 'v', 'l', 'l', 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
+	t.Run("visual line: Vllj", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, 'V', 'l', 'l', 'j')
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+
+	t.Run("insert: Right Right Down", func(t *testing.T) {
+		e := newTestEditor(text)
+		setWidth(e, 80)
+		keys(e, 'i')
+		_ = e.HandleKey(KeyEvent{Key: KeyRight})
+		_ = e.HandleKey(KeyEvent{Key: KeyRight})
+		_ = e.HandleKey(KeyEvent{Key: KeyDown})
+		assert.Equal(t, Position{1, 2}, cursorPos(e))
+	})
+}
+
 // TestMoveToLineStart tests '0' — move to column 0.
 func TestMoveToLineStart(t *testing.T) {
 	t.Run("moves to col 0", func(t *testing.T) {
