@@ -43,14 +43,6 @@ func assertInsertMode(t *testing.T, e Editor) {
 	assert.True(t, e.IsInsertMode(), "expected editor to be in insert mode")
 }
 
-// setWidth configures the editor's available text width, which is required for
-// correct column-preservation behaviour when moving up/down.
-func setWidth(e Editor, width int) {
-	s := e.GetState()
-	s.AvailableWidth = width
-	e.SetState(s)
-}
-
 // ctrlKey sends Ctrl+<r>, e.g. ctrlKey(e, 'r') for redo.
 func ctrlKey(e Editor, r rune) { _ = e.HandleKey(Ctrl(r)) }
 

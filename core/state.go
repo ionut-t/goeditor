@@ -467,7 +467,7 @@ func (e *editor) InsertCompletion(completion Completion) error {
 	}
 
 	// Move cursor to end of inserted text.
-	if err := cursor.MoveRight(e.buffer, len([]rune(completion.Text)), e.state.AvailableWidth); err != nil {
+	if err := cursor.MoveRight(e.buffer, len([]rune(completion.Text))); err != nil {
 		return err
 	}
 

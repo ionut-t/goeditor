@@ -27,62 +27,48 @@ func (c *Cursor) clampCol(buffer Buffer) {
 	}
 }
 
-// MoveLeft moves the cursor left by count characters, aware of visual wrapping.
-// availableWidth is the width used for rendering text (excluding line numbers).
-func (c *Cursor) MoveLeft(buffer Buffer, count int, availableWidth int) error {
-	if availableWidth <= 0 { // Avoid division by zero or nonsensical behavior
-		availableWidth = 1 // Fallback to minimal width
-	}
+// MoveLeft moves the cursor left by count characters, staying on the line. It
+// moves as far as it can and returns ErrStartOfLine if it reaches column 0.
+func (c *Cursor) MoveLeft(buffer Buffer, count int) error {
+	var err error
 	for range count {
 		if c.Position.Col <= 0 {
-			// Already at the logical start of the line
-			return ErrStartOfLine
+			err = ErrStartOfLine
+			break
 		}
 		c.Position.Col--
 	}
 	c.clampCol(buffer) // Clamp just in case (shouldn't be needed after bounds check)
-
-	// Update preferred column based on visual position if wrapping is active
-	// Preferred column should reflect the visual column on the screen.
-	c.Preferred = c.Position.Col % availableWidth
-
-	return nil
+	c.Preferred = c.Position.Col
+	return err
 }
 
-// MoveRight moves the cursor right by count characters, aware of visual wrapping.
-// availableWidth is the width used for rendering text (excluding line numbers).
-func (c *Cursor) MoveRight(buffer Buffer, count int, availableWidth int) error {
-	if availableWidth <= 0 { // Avoid division by zero or nonsensical behavior
-		availableWidth = 1 // Fallback to minimal width
-	}
+// MoveRight moves the cursor right by count characters, up to the position
+// after the last character. It moves as far as it can and returns ErrEndOfLine
+// if it reaches that position.
+func (c *Cursor) MoveRight(buffer Buffer, count int) error {
+	var err error
 	lineLen := buffer.LineRuneCount(c.Position.Row)
 	for range count {
 		// Allow moving *to* the position *after* the last logical char
 		if c.Position.Col >= lineLen {
-			return ErrEndOfLine
+			err = ErrEndOfLine
+			break
 		}
 		c.Position.Col++
 	}
 	c.clampCol(buffer) // Clamp just in case (e.g., if lineLen was 0)
-
-	// Update preferred column based on visual position if wrapping is active
-	// Preferred column should reflect the visual column on the screen.
-	c.Preferred = c.Position.Col % availableWidth
-
-	return nil
+	c.Preferred = c.Position.Col
+	return err
 }
 
-// MoveUp moves the cursor up by count lines
-func (c *Cursor) MoveUp(buffer Buffer, count int, availableWidth int) error {
+// MoveUp moves the cursor up by count lines, to the Preferred column or the
+// end of the line if it is shorter. Preferred is kept, so a later vertical
+// move onto a longer line goes back to it, as Vim's curswant.
+func (c *Cursor) MoveUp(buffer Buffer, count int) error {
 	if c.Position.Row <= 0 {
 		return ErrStartOfBuffer
 	}
-	if availableWidth <= 0 { // Ensure positive width
-		availableWidth = 1
-	}
-
-	// Store visual preferred column before moving
-	preferredVisualCol := c.Preferred
 
 	for range count {
 		if c.Position.Row <= 0 {
@@ -91,53 +77,19 @@ func (c *Cursor) MoveUp(buffer Buffer, count int, availableWidth int) error {
 		c.Position.Row--
 	}
 
-	// Adjust column based on preferred *visual* column and new line length
-	lineLen := buffer.LineRuneCount(c.Position.Row)
-	if lineLen == 0 {
-		c.Position.Col = 0
-	} else {
-		// Find the logical column that corresponds to the preferred visual column
-		// on the new line. This involves figuring out which wrapped segment
-		// the preferred visual column belongs to and calculating the offset.
-		targetVisualRow := preferredVisualCol / availableWidth // Which wrapped line segment index
-		targetCharInRow := preferredVisualCol % availableWidth // Index within that segment
-
-		// Calculate the target logical column
-		c.Position.Col = targetVisualRow*availableWidth + targetCharInRow
-
-		// Clamp the calculated logical column to the actual line length
-		if c.Position.Col >= lineLen {
-			c.Position.Col = lineLen // Place cursor at the end of the line if preferred is beyond
-			// Recalculate visual preferred based on clamped position
-			c.Preferred = c.Position.Col % availableWidth
-		} else {
-			// Keep original preferred visual column if target was reachable
-			c.Preferred = preferredVisualCol
-		}
-
-		if c.Position.Col < 0 { // Should not happen, but safety
-			c.Position.Col = 0
-			c.Preferred = 0
-		}
-	}
-
-	// Final clamp on logical column (redundant but safe)
+	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
 	c.clampCol(buffer)
 
 	return nil
 }
 
-// MoveDown moves the cursor down by count lines
-func (c *Cursor) MoveDown(buffer Buffer, count int, availableWidth int) error {
+// MoveDown moves the cursor down by count lines, to the Preferred column or
+// the end of the line if it is shorter. Preferred is kept, so a later vertical
+// move onto a longer line goes back to it, as Vim's curswant.
+func (c *Cursor) MoveDown(buffer Buffer, count int) error {
 	if c.Position.Row >= buffer.LineCount()-1 {
 		return ErrEndOfBuffer
 	}
-	if availableWidth <= 0 { // Ensure positive width
-		availableWidth = 1
-	}
-
-	// Store visual preferred column before moving
-	preferredVisualCol := c.Preferred
 
 	for range count {
 		if c.Position.Row >= buffer.LineCount()-1 {
@@ -146,33 +98,7 @@ func (c *Cursor) MoveDown(buffer Buffer, count int, availableWidth int) error {
 		c.Position.Row++
 	}
 
-	// Adjust column based on preferred *visual* column and new line length
-	lineLen := buffer.LineRuneCount(c.Position.Row)
-	if lineLen == 0 {
-		c.Position.Col = 0
-	} else {
-		// Find the logical column that corresponds to the preferred visual column
-		targetVisualRow := preferredVisualCol / availableWidth
-		targetCharInRow := preferredVisualCol % availableWidth
-		c.Position.Col = targetVisualRow*availableWidth + targetCharInRow
-
-		// Clamp the calculated logical column to the actual line length
-		if c.Position.Col >= lineLen {
-			c.Position.Col = lineLen // Place cursor at the end of the line if preferred is beyond
-			// Recalculate visual preferred based on clamped position
-			c.Preferred = c.Position.Col % availableWidth
-		} else {
-			// Keep original preferred visual column if target was reachable
-			c.Preferred = preferredVisualCol
-		}
-
-		if c.Position.Col < 0 { // Should not happen, but safety
-			c.Position.Col = 0
-			c.Preferred = 0
-		}
-	}
-
-	// Final clamp on logical column (redundant but safe)
+	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
 	c.clampCol(buffer)
 
 	return nil
@@ -181,11 +107,11 @@ func (c *Cursor) MoveDown(buffer Buffer, count int, availableWidth int) error {
 // MoveDownToFirstNonBlank moves the cursor down count lines to the first
 // non-blank, as Vim's <CR> and +. A count past the end stops on the last line;
 // on the last line it returns ErrEndOfBuffer without moving.
-func (c *Cursor) MoveDownToFirstNonBlank(buffer Buffer, count int, availableWidth int) error {
+func (c *Cursor) MoveDownToFirstNonBlank(buffer Buffer, count int) error {
 	startRow := c.Position.Row
-	err := c.MoveDown(buffer, count, availableWidth)
+	err := c.MoveDown(buffer, count)
 	if c.Position.Row != startRow {
-		c.MoveToFirstNonBlank(buffer, availableWidth)
+		c.MoveToFirstNonBlank(buffer)
 	}
 	return err
 }
@@ -194,24 +120,8 @@ func (c *Cursor) MoveDownToFirstNonBlank(buffer Buffer, count int, availableWidt
 // character of the line above from the start of a line, as Vim's <BS> with the
 // default 'whichwrap'. Each line break counts as one character. It moves as far
 // as it can and returns ErrStartOfBuffer if it reaches the start of the buffer.
-func (c *Cursor) MoveLeftOrUp(buffer Buffer, count, availableWidth int) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
-	var err error
-	for range count {
-		if c.Position.Col > 0 {
-			c.Position.Col--
-		} else if c.Position.Row > 0 {
-			c.Position.Row--
-			c.Position.Col = max(buffer.LineRuneCount(c.Position.Row)-1, 0)
-		} else {
-			err = ErrStartOfBuffer
-			break
-		}
-	}
-	c.Preferred = c.Position.Col % availableWidth
-	return err
+func (c *Cursor) MoveLeftOrUp(buffer Buffer, count int) error {
+	return c.moveLeftOrUp(buffer, count, false)
 }
 
 // MoveRightOrDown moves the cursor right by count characters, going to the
@@ -219,13 +129,38 @@ func (c *Cursor) MoveLeftOrUp(buffer Buffer, count, availableWidth int) error {
 // with the default 'whichwrap'. Each line break counts as one character. It
 // moves as far as it can and returns ErrEndOfBuffer if it reaches the last
 // character of the buffer.
-func (c *Cursor) MoveRightOrDown(buffer Buffer, count, availableWidth int) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveRightOrDown(buffer Buffer, count int) error {
+	return c.moveRightOrDown(buffer, count, false)
+}
+
+// moveLeftOrUp is MoveLeftOrUp. With pastEnd, as in insert mode, the cursor
+// can sit after the last character, so from the start of a line it goes after
+// the last character of the line above, as Vim's insert-mode <Left> with '['
+// in 'whichwrap'.
+func (c *Cursor) moveLeftOrUp(buffer Buffer, count int, pastEnd bool) error {
 	var err error
 	for range count {
-		if c.Position.Col < buffer.LineRuneCount(c.Position.Row)-1 {
+		if c.Position.Col > 0 {
+			c.Position.Col--
+		} else if c.Position.Row > 0 {
+			c.Position.Row--
+			c.Position.Col = lastCol(buffer, c.Position.Row, pastEnd)
+		} else {
+			err = ErrStartOfBuffer
+			break
+		}
+	}
+	c.Preferred = c.Position.Col
+	return err
+}
+
+// moveRightOrDown is MoveRightOrDown. With pastEnd, as in insert mode, the
+// cursor can sit after the last character, and goes from there to the start
+// of the line below, as Vim's insert-mode <Right> with ']' in 'whichwrap'.
+func (c *Cursor) moveRightOrDown(buffer Buffer, count int, pastEnd bool) error {
+	var err error
+	for range count {
+		if c.Position.Col < lastCol(buffer, c.Position.Row, pastEnd) {
 			c.Position.Col++
 		} else if c.Position.Row < buffer.LineCount()-1 {
 			c.Position.Row++
@@ -235,65 +170,32 @@ func (c *Cursor) MoveRightOrDown(buffer Buffer, count, availableWidth int) error
 			break
 		}
 	}
-	c.Preferred = c.Position.Col % availableWidth
+	c.Preferred = c.Position.Col
 	return err
+}
+
+// lastCol returns the last column the cursor can take on row: the last
+// character, or the position after it with pastEnd.
+func lastCol(buffer Buffer, row int, pastEnd bool) int {
+	if pastEnd {
+		return buffer.LineRuneCount(row)
+	}
+	return max(buffer.LineRuneCount(row)-1, 0)
 }
 
 // moveRightToLastChar moves the cursor right by count characters, stopping on
 // the last character of the line, as Vim's l in normal and visual mode. It
 // moves as far as it can and returns ErrEndOfLine if it reaches that character.
-func (c *Cursor) moveRightToLastChar(buffer Buffer, count, availableWidth int) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) moveRightToLastChar(buffer Buffer, count int) error {
 	var err error
-	last := max(buffer.LineRuneCount(c.Position.Row)-1, 0)
+	last := lastCol(buffer, c.Position.Row, false)
 	if c.Position.Col+count > last {
 		count = max(last-c.Position.Col, 0)
 		err = ErrEndOfLine
 	}
 	c.Position.Col += count
-	c.Preferred = c.Position.Col % availableWidth
+	c.Preferred = c.Position.Col
 	return err
-}
-
-// moveLeftOrUpInsert is moveLeftOrUp for insert mode, where the cursor can sit
-// after the last character: from the start of a line it goes after the last
-// character of the line above, as Vim's insert-mode <Left> with '[' in
-// 'whichwrap'.
-func (c *Cursor) moveLeftOrUpInsert(buffer Buffer, availableWidth int) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
-	if c.Position.Col > 0 {
-		c.Position.Col--
-	} else if c.Position.Row > 0 {
-		c.Position.Row--
-		c.Position.Col = buffer.LineRuneCount(c.Position.Row)
-	} else {
-		return ErrStartOfBuffer
-	}
-	c.Preferred = c.Position.Col % availableWidth
-	return nil
-}
-
-// moveRightOrDownInsert is MoveRightOrDown for insert mode, where the cursor
-// can sit after the last character: from there it goes to the start of the
-// line below, as Vim's insert-mode <Right> with ']' in 'whichwrap'.
-func (c *Cursor) moveRightOrDownInsert(buffer Buffer, availableWidth int) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
-	if c.Position.Col < buffer.LineRuneCount(c.Position.Row) {
-		c.Position.Col++
-	} else if c.Position.Row < buffer.LineCount()-1 {
-		c.Position.Row++
-		c.Position.Col = 0
-	} else {
-		return ErrEndOfBuffer
-	}
-	c.Preferred = c.Position.Col % availableWidth
-	return nil
 }
 
 // MoveToLineStart moves the cursor to the start of the current line (col 0)
@@ -303,36 +205,27 @@ func (c *Cursor) MoveToLineStart() {
 }
 
 // MoveToLineEnd moves the cursor to the *last character* of the current line
-func (c *Cursor) MoveToLineEnd(buffer Buffer, availableWidth int) {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveToLineEnd(buffer Buffer) {
 	lineLen := buffer.LineRuneCount(c.Position.Row)
 	if lineLen > 0 {
 		c.Position.Col = lineLen - 1 // Position is on the last char
 	} else {
 		c.Position.Col = 0 // Empty line, stay at col 0
 	}
-	// Preferred should be the visual column of the last character
-	c.Preferred = c.Position.Col % availableWidth
+	// Preferred is the column of the last character
+	c.Preferred = c.Position.Col
 }
 
 // MoveToAfterLineEnd moves the cursor *after* the last character of the current line
-func (c *Cursor) MoveToAfterLineEnd(buffer Buffer, availableWidth int) {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveToAfterLineEnd(buffer Buffer) {
 	lineLen := buffer.LineRuneCount(c.Position.Row)
 	c.Position.Col = lineLen // Position *after* last char
-	// Preferred should be the visual column *after* the last character
-	c.Preferred = c.Position.Col % availableWidth
+	// Preferred is the column *after* the last character
+	c.Preferred = c.Position.Col
 }
 
 // MoveToFirstNonBlank moves the cursor to the first non-whitespace character
-func (c *Cursor) MoveToFirstNonBlank(buffer Buffer, availableWidth int) {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveToFirstNonBlank(buffer Buffer) {
 	line := buffer.GetLineRunes(c.Position.Row)
 	firstNonBlank := 0
 	found := false
@@ -349,7 +242,7 @@ func (c *Cursor) MoveToFirstNonBlank(buffer Buffer, availableWidth int) {
 	}
 
 	c.Position.Col = firstNonBlank
-	c.Preferred = c.Position.Col % availableWidth
+	c.Preferred = c.Position.Col
 }
 
 // MoveToBufferStart moves the cursor to the start of the buffer
@@ -360,8 +253,8 @@ func (c *Cursor) MoveToBufferStart() {
 }
 
 // MoveToBufferEnd moves the cursor to the first non-blank of the last line
-func (c *Cursor) MoveToBufferEnd(buffer Buffer, availableWidth int) {
-	c.moveToLine(buffer, 0, availableWidth)
+func (c *Cursor) MoveToBufferEnd(buffer Buffer) {
+	c.moveToLine(buffer, 0)
 }
 
 // gotoLineRow returns the 0-indexed row a [count]G motion targets: line count
@@ -376,13 +269,13 @@ func gotoLineRow(buffer Buffer, count int) int {
 
 // moveToLine moves the cursor to the first non-blank of the line a [count]G
 // motion targets (the last line when count is 0).
-func (c *Cursor) moveToLine(buffer Buffer, count int, availableWidth int) {
+func (c *Cursor) moveToLine(buffer Buffer, count int) {
 	c.Position.Row = gotoLineRow(buffer, count)
-	c.MoveToFirstNonBlank(buffer, availableWidth)
+	c.MoveToFirstNonBlank(buffer)
 }
 
 // --- Word Movement (Using Unicode and Runes) ---
-// These generally work on logical positions, but update the preferred visual column at the end.
+// These generally work on logical positions, but update the preferred column at the end.
 func isWhiteSpace(r rune) bool {
 	return r == ' ' || r == '\t'
 }
@@ -394,10 +287,7 @@ func isBigWordChar(r rune) bool {
 }
 
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
-func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune) bool) error {
 	for range count {
 		moved := false // Flag to track if we actually moved
 
@@ -465,7 +355,7 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, availableWidth int, i
 			}
 		} // End inner loop for line spanning
 	} // End outer loop for count
-	c.Preferred = c.Position.Col % availableWidth // Update preferred visual column
+	c.Preferred = c.Position.Col // Update preferred column
 	return nil
 }
 
@@ -509,10 +399,7 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 }
 
 // MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e' behavior).
-func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, isWordChar func(rune) bool) error {
 	for i := range count {
 		if atEnd := c.moveWordToEndOnce(buffer, isWordChar); atEnd {
 			if i == 0 {
@@ -521,15 +408,12 @@ func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, availableWidth int, isW
 			break
 		}
 	}
-	c.Preferred = c.Position.Col % availableWidth
+	c.Preferred = c.Position.Col
 	return nil
 }
 
 // MoveWordBackward moves the cursor backward by count words (Vim 'b' behavior)
-func (c *Cursor) MoveWordBackward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune) bool) error {
 	for range count {
 		moved := false // Flag to track if we actually moved
 
@@ -601,7 +485,7 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, availableWidth int, 
 		} // End inner loop for line spanning
 	} // End outer loop for count
 
-	c.Preferred = c.Position.Col % availableWidth // Update preferred visual column
+	c.Preferred = c.Position.Col // Update preferred column
 	return nil
 }
 
@@ -648,10 +532,7 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) 
 }
 
 // MoveWordToEndBackward moves the cursor to the end of the previous word count times (Vim 'ge' behaviour).
-func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, availableWidth int, isWordChar func(rune) bool) error {
-	if availableWidth <= 0 {
-		availableWidth = 1
-	}
+func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, isWordChar func(rune) bool) error {
 	for i := range count {
 		if atStart := c.moveWordToEndBackwardOnce(buffer, isWordChar); atStart {
 			if i == 0 {
@@ -660,7 +541,7 @@ func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, availableWidth 
 			break
 		}
 	}
-	c.Preferred = c.Position.Col % availableWidth
+	c.Preferred = c.Position.Col
 	return nil
 }
 
@@ -734,12 +615,14 @@ func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
 
 // Deprecated: ScrollUp only moves the cursor and leaves the window where it
 // is. CTRL-U is Editor.ScrollHalfPage(false, count), which scrolls both.
+// availableWidth is unused; it is kept so existing callers still compile.
 func (c *Cursor) ScrollUp(buffer Buffer, viewportHeight, availableWidth int) error {
-	return c.MoveUp(buffer, max(viewportHeight/2, 1), availableWidth)
+	return c.MoveUp(buffer, max(viewportHeight/2, 1))
 }
 
 // Deprecated: ScrollDown only moves the cursor and leaves the window where it
 // is. CTRL-D is Editor.ScrollHalfPage(true, count), which scrolls both.
+// availableWidth is unused; it is kept so existing callers still compile.
 func (c *Cursor) ScrollDown(buffer Buffer, viewportHeight, availableWidth int) error {
-	return c.MoveDown(buffer, max(viewportHeight/2, 1), availableWidth)
+	return c.MoveDown(buffer, max(viewportHeight/2, 1))
 }

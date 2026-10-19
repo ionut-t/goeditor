@@ -6,14 +6,13 @@ func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
 	// For 'cw', Vim deletes to the end of the current word (like 'ce').
-	_ = tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 
 	// In 'cw', we delete INCLUDING the character at the end of the word.
 	// But deleteRange is exclusive of endPos, so we move one right.
-	_ = tempCursor.MoveRight(buffer, 1, availableWidth)
+	_ = tempCursor.MoveRight(buffer, 1)
 	exclusiveEndPos := tempCursor.Position
 
 	if startPos != exclusiveEndPos {
@@ -32,9 +31,8 @@ func changeWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	endPos := cursor.Position
 	tempCursor := cursor
-	availableWidth := editor.GetState().AvailableWidth
 
-	_ = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 	startPos := tempCursor.Position
 
 	if startPos != endPos {

@@ -35,7 +35,7 @@ func (m *insertMode) Exit(editor Editor, buffer Buffer) {
 	// Like Vim, leaving insert steps back onto the last inserted char (no
 	// move at col 0), so normal mode never sits past the line end.
 	cursor := buffer.GetCursor()
-	if cursor.MoveLeft(buffer, 1, editor.GetState().AvailableWidth) == nil {
+	if cursor.MoveLeft(buffer, 1) == nil {
 		buffer.SetCursor(cursor)
 	}
 }
@@ -44,9 +44,6 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	cursor := buffer.GetCursor()
 	row, col := cursor.Position.Row, cursor.Position.Col
 	var err *EditorError
-
-	state := editor.GetState()
-	availableWidth := state.AvailableWidth
 
 	switch key.Key {
 	case KeyEscape:
@@ -64,7 +61,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 			// Delete character before cursor
 			err = buffer.DeleteRunesAt(row, col-1, 1)
 			if err == nil {
-				_ = cursor.MoveLeft(buffer, 1, availableWidth) // Move cursor back
+				_ = cursor.MoveLeft(buffer, 1) // Move cursor back
 				buffer.SetCursor(cursor)
 			}
 		} else if row > 0 {
@@ -110,7 +107,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// For simplicity, insert literal tab rune
 		insertErr := buffer.InsertRunesAt(row, col, []rune{'\t'})
 		if insertErr == nil {
-			_ = cursor.MoveRight(buffer, 1, availableWidth) // Tab counts as one "character" position for movement
+			_ = cursor.MoveRight(buffer, 1) // Tab counts as one "character" position for movement
 			buffer.SetCursor(cursor)
 		} else {
 			err = &EditorError{
@@ -129,32 +126,32 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	// unless MoveAcrossLines is on or the editor is a plain text box.
 	case KeyLeft:
 		if editor.MoveAcrossLines() || !editor.IsVimMode() {
-			_ = cursor.moveLeftOrUpInsert(buffer, availableWidth)
+			_ = cursor.moveLeftOrUp(buffer, 1, true)
 		} else {
-			_ = cursor.MoveLeft(buffer, 1, availableWidth)
+			_ = cursor.MoveLeft(buffer, 1)
 		}
 		buffer.SetCursor(cursor)
 		return nil
 
 	case KeyRight:
 		if editor.MoveAcrossLines() || !editor.IsVimMode() {
-			_ = cursor.moveRightOrDownInsert(buffer, availableWidth)
+			_ = cursor.moveRightOrDown(buffer, 1, true)
 		} else {
-			_ = cursor.MoveRight(buffer, 1, availableWidth)
+			_ = cursor.MoveRight(buffer, 1)
 		}
 		buffer.SetCursor(cursor)
 		return nil
 
 	case KeyUp:
 		if row > 0 {
-			_ = cursor.MoveUp(buffer, 1, availableWidth) // Move cursor up
+			_ = cursor.MoveUp(buffer, 1) // Move cursor up
 			buffer.SetCursor(cursor)
 		}
 		return nil
 
 	case KeyDown:
 		if row < buffer.LineCount()-1 {
-			_ = cursor.MoveDown(buffer, 1, availableWidth) // Move cursor down
+			_ = cursor.MoveDown(buffer, 1) // Move cursor down
 			buffer.SetCursor(cursor)
 		}
 		return nil
@@ -169,7 +166,7 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if key.Rune != 0 {
 			insertErr := buffer.InsertRunesAt(row, col, []rune{key.Rune})
 			if insertErr == nil {
-				_ = cursor.MoveRight(buffer, 1, availableWidth) // Move cursor forward
+				_ = cursor.MoveRight(buffer, 1) // Move cursor forward
 				buffer.SetCursor(cursor)
 			} else {
 				err = &EditorError{

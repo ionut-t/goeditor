@@ -43,15 +43,14 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	originalPos := cursor.Position
-	availableWidth := state.AvailableWidth
 
 	// Calculate end position by moving cursor
 	tempCursor := cursor
 	var moveErr error
 	if forward {
-		moveErr = tempCursor.MoveWordForward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
 	} else {
-		moveErr = tempCursor.MoveWordBackward(buffer, count, availableWidth, editor.IsWordChar)
+		moveErr = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 	}
 
 	endPos := tempCursor.Position
@@ -75,7 +74,7 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 		// and we want to exclude the character at the start of the next line (and potentially
 		// the newline of the current line if it's an exclusive motion like 'yw' at EOL).
 		endCursor := Cursor{Position: selEnd}
-		_ = endCursor.MoveLeftOrUp(buffer, 1, availableWidth)
+		_ = endCursor.MoveLeftOrUp(buffer, 1)
 		selEnd = endCursor.Position
 	}
 
@@ -126,10 +125,9 @@ func yankWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	originalPos := cursor.Position
-	availableWidth := state.AvailableWidth
 
 	tempCursor := cursor
-	moveErr := tempCursor.MoveWordToEnd(buffer, count, availableWidth, editor.IsWordChar)
+	moveErr := tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 	endPos := tempCursor.Position
 
 	// ye is inclusive — no MoveLeftOrUp adjustment unlike yw/yb.

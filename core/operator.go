@@ -30,7 +30,7 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 	case "yank":
 		// editor.Copy is inclusive of both ends, so step the exclusive end back one.
 		endCursor := Cursor{Position: end}
-		_ = endCursor.MoveLeftOrUp(buffer, 1, state.AvailableWidth)
+		_ = endCursor.MoveLeftOrUp(buffer, 1)
 
 		state.VisualStart = endCursor.Position
 		state.YankSelection = SelectionCharacter

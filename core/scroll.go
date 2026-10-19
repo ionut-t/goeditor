@@ -256,11 +256,10 @@ func (e *editor) ScrollHalfPage(down bool, count int) (Cursor, error) {
 	}
 
 	// row is within the buffer, so neither move can hit its end and fail.
-	availableWidth := e.state.AvailableWidth
 	if delta := row - cursor.Position.Row; delta > 0 {
-		_ = cursor.MoveDown(e.buffer, delta, availableWidth)
+		_ = cursor.MoveDown(e.buffer, delta)
 	} else if delta < 0 {
-		_ = cursor.MoveUp(e.buffer, -delta, availableWidth)
+		_ = cursor.MoveUp(e.buffer, -delta)
 	}
 	return cursor, nil
 }
@@ -306,7 +305,7 @@ func handleZKey(editor Editor, buffer Buffer, key KeyEvent, count int) {
 		cursor.Position.Col = min(cursor.Position.Col, max(buffer.LineRuneCount(cursor.Position.Row)-1, 0))
 	}
 	if firstNonBlank {
-		cursor.MoveToFirstNonBlank(buffer, editor.GetState().AvailableWidth)
+		cursor.MoveToFirstNonBlank(buffer)
 	}
 	buffer.SetCursor(cursor)
 	editor.ScrollCursorTo(target)
