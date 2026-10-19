@@ -95,6 +95,94 @@ func TestVisualModeYank(t *testing.T) {
 		keys(e, 'v', '$', 'y')
 		assert.Equal(t, "hello", cb.content)
 	})
+
+	t.Run("y stays in visual mode when the copy fails", func(t *testing.T) {
+		e := newTestEditor("abcdef") // no clipboard
+		keys(e, 'v', 'l')
+		assert.NotNil(t, e.HandleKey(KeyEvent{Rune: 'y'}))
+		assert.True(t, e.IsVisualMode())
+	})
+}
+
+// TestVisualYankEndsVisual checks that y in either visual mode returns to
+// normal mode with the cursor where Vim leaves it: the start of a charwise
+// selection; for a linewise one, column 0 of the anchor's line unless the
+// cursor was above the anchor, where it stays.
+func TestVisualYankEndsVisual(t *testing.T) {
+	const text = "abcdef\nabcdef\nabcdef"
+	tests := []struct {
+		keys string
+		want Position
+	}{
+		{"vly", Position{0, 0}},
+		{"lllvhhy", Position{0, 1}},
+		{"lllvy", Position{0, 3}},
+		{"lllvjhy", Position{0, 3}},
+		{"jlllvkly", Position{0, 4}},
+		{"lllvhhyj", Position{1, 1}}, // j keeps the column y moved to
+		{"lllVy", Position{0, 0}},
+		{"lllVhy", Position{0, 0}},
+		{"lllVly", Position{0, 0}},
+		{"lllVjy", Position{0, 0}},
+		{"lljVjy", Position{1, 0}},
+		{"jjllVky", Position{1, 2}},
+		{"jlllVkhy", Position{0, 2}},
+		{"jjlllVkkly", Position{0, 4}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(text)
+			setWidth(e, 80)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.want, cursorPos(e))
+		})
+	}
+
+	t.Run("the yanked text stays highlighted", func(t *testing.T) {
+		tests := []struct {
+			keys string
+			want SelectionType
+			on   []Position // highlighted
+			off  []Position // not highlighted
+		}{
+			{"lvly", SelectionCharacter, []Position{{0, 1}, {0, 2}}, []Position{{0, 0}, {0, 3}}},
+			{"lllvjhy", SelectionCharacter, []Position{{0, 3}, {1, 2}}, []Position{{0, 2}, {1, 3}}},
+			{"jVjy", SelectionLine, []Position{{1, 0}, {2, 5}}, []Position{{0, 0}}},
+			{"jjVky", SelectionLine, []Position{{1, 0}, {2, 5}}, []Position{{0, 0}}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.keys, func(t *testing.T) {
+				e, _ := newTestEditorWithClipboard(text)
+				setWidth(e, 80)
+				typeKeys(t, e, tt.keys)
+				assert.Equal(t, tt.want, e.GetState().YankSelection)
+				for _, p := range tt.on {
+					assert.Equal(t, tt.want, e.GetSelectionStatus(p), "%v", p)
+				}
+				for _, p := range tt.off {
+					assert.Equal(t, SelectionNone, e.GetSelectionStatus(p), "%v", p)
+				}
+			})
+		}
+	})
+
+	t.Run("a new selection is not taken for the last yank", func(t *testing.T) {
+		for _, yank := range []string{"yy", "Vy", "vly"} {
+			e, cb := newTestEditorWithClipboard(text)
+			typeKeys(t, e, yank+"vly")
+			assert.Equal(t, "ab", cb.content, yank)
+		}
+	})
+
+	t.Run("keys after y act in normal mode", func(t *testing.T) {
+		// What a mapping such as Q → vlyx types in one go: x deletes one
+		// character at the cursor, not the selection.
+		e, cb := newTestEditorWithClipboard("abcdef")
+		typeKeys(t, e, "vlyx")
+		assert.Equal(t, "ab", cb.content)
+		assert.Equal(t, "bcdef", content(e))
+	})
 }
 
 // TestVisualModeChange tests 'c' in character-wise visual mode.

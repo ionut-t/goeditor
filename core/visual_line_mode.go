@@ -45,7 +45,8 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
-	state.VisualStart = m.startPos // Use VisualStart to indicate visual active
+	state.VisualStart = m.startPos      // Use VisualStart to indicate visual active
+	state.YankSelection = SelectionNone // a new selection, not a yank highlight
 	editor.SetState(state)
 }
 
@@ -142,6 +143,22 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 				id:  ErrCopyFailedId,
 				err: copyErr,
 			}
+		} else {
+			// Vim leaves the cursor where it is when it is above the anchor,
+			// and otherwise moves it to column 0 of the anchor's line. The
+			// other end stays selected as a yank highlight, as after yy.
+			other := m.startPos
+			if cursor.Position.Row >= m.startPos.Row {
+				other = cursor.Position
+				cursor.Position = Position{Row: m.startPos.Row, Col: 0}
+				cursor.Preferred = 0
+				buffer.SetCursor(cursor)
+			}
+			editor.SetNormalMode()
+			state = editor.GetState()
+			state.VisualStart = other
+			state.YankSelection = SelectionLine
+			editor.SetState(state)
 		}
 		return true, err
 

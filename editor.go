@@ -221,8 +221,6 @@ type Model struct {
 	err     error
 	message string
 
-	yanked bool
-
 	disableVimMode bool
 
 	fullVisualLayoutHeight  int // Total number of visual lines in the entire buffer
@@ -1184,7 +1182,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.clearMsgCancel = nil
 
 	case yankedMsg:
-		m.yanked = true
 		return m, tea.Batch(
 			func() tea.Msg {
 				return YankMsg(msg)
@@ -1193,12 +1190,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		)
 
 	case clearYankMsg:
-		m.yanked = false
 		m.clearYankCancel = nil
-		m.editor.ResetSelection()
-		// Return to normal mode if we were in visual mode
-		if m.editor.IsVisualMode() || m.editor.IsVisualLineMode() {
-			m.editor.SetNormalMode()
+		// A visual mode entered since the yank owns the selection now.
+		if !m.editor.IsVisualMode() && !m.editor.IsVisualLineMode() {
+			m.editor.ResetSelection()
 		}
 
 	case enterSearchMode:

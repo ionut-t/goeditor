@@ -252,11 +252,11 @@ func TestRepeatVisual(t *testing.T) {
 		{"change with its insert", "abcdef abcdef", "vllcX<Esc>w.", "Xdef Xdef"},
 		{"case", "abcdef abcdef", "vllUw.", "ABCdef ABCdef"},
 		{"linewise change", "abc\ndef", "VcX<Esc>j.", "X\nX"},
-		{"yank is not a change", "abcdef", "xvly<Esc>0.", "cdef"},
+		{"yank is not a change", "abcdef", "xvly.", "cdef"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newTestEditor(tt.content)
+			e, _ := newTestEditorWithClipboard(tt.content)
 			typeKeys(t, e, tt.keys)
 			assert.Equal(t, tt.want, content(e))
 			assert.True(t, e.IsNormalMode())
