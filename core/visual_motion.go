@@ -72,10 +72,10 @@ func applyVisualMotion(
 	case key.Modifiers&ModCtrl != 0:
 		// Unbound Ctrl combination — ignore rather than fall through.
 	case key.Rune == 'j' || key.Key == KeyDown:
-		moveErr = cursor.MoveDown(buffer, count)
+		moveErr = cursor.moveDown(buffer, count, true)
 		movementAttempted = true
 	case key.Rune == 'k' || key.Key == KeyUp:
-		moveErr = cursor.MoveUp(buffer, count)
+		moveErr = cursor.moveUp(buffer, count, true)
 		movementAttempted = true
 	case key.Rune == '{':
 		moveErr = cursor.MoveBlockBackward(buffer, count)
@@ -135,4 +135,14 @@ func applyVisualMotion(
 		movementAttempted = true
 	}
 	return
+}
+
+// exitVisualToNormal is <Esc> in visual mode. Unlike leaving with v or V, it
+// also makes the column j and k go back to the one the cursor ends on, which
+// differs from Preferred after j or k onto a shorter line, as Vim.
+func exitVisualToNormal(editor Editor, buffer Buffer) {
+	editor.SetNormalMode()
+	cursor := buffer.GetCursor()
+	cursor.Preferred = cursor.Position.Col
+	buffer.SetCursor(cursor)
 }

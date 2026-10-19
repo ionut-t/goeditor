@@ -189,9 +189,9 @@ func TestMoveDown(t *testing.T) {
 
 	t.Run("clamps column to shorter line", func(t *testing.T) {
 		e := newTestEditor("hello\nhi")
-		// $ → col 4, Preferred=4; j → target col 4, lineLen("hi")=2, clamps to lineLen=2
+		// $ → col 4, Preferred=4; j → target col 4, clamps to the last char of "hi"
 		keys(e, '$', 'j')
-		assert.Equal(t, Position{1, 2}, cursorPos(e))
+		assert.Equal(t, Position{1, 1}, cursorPos(e))
 	})
 
 	t.Run("count: 2j", func(t *testing.T) {
@@ -306,6 +306,46 @@ func TestPreferredIsFullColumn(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestShorterLine checks j, k, CTRL-D and CTRL-U onto a line shorter than the
+// column. Normal mode stops on its last character; visual mode can stop after
+// it, on the line break, and leaving visual puts the cursor back on that
+// character. <Esc> also resets the column j and k go back to; v and V don't.
+// Expected positions are from Vim 9.2 (CTRL-D/CTRL-U with 'nosol').
+func TestShorterLine(t *testing.T) {
+	_, _, _, _, esc := whichwrapKeys()
+	ctrlU := KeyEvent{Rune: 'u', Modifiers: ModCtrl}
+	const text = "abcdefghijkl\nab\nabcdefghijkl"
+	const empty = "abcdefghijkl\n\nabcdefghijkl"
+
+	runWhichwrapCases(t, []whichwrapCase{
+		{"normal j", text, keySeq("10lj"), Position{1, 1}, ""},
+		{"normal $j", "hello\nhi", keySeq("$j"), Position{1, 1}, ""},
+		{"normal k", text, keySeq("2j10lk"), Position{1, 1}, ""},
+		{"normal j onto an empty line", empty, keySeq("10lj"), Position{1, 0}, ""},
+		{"normal l after j", text, keySeq("10ljl"), Position{1, 1}, ""},
+		{"normal x after j", text, keySeq("10ljx"), Position{1, 0}, "abcdefghijkl\na\nabcdefghijkl"},
+		{"normal CTRL-U", "ab\nabcdefghijkl", keySeq("j10l", ctrlU), Position{0, 1}, ""},
+		{"visual j", text, keySeq("10lvj"), Position{1, 2}, ""},
+		{"visual j onto an empty line", empty, keySeq("10lvj"), Position{1, 0}, ""},
+		{"visual line j", text, keySeq("10lVj"), Position{1, 2}, ""},
+		{"visual CTRL-U", "ab\nabcdefghijkl", keySeq("j10lv", ctrlU), Position{0, 2}, ""},
+		{"visual jh", text, keySeq("10lvjh"), Position{1, 1}, ""},
+		{"visual jd deletes the line break", text, keySeq("10lvjd"), Position{0, 10}, "abcdefghijabcdefghijkl"},
+		{"visual jhd", text, keySeq("10lvjhd"), Position{0, 9}, "abcdefghij\nabcdefghijkl"},
+		{"visual <Esc>", text, keySeq("10lvj", esc), Position{1, 1}, ""},
+		{"visual <Esc> resets the column", text, keySeq("10lvj", esc, "j"), Position{2, 1}, ""},
+		{"visual <Esc> on an empty line", empty, keySeq("10lvj", esc, "j"), Position{2, 0}, ""},
+		{"visual <Esc> after k", text, keySeq("10ljjvk", esc, "j"), Position{2, 1}, ""},
+		{"visual <Esc> on a long line", text, keySeq("10ljvj", esc, "k"), Position{1, 1}, ""},
+		{"visual line <Esc>", text, keySeq("10lVj", esc), Position{1, 1}, ""},
+		{"visual line <Esc> resets the column", text, keySeq("10lVj", esc, "j"), Position{2, 1}, ""},
+		{"visual v", text, keySeq("10lvjv"), Position{1, 1}, ""},
+		{"visual v keeps the column", text, keySeq("10lvjvj"), Position{2, 10}, ""},
+		{"visual line V keeps the column", text, keySeq("10lVjVj"), Position{2, 10}, ""},
+		{"visual V keeps the column", text, keySeq("10lvjVj"), Position{2, 10}, ""},
+	}, nil)
 }
 
 // TestMoveAcrossLines checks SetMoveAcrossLines against Vim with

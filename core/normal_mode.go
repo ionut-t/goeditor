@@ -76,6 +76,14 @@ func (m *normalMode) Enter(editor Editor, buffer Buffer) {
 	state := editor.GetState()
 	state.VisualStart = Position{-1, -1}
 	editor.SetState(state)
+
+	// Visual mode can leave the cursor after the last character; normal mode
+	// puts it back on that character, as Vim. Preferred is kept.
+	cursor := buffer.GetCursor()
+	if last := lastCol(buffer, cursor.Position.Row, false); cursor.Position.Col > last {
+		cursor.Position.Col = last
+		buffer.SetCursor(cursor)
+	}
 }
 
 func (m *normalMode) Exit(editor Editor, buffer Buffer) {

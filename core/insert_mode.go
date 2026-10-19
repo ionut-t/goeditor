@@ -144,14 +144,14 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	case KeyUp:
 		if row > 0 {
-			_ = cursor.MoveUp(buffer, 1) // Move cursor up
+			_ = cursor.moveUp(buffer, 1, true) // Move cursor up
 			buffer.SetCursor(cursor)
 		}
 		return nil
 
 	case KeyDown:
 		if row < buffer.LineCount()-1 {
-			_ = cursor.MoveDown(buffer, 1) // Move cursor down
+			_ = cursor.moveDown(buffer, 1, true) // Move cursor down
 			buffer.SetCursor(cursor)
 		}
 		return nil

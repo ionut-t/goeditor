@@ -74,7 +74,7 @@ func NormalizeSelection(p1, p2 Position) (start, end Position) {
 // HandleKey dispatches each incoming key to the appropriate handler.
 func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
-		editor.SetNormalMode()
+		exitVisualToNormal(editor, buffer)
 		return nil
 	}
 
@@ -293,9 +293,12 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		var finalPos Position
 		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
 		if err == nil {
+			// Normal mode first: entering it pulls the cursor onto the last
+			// char, but the paste goes where the selection was, which can be
+			// after the end of the line.
+			editor.SetNormalMode()
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
-			editor.SetNormalMode()
 		}
 		content, pasteErr := editor.PasteBefore()
 		if pasteErr != nil {
