@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/ionut-t/goeditor/compare/v0.9.0...v0.10.0) (2026-10-19)
+
+
+### Features
+
+* **core:** add support for insert counts and visual mode repeat ([#42](https://github.com/ionut-t/goeditor/issues/42)) ([ce96805](https://github.com/ionut-t/goeditor/commit/ce9680563a4e5d7c6e1f8e212683264e4daf395e))
+* **core:** implement repeat change with dot command ([#38](https://github.com/ionut-t/goeditor/issues/38)) ([65a4052](https://github.com/ionut-t/goeditor/commit/65a40527c5b6ef98af15b98b816965297a289598))
+
+
+### Bug Fixes
+
+* **core:** clear pending count when editing commands are refused ([#40](https://github.com/ionut-t/goeditor/issues/40)) ([4131a54](https://github.com/ionut-t/goeditor/commit/4131a54cfb2cbf0f05357250315188f067c74678))
+* **core:** match Vim for unbound Ctrl and Alt keys ([#41](https://github.com/ionut-t/goeditor/issues/41)) ([0708597](https://github.com/ionut-t/goeditor/commit/0708597062cda722ad265de682c1f1f3fa2a8e2b))
+
 ## [0.9.0](https://github.com/ionut-t/goeditor/compare/v0.8.2...v0.9.0) (2026-10-18)
 
 
