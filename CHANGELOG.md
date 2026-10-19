@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/ionut-t/goeditor/compare/v0.11.0...v0.11.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **motion:** align vertical movement on shorter lines with Vim behaviour ([#50](https://github.com/ionut-t/goeditor/issues/50)) ([b138efe](https://github.com/ionut-t/goeditor/commit/b138efe64509ecb7418fa2801993a725519db09a))
+* **paste:** correctly handle paste failures from clipboard errors ([#52](https://github.com/ionut-t/goeditor/issues/52)) ([e6a7284](https://github.com/ionut-t/goeditor/commit/e6a72849357c7014ce838526a541b53135b070d8))
+
 ## [0.11.0](https://github.com/ionut-t/goeditor/compare/v0.10.1...v0.11.0) (2026-10-19)
 
 
