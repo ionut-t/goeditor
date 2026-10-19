@@ -7,7 +7,7 @@ import (
 // Cursor represents the current position for editing operations
 type Cursor struct {
 	Position  Position // Current position (row, column)
-	Preferred int      // Preferred column for vertical movement (sticky column)
+	Preferred int      // Column j/k go back to (Vim's curswant), as a rune index, not a screen column
 }
 
 // --- Cursor Movement ---
@@ -28,80 +28,73 @@ func (c *Cursor) clampCol(buffer Buffer) {
 }
 
 // MoveLeft moves the cursor left by count characters, staying on the line. It
-// moves as far as it can and returns ErrStartOfLine if it reaches column 0.
+// moves as far as it can and returns ErrStartOfLine if count goes past column 0.
 func (c *Cursor) MoveLeft(buffer Buffer, count int) error {
 	var err error
-	for range count {
-		if c.Position.Col <= 0 {
-			err = ErrStartOfLine
-			break
-		}
-		c.Position.Col--
+	count = max(count, 0)
+	if count > c.Position.Col {
+		count = max(c.Position.Col, 0)
+		err = ErrStartOfLine
 	}
-	c.clampCol(buffer) // Clamp just in case (shouldn't be needed after bounds check)
+	c.Position.Col -= count
+	c.clampCol(buffer)
 	c.Preferred = c.Position.Col
 	return err
 }
 
 // MoveRight moves the cursor right by count characters, up to the position
 // after the last character. It moves as far as it can and returns ErrEndOfLine
-// if it reaches that position.
+// if count goes past that position.
 func (c *Cursor) MoveRight(buffer Buffer, count int) error {
 	var err error
-	lineLen := buffer.LineRuneCount(c.Position.Row)
-	for range count {
-		// Allow moving *to* the position *after* the last logical char
-		if c.Position.Col >= lineLen {
-			err = ErrEndOfLine
-			break
-		}
-		c.Position.Col++
+	count = max(count, 0)
+	if room := buffer.LineRuneCount(c.Position.Row) - c.Position.Col; count > room {
+		count = max(room, 0)
+		err = ErrEndOfLine
 	}
-	c.clampCol(buffer) // Clamp just in case (e.g., if lineLen was 0)
+	c.Position.Col += count
+	c.clampCol(buffer)
 	c.Preferred = c.Position.Col
 	return err
 }
 
 // MoveUp moves the cursor up by count lines, to the Preferred column or the
 // end of the line if it is shorter. Preferred is kept, so a later vertical
-// move onto a longer line goes back to it, as Vim's curswant.
+// move onto a longer line goes back to it, as Vim's curswant. A count past
+// the first line stops there and returns ErrStartOfBuffer.
 func (c *Cursor) MoveUp(buffer Buffer, count int) error {
 	if c.Position.Row <= 0 {
 		return ErrStartOfBuffer
 	}
-
-	for range count {
-		if c.Position.Row <= 0 {
-			return ErrStartOfBuffer // Stop if we hit the top
-		}
-		c.Position.Row--
+	var err error
+	if count > c.Position.Row {
+		count = c.Position.Row
+		err = ErrStartOfBuffer
 	}
-
+	c.Position.Row -= max(count, 0)
 	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
-	c.clampCol(buffer)
-
-	return nil
+	c.clampCol(buffer) // Preferred is exported, so it can be negative
+	return err
 }
 
 // MoveDown moves the cursor down by count lines, to the Preferred column or
 // the end of the line if it is shorter. Preferred is kept, so a later vertical
-// move onto a longer line goes back to it, as Vim's curswant.
+// move onto a longer line goes back to it, as Vim's curswant. A count past
+// the last line stops there and returns ErrEndOfBuffer.
 func (c *Cursor) MoveDown(buffer Buffer, count int) error {
-	if c.Position.Row >= buffer.LineCount()-1 {
+	lastRow := buffer.LineCount() - 1
+	if c.Position.Row >= lastRow {
 		return ErrEndOfBuffer
 	}
-
-	for range count {
-		if c.Position.Row >= buffer.LineCount()-1 {
-			return ErrEndOfBuffer // Stop if we hit the bottom
-		}
-		c.Position.Row++
+	var err error
+	if count > lastRow-c.Position.Row {
+		count = lastRow - c.Position.Row
+		err = ErrEndOfBuffer
 	}
-
+	c.Position.Row += max(count, 0)
 	c.Position.Col = min(c.Preferred, buffer.LineRuneCount(c.Position.Row))
-	c.clampCol(buffer)
-
-	return nil
+	c.clampCol(buffer) // Preferred is exported, so it can be negative
+	return err
 }
 
 // MoveDownToFirstNonBlank moves the cursor down count lines to the first

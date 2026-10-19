@@ -292,6 +292,9 @@ func TestPreferredIsFullColumn(t *testing.T) {
 		{"visual d", long, keySeq("12lvjd"), Position{0, 12}, "abcdefghijklno"},
 		{"visual line", long, keySeq("12lVjlk"), Position{0, 13}, ""},
 		{"insert Down", long, keySeq("12li", down, "x"), Position{1, 13}, "abcdefghijklmno\nabcdefghijklxmno"},
+		{"k count past the top", "ab\nabcdefghijkl\nabcdefghijkl", keySeq("jj10l5kj"), Position{1, 10}, ""},
+		{"j count past the end", "abcdefghijkl\nabcdefghijkl\nab", keySeq("10l5jk"), Position{1, 10}, ""},
+		{"insert Down onto a shorter line", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10li", down, "x"), Position{1, 3}, "abcdefghijkl\nabx\nabcdefghijkl"},
 		{"insert Down past a shorter line", "abcdefghijkl\nab\nabcdefghijkl", keySeq("10li", down, down, "x"), Position{2, 11}, "abcdefghijkl\nab\nabcdefghijxkl"},
 	}
 	for _, width := range []int{0, 10, 80} {
