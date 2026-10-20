@@ -228,6 +228,20 @@ func TestCommandModeWriteQuit(t *testing.T) {
 		assert.Equal(t, "other.txt", *path)
 		assert.True(t, e.GetState().Quit)
 	})
+
+	t.Run("write commands take the rest of the line as one path (like Vim)", func(t *testing.T) {
+		for _, cmd := range []string{"w", "wq", "wq!", "x"} {
+			e := newTestEditor("hello")
+			keys(e, 'x') // modify buffer so :x writes
+			drainSignals(e)
+			assert.Nil(t, e.ExecuteCommand(cmd+"  my file.txt  "), cmd)
+			save, ok := nextSignal(e).(SaveSignal)
+			if assert.True(t, ok, cmd) {
+				path, _ := save.Value()
+				assert.Equal(t, "my file.txt", *path, cmd)
+			}
+		}
+	})
 }
 
 // --- :x / :xit ---
