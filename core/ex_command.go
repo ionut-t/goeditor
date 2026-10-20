@@ -45,46 +45,22 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 		return nil
 
 	case "w", "write":
-		// If a path is provided, use it; else nil to indicate current file
-		// TODO: Improve file handling
-		if len(args) > 0 {
-			path := args[0]
-			e.Save(&path)
-		} else {
-			if !e.buffer.IsModified() {
-				return &EditorError{
-					id:  ErrNoChangesToSaveId,
-					err: ErrNoChangesToSave,
-				}
-			}
-
-			e.Save(nil)
-		}
-
+		// Like Vim, write even when the buffer is unmodified.
+		e.save(rest)
 		return nil
 
 	case "wq":
-		// Placeholder: write then quit
-		err := e.ExecuteCommand("w")
-		if err != nil {
-			return err // Error during write
-		}
-		return e.ExecuteCommand("q") // Attempt quit
+		e.save(rest)
+		return e.ExecuteCommand("q")
 
 	case "wq!":
-		err := e.ExecuteCommand("w")
-		if err != nil {
-			return err
-		}
-		return e.ExecuteCommand("q!") // Force quit
+		e.save(rest)
+		return e.ExecuteCommand("q!")
 
 	case "x", "xit":
 		// Write only if modified, then quit
 		if e.buffer.IsModified() {
-			err := e.ExecuteCommand("w")
-			if err != nil {
-				return err
-			}
+			e.save(rest)
 		}
 		return e.ExecuteCommand("q")
 
@@ -140,4 +116,15 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 			err: ErrInvalidCommand,
 		}
 	}
+}
+
+// save writes the buffer for :w, :wq and :x. Like Vim, the rest of the
+// command line is a single path, so it may contain spaces. An empty path
+// writes the current file.
+func (e *editor) save(path string) {
+	if path == "" {
+		e.Save(nil)
+		return
+	}
+	e.Save(&path)
 }

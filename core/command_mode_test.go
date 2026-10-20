@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // drainSignals discards all pending signals from the editor's signal channel.
@@ -153,30 +154,93 @@ func TestCommandModeWrite(t *testing.T) {
 		assert.False(t, e.GetBuffer().IsModified())
 	})
 
-	t.Run(":w on unmodified buffer returns error", func(t *testing.T) {
+	t.Run(":w on unmodified buffer still saves (like Vim)", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, ':', 'w')
+		drainSignals(e)
+		enter(e)
+		save, ok := nextSignal(e).(SaveSignal)
+		assert.True(t, ok)
+		path, savedContent := save.Value()
+		assert.Nil(t, path)
+		assert.Equal(t, "hello", savedContent)
+		assert.False(t, e.GetState().Quit)
+	})
+
+	t.Run(":w path saves to that path", func(t *testing.T) {
 		e := newTestEditor("hello")
 		drainSignals(e)
-		keys(e, ':', 'w')
-		enter(e)
-		// No save signal should be dispatched
-		sig := nextSignal(e)
-		_, isSave := sig.(SaveSignal)
-		assert.False(t, isSave)
+		assert.Nil(t, e.ExecuteCommand("w other.txt"))
+		save, ok := nextSignal(e).(SaveSignal)
+		assert.True(t, ok)
+		path, _ := save.Value()
+		assert.Equal(t, "other.txt", *path)
 	})
 }
 
-// --- :wq ---
+// --- :wq / :wq! ---
 
-// TestCommandModeWriteQuit tests ':wq' — write then quit.
+// assertSavedThenQuit checks the next two signals are a SaveSignal with the
+// given content followed by a QuitSignal.
+func assertSavedThenQuit(t *testing.T, e Editor, wantContent string) {
+	t.Helper()
+	save, ok := nextSignal(e).(SaveSignal)
+	require.True(t, ok, "expected SaveSignal")
+	_, savedContent := save.Value()
+	assert.Equal(t, wantContent, savedContent)
+	_, ok = nextSignal(e).(QuitSignal)
+	assert.True(t, ok, "expected QuitSignal")
+	assert.True(t, e.GetState().Quit)
+	assert.False(t, e.GetBuffer().IsModified())
+}
+
+// TestCommandModeWriteQuit tests ':wq' and ':wq!' — Vim always writes then
+// quits, whether or not the buffer is modified.
 func TestCommandModeWriteQuit(t *testing.T) {
-	t.Run(":wq saves and quits", func(t *testing.T) {
+	for _, cmd := range []string{"wq", "wq!"} {
+		t.Run(":"+cmd+" on modified buffer saves and quits", func(t *testing.T) {
+			e := newTestEditor("hello")
+			keys(e, 'x') // modify buffer → "ello"
+			keys(e, ':')
+			keys(e, []rune(cmd)...)
+			drainSignals(e)
+			enter(e)
+			assertSavedThenQuit(t, e, "ello")
+		})
+
+		t.Run(":"+cmd+" on unmodified buffer saves and quits", func(t *testing.T) {
+			e := newTestEditor("hello")
+			keys(e, ':')
+			keys(e, []rune(cmd)...)
+			drainSignals(e)
+			enter(e)
+			assertSavedThenQuit(t, e, "hello")
+		})
+	}
+
+	t.Run(":wq path saves to that path and quits", func(t *testing.T) {
 		e := newTestEditor("hello")
-		keys(e, 'x') // modify buffer
 		drainSignals(e)
-		keys(e, ':', 'w', 'q')
-		enter(e)
+		assert.Nil(t, e.ExecuteCommand("wq other.txt"))
+		save, ok := nextSignal(e).(SaveSignal)
+		assert.True(t, ok)
+		path, _ := save.Value()
+		assert.Equal(t, "other.txt", *path)
 		assert.True(t, e.GetState().Quit)
-		assert.False(t, e.GetBuffer().IsModified())
+	})
+
+	t.Run("write commands take the rest of the line as one path (like Vim)", func(t *testing.T) {
+		for _, cmd := range []string{"w", "wq", "wq!", "x"} {
+			e := newTestEditor("hello")
+			keys(e, 'x') // modify buffer so :x writes
+			drainSignals(e)
+			assert.Nil(t, e.ExecuteCommand(cmd+"  my file.txt  "), cmd)
+			save, ok := nextSignal(e).(SaveSignal)
+			if assert.True(t, ok, cmd) {
+				path, _ := save.Value()
+				assert.Equal(t, "my file.txt", *path, cmd)
+			}
+		}
 	})
 }
 
