@@ -108,6 +108,65 @@ func TestSearchCaseInsensitive(t *testing.T) {
 	})
 }
 
+// TestSearchSmartCase tests that SmartCase makes a pattern with an uppercase letter case-sensitive.
+func TestSearchSmartCase(t *testing.T) {
+	smartCase := SearchOptions{IgnoreCase: true, SmartCase: true}
+
+	t.Run("uppercase pattern is case-sensitive", func(t *testing.T) {
+		e := newTestEditor("x foo Foo")
+		e.ExecuteSearch("Foo", smartCase)
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("uppercase pattern misses lowercase-only text", func(t *testing.T) {
+		e := newTestEditor("x foo foo")
+		e.ExecuteSearch("Foo", smartCase)
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("lowercase pattern stays case-insensitive", func(t *testing.T) {
+		e := newTestEditor("x FOO foo")
+		e.ExecuteSearch("foo", smartCase)
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("non-ASCII uppercase counts", func(t *testing.T) {
+		// Separate lines: forward-search columns after multibyte text are byte offsets (separate bug).
+		e := newTestEditor("x élan\nÉlan")
+		e.ExecuteSearch("Élan", smartCase)
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+
+	t.Run("n and N stay case-sensitive", func(t *testing.T) {
+		e := newTestEditor("Foo foo Foo foo")
+		e.ExecuteSearch("Foo", SearchOptions{IgnoreCase: true, SmartCase: true, Wrap: true})
+		assert.Equal(t, Position{0, 8}, cursorPos(e))
+		e.NextSearchResult()
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		e.PreviousSearchResult()
+		assert.Equal(t, Position{0, 8}, cursorPos(e))
+	})
+
+	t.Run("backward search is case-sensitive", func(t *testing.T) {
+		e := newTestEditor("Foo foo")
+		e.GetBuffer().SetCursor(Cursor{Position: Position{Row: 0, Col: 6}})
+		e.ExecuteSearch("Foo", SearchOptions{IgnoreCase: true, SmartCase: true, Backwards: true})
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("without IgnoreCase, SmartCase has no effect", func(t *testing.T) {
+		e := newTestEditor("x FOO foo")
+		e.ExecuteSearch("foo", SearchOptions{SmartCase: true})
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run(`\c overrides smartcase`, func(t *testing.T) {
+		e := newTestEditor("x foo Foo")
+		e.ExecuteSearch(`Foo\c`, smartCase)
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+}
+
 // TestSearchInlineModifiers tests the \c, \C, \<, and \> inline modifiers.
 func TestSearchInlineModifiers(t *testing.T) {
 	t.Run(`\c forces case-insensitive search`, func(t *testing.T) {

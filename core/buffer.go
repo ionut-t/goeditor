@@ -364,8 +364,11 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		return Position{}, false
 	}
 
+	// Smartcase: with IgnoreCase on, a pattern containing an uppercase letter is case-sensitive.
+	ignoreCase := options.IgnoreCase && (!options.SmartCase || !strings.ContainsFunc(pattern, unicode.IsUpper))
+
 	searchRunes := []rune(pattern)
-	if options.IgnoreCase {
+	if ignoreCase {
 		searchRunes = []rune(strings.ToLower(pattern))
 	}
 	searchLen := len(searchRunes)
@@ -394,7 +397,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		for r := currentLine; r >= 0; r-- {
 			lineRunes := b.GetLineRunes(r)
 			lineContent := lineRunes
-			if options.IgnoreCase {
+			if ignoreCase {
 				lineContent = []rune(strings.ToLower(string(lineRunes)))
 			}
 
@@ -427,7 +430,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		for r := currentLine; r < numLines; r++ {
 			lineRunes := b.GetLineRunes(r)
 			lineContent := lineRunes
-			if options.IgnoreCase {
+			if ignoreCase {
 				lineContent = []rune(strings.ToLower(string(lineRunes)))
 			}
 
