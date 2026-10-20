@@ -185,7 +185,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			if pasteErr == nil {
 				cur := buffer.GetCursor()
 				cur.Position.Row = startRow
-				cur.Position.Col = 0
+				cur.MoveToFirstNonBlank(buffer)
 				buffer.SetCursor(cur)
 			}
 		} else {

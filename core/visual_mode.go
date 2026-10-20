@@ -308,11 +308,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 				err: pasteErr,
 			}
 		} else {
-			runes := []rune(content)
-			if runeLen := len(runes); runeLen > 0 && runes[runeLen-1] != '\n' {
-				cursor.Position.Col = finalPos.Col + runeLen - 1
-				buffer.SetCursor(cursor)
-			}
+			// The paste puts the cursor where Vim does.
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
 		endVisualOperator(buffer)

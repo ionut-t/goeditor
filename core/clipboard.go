@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -20,55 +21,88 @@ func (e *editor) readClipboard() (string, error) {
 }
 
 func (e *editor) PasteAfter() (string, error) {
-	content, err := e.readClipboard()
+	content, err := e.paste(false, 1)
 	if err != nil {
-		return "", err
+		return "", err.err
 	}
-
-	cursor := e.buffer.GetCursor()
-
-	if before, ok := strings.CutSuffix(content, "\n"); ok {
-		// Linewise paste: insert the content as a new line below the current line,
-		// regardless of the cursor column — matching Vim's 'p' behaviour for line-wise yanks.
-		// Detected via trailing newline, which all line-wise yanks (yy, Vy) append.
-		lineText := before
-		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
-		_ = e.buffer.InsertRunesAt(cursor.Position.Row, lineLen, []rune("\n"+lineText))
-
-		// Place cursor at the start of the newly inserted line.
-		cursor.Position.Row++
-		cursor.Position.Col = 0
-		e.buffer.SetCursor(cursor)
-	} else {
-		// Character-wise paste: insert AFTER the cursor char — matching Vim's 'p' behaviour.
-		// On an empty line Col+1 would exceed the line length, so clamp to lineLen.
-		lineLen := e.buffer.LineRuneCount(cursor.Position.Row)
-		insertCol := min(cursor.Position.Col+1, lineLen)
-		_ = e.buffer.InsertRunesAt(cursor.Position.Row, insertCol, []rune(content))
-	}
-
 	return content, nil
 }
 
 func (e *editor) PasteBefore() (string, error) {
+	content, err := e.paste(true, 1)
+	if err != nil {
+		return "", err.err
+	}
+	return content, nil
+}
+
+// paste puts count copies of the clipboard after the cursor, or before it,
+// with one edit, and returns the clipboard's content. Content ending in a
+// newline is linewise (all line-wise yanks, yy and Vy, append one): it goes
+// below the cursor line, or above it, whatever the column. Otherwise it goes
+// after the cursor char, or at the cursor. The cursor goes where Vim's p puts
+// it: the first non-blank of the first pasted line for a linewise paste, the
+// last pasted char for text within a line, and the first pasted char for text
+// spanning lines. A count over maxRepeatedInsert runes in all fails with
+// ErrTextTooLong and pastes nothing; a single copy has no limit, as a single
+// insert has none.
+func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	content, err := e.readClipboard()
 	if err != nil {
-		return "", err
+		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
+	text := []rune(content)
+	if len(text) == 0 {
+		return content, nil
+	}
+	count = max(count, 1)
+	if count > 1 && len(text) > maxRepeatedInsert/count {
+		return "", textTooLong(count, len(text), "rune")
+	}
+	all := slices.Repeat(text, count)
 
 	cursor := e.buffer.GetCursor()
+	row := cursor.Position.Row
+	lineLen := e.buffer.LineRuneCount(row)
 
-	if before, ok := strings.CutSuffix(content, "\n"); ok {
-		// Linewise paste above: insert the yanked line before the current line.
-		// Inserting lineText+"\n" at (row, 0) pushes the current line down; cursor stays at row.
-		_ = e.buffer.InsertRunesAt(cursor.Position.Row, 0, []rune(before+"\n"))
-		cursor.Position.Col = 0
+	if all[len(all)-1] == '\n' {
+		at := 0
+		if !before {
+			// The line break moves from the end of the pasted lines to
+			// before them, so they start on the next line. Shifted in
+			// place: a long paste isn't copied a second time.
+			copy(all[1:], all)
+			all[0] = '\n'
+			at = lineLen
+		}
+		// Before: inserting the lines at (row, 0) pushes the current line
+		// down, so the first pasted line is at row.
+		if err := e.buffer.InsertRunesAt(row, at, all); err != nil {
+			return "", &EditorError{id: ErrInvalidPositionId, err: err}
+		}
+		if !before {
+			cursor.Position.Row++
+		}
+		cursor.MoveToFirstNonBlank(e.buffer)
 		e.buffer.SetCursor(cursor)
-	} else {
-		// Character-wise paste before: insert at the current cursor position (same as 'p' for chars).
-		_ = e.buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune(content))
+		return content, nil
 	}
 
+	col := cursor.Position.Col
+	if !before {
+		// After the cursor char; on an empty line Col+1 would be past the
+		// end, so the text goes at col 0.
+		col = min(col+1, lineLen)
+	}
+	if err := e.buffer.InsertRunesAt(row, col, all); err != nil {
+		return "", &EditorError{id: ErrInvalidPositionId, err: err}
+	}
+	cursor.Position.Col = col
+	if !slices.Contains(text, '\n') {
+		cursor.Position.Col += len(all) - 1
+	}
+	cursor.Preferred = cursor.Position.Col
+	e.buffer.SetCursor(cursor)
 	return content, nil
 }
 

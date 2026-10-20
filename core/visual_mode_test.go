@@ -239,6 +239,8 @@ func TestVisualOperatorResetsColumn(t *testing.T) {
 		{indent, "jjlllVkU", Position{1, 3}, "hello world\n  SECOND LINE\nTHIRD LINE"},
 		{indent, "jjlllVkkUj", Position{1, 3}, ""},
 		{indent, "jjlllVkhhUj", Position{2, 1}, ""},
+		{indent, "jyyklllVp", Position{0, 2}, "  second line\n  second line\nthird line"},
+		{indent, "jyyklllVpj", Position{1, 2}, ""},
 		{indent, "yyjjlllVp", Position{2, 0}, "hello world\n  second line\nhello world"},
 		{indent, "yyjjlllVpk", Position{1, 0}, ""},
 		{indent, "yyjlllVpj", Position{2, 0}, "hello world\nhello world\nthird line"},

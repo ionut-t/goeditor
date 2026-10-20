@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type normalMode struct {
@@ -1081,60 +1080,26 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
 		return nil // Wait for the next key (motion)
 
-	case key.Rune == 'p':
-		content, pasteErr := editor.PasteAfter()
-
-		if strings.HasSuffix(content, "\n") {
-			// Linewise paste: PasteAfter() already inserted below and set cursor to (row+1, 0).
-			// Repeat for any additional count (e.g. 3p pastes 3 lines).
-			for i := 1; i < count; i++ {
-				if _, loopErr := editor.PasteAfter(); loopErr != nil {
-					pasteErr = loopErr
-					break
-				}
-			}
-			// Cursor was set inside PasteAfter(); refresh and skip the normal MoveRight.
-			cursor = buffer.GetCursor()
-			skipCursorUpdate = true
+	case key.Rune == 'p', key.Rune == 'P':
+		// The paste puts the cursor where Vim does.
+		before := key.Rune == 'P'
+		var content string
+		if p, ok := editor.(paster); ok {
+			content, err = p.paste(before, count)
 		} else {
-			count = len(content)
-			_ = cursor.MoveRight(buffer, count)
+			var pasteErr error
+			if before {
+				content, pasteErr = editor.PasteBefore()
+			} else {
+				content, pasteErr = editor.PasteAfter()
+			}
+			if pasteErr != nil {
+				err = &EditorError{id: ErrFailedToPasteId, err: pasteErr}
+			}
 		}
-
-		if pasteErr != nil {
-			err = &EditorError{
-				id:  ErrFailedToPasteId,
-				err: pasteErr,
-			}
-		} else {
-			editor.DispatchSignal(PasteSignal{content: content})
-		}
-
-	case key.Rune == 'P':
-		content, pasteErr := editor.PasteBefore()
-
-		if strings.HasSuffix(content, "\n") {
-			// Linewise paste above: PasteBefore() inserted above and cursor stays at the same row.
-			// Repeat for any additional count (e.g. 3P pastes 3 lines above).
-			for i := 1; i < count; i++ {
-				if _, loopErr := editor.PasteBefore(); loopErr != nil {
-					pasteErr = loopErr
-					break
-				}
-			}
-			cursor = buffer.GetCursor()
-			skipCursorUpdate = true
-		} else {
-			count = len(content)
-			_ = cursor.MoveRight(buffer, count)
-		}
-
-		if pasteErr != nil {
-			err = &EditorError{
-				id:  ErrFailedToPasteId,
-				err: pasteErr,
-			}
-		} else {
+		cursor = buffer.GetCursor()
+		skipCursorUpdate = true
+		if err == nil {
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
 
@@ -1315,4 +1280,10 @@ func (m *normalMode) composeOperatorCount(editor Editor) {
 	}
 	state.PendingCount = &n
 	editor.SetState(state)
+}
+
+// paster is implemented by the editor so that p and P can take a count
+// without it being part of the public Editor interface.
+type paster interface {
+	paste(before bool, count int) (string, *EditorError)
 }
