@@ -183,6 +183,79 @@ func TestVisualYankEndsVisual(t *testing.T) {
 	})
 }
 
+// TestVisualOperatorResetsColumn checks that the visual operators leave j and
+// k on the column the cursor ends on, not the one of the last horizontal
+// motion, and where the linewise case operators put the cursor. Each case
+// without a trailing j or k is followed by one with it. Expected results are
+// from Vim 9.2.
+func TestVisualOperatorResetsColumn(t *testing.T) {
+	const six = "abcdef\nabcdef\nabcdef"
+	const short = "abcdefghijkl\nab\nabcdefghijkl"
+	const end = "abcdef\nabcdefgh"
+	const indent = "hello world\n  second line\nthird line"
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		text    string
+	}{
+		{six, "lllvjhhd", Position{0, 3}, "abccdef\nabcdef"},
+		{six, "lllvjhhdj", Position{1, 3}, ""},
+		{six, "jlllvkhhd", Position{0, 1}, "aef\nabcdef"},
+		{six, "jlllvkhhdj", Position{1, 1}, ""},
+		{six, "lllvjhhxj", Position{1, 3}, "abccdef\nabcdef"},
+		{short, "jj10lvkkhd", Position{0, 9}, "abcdefghil"},
+		{short, "10lvjhdj", Position{1, 9}, "abcdefghij\nabcdefghijkl"},
+		{end, "$vd", Position{0, 4}, "abcde\nabcdefgh"},
+		{end, "$vdj", Position{1, 4}, ""},
+		{six, "lllvjhhU", Position{0, 3}, "abcDEF\nABcdef\nabcdef"},
+		{six, "lllvjhhUj", Position{1, 3}, ""},
+		{six, "lllvjhhuj", Position{1, 3}, ""},
+		{six, "lllvjhh~j", Position{1, 3}, "abcDEF\nABcdef\nabcdef"},
+		{six, "jlllvkhhUj", Position{1, 1}, "aBCDEF\nABCDef\nabcdef"},
+		{six, "yllllvjhhp", Position{0, 3}, "abcacdef\nabcdef"},
+		{six, "yllllvjhhpj", Position{1, 3}, ""},
+		{six, "yllllvjhhPj", Position{1, 3}, ""},
+		{six, "3ylllvjhhp", Position{0, 4}, "ababcbcdef\nabcdef"},
+		{six, "3ylllvjhhpj", Position{1, 4}, ""},
+		{end, "yl$vp", Position{0, 5}, "abcdea\nabcdefgh"},
+		{end, "yl$vpj", Position{1, 5}, ""},
+		{six, "lllvjhhcX<Esc>j", Position{1, 3}, "abcXcdef\nabcdef"},
+		{indent, "lllVd", Position{0, 2}, "  second line\nthird line"},
+		{indent, "lllVdj", Position{1, 2}, ""},
+		{indent, "lllVxj", Position{1, 2}, ""},
+		{indent, "jjlllVd", Position{1, 2}, "hello world\n  second line"},
+		{indent, "jlllVkdj", Position{0, 0}, "third line"},
+		{indent, "jlllVU", Position{1, 0}, "hello world\n  SECOND LINE\nthird line"},
+		{indent, "jlllVUj", Position{2, 0}, ""},
+		{indent, "lllVu", Position{0, 0}, ""},
+		{indent, "lllVuj", Position{1, 0}, ""},
+		{indent, "lllVjU", Position{0, 0}, "HELLO WORLD\n  SECOND LINE\nthird line"},
+		// Linewise u, U and ~ leave the cursor where it is when it is above
+		// the anchor, as linewise y.
+		{indent, "jlllVkU", Position{0, 3}, "HELLO WORLD\n  SECOND LINE\nthird line"},
+		{indent, "jlllVkUj", Position{1, 3}, ""},
+		{indent, "jlllVk~", Position{0, 3}, "HELLO WORLD\n  SECOND LINE\nthird line"},
+		{indent, "jjlllVkU", Position{1, 3}, "hello world\n  SECOND LINE\nTHIRD LINE"},
+		{indent, "jjlllVkkUj", Position{1, 3}, ""},
+		{indent, "jjlllVkhhUj", Position{2, 1}, ""},
+		{indent, "yyjjlllVp", Position{2, 0}, "hello world\n  second line\nhello world"},
+		{indent, "yyjjlllVpk", Position{1, 0}, ""},
+		{indent, "yyjlllVpj", Position{2, 0}, "hello world\nhello world\nthird line"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+		})
+	}
+}
+
 // TestVisualModeChange tests 'c' in character-wise visual mode.
 func TestVisualModeChange(t *testing.T) {
 	t.Run("c deletes selection and enters insert mode", func(t *testing.T) {

@@ -259,6 +259,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
 			editor.SetNormalMode()
+			endVisualOperator(buffer)
 		}
 		editor.ResetPendingCount()
 		editor.DispatchSignal(DeleteSignal{content: contentDeleted})
@@ -302,7 +303,6 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		}
 		content, pasteErr := editor.PasteBefore()
 		if pasteErr != nil {
-			endFailedPaste(buffer)
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
@@ -315,6 +315,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			}
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
+		endVisualOperator(buffer)
 		editor.ResetPendingCount()
 		return true, err
 
@@ -343,6 +344,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			cursor.Position = startSel
 			buffer.SetCursor(cursor)
 			editor.SetNormalMode()
+			endVisualOperator(buffer)
 		}
 		editor.ResetPendingCount()
 		return true, err
