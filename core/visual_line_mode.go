@@ -131,6 +131,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		contentDeleted, delErr := deleteLineRange(editor, buffer, startRow, endRow)
 		if delErr == nil {
 			editor.SetNormalMode()
+			endVisualOperator(buffer)
 			editor.DispatchSignal(DeleteSignal{content: contentDeleted})
 		} else {
 			err = delErr
@@ -199,7 +200,6 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			// The selection stays deleted; the cursor stays where the
 			// deletion left it, not where the paste would have gone.
 			buffer.SetCursor(afterDelete)
-			endFailedPaste(buffer)
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
 				err: pasteErr,
@@ -207,6 +207,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		} else {
 			editor.DispatchSignal(PasteSignal{content: pastedContent})
 		}
+		endVisualOperator(buffer)
 		editor.ResetPendingCount()
 		return true, err
 
@@ -227,11 +228,14 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		err = applyCaseToVisualLineSelection(editor, buffer, key.Rune, startRow, endRow)
 		if err == nil {
-			cur := buffer.GetCursor()
-			cur.Position.Row = startRow
-			cur.Position.Col = 0
-			buffer.SetCursor(cur)
+			// As after y: the cursor stays where it is when it is above the
+			// anchor, and otherwise goes to column 0 of the anchor's line.
+			if cursor.Position.Row >= m.startPos.Row {
+				cursor.Position = Position{Row: m.startPos.Row, Col: 0}
+			}
+			buffer.SetCursor(cursor)
 			editor.SetNormalMode()
+			endVisualOperator(buffer)
 		}
 		return true, err
 

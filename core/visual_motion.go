@@ -142,16 +142,14 @@ func applyVisualMotion(
 // differs from Preferred after j or k onto a shorter line, as Vim.
 func exitVisualToNormal(editor Editor, buffer Buffer) {
 	editor.SetNormalMode()
-	cursor := buffer.GetCursor()
-	cursor.Preferred = cursor.Position.Col
-	buffer.SetCursor(cursor)
+	endVisualOperator(buffer)
 }
 
-// endFailedPaste is visual p or P when the clipboard can't be read. The
-// selection is already deleted, as Vim does on E353, so the cursor goes onto
-// the last character if the deletion left it after the end of the line, and
-// j and k go back to the column it ends on.
-func endFailedPaste(buffer Buffer) {
+// endVisualOperator runs after a visual operator has placed the cursor in
+// normal mode. The cursor goes onto the last character if it is after the end
+// of the line (a deletion or a failed paste can leave it there), and j and k
+// go back to the column it ends on, as Vim does after any operator.
+func endVisualOperator(buffer Buffer) {
 	cursor := buffer.GetCursor()
 	cursor.Position.Col = min(cursor.Position.Col, lastCol(buffer, cursor.Position.Row, false))
 	cursor.Preferred = cursor.Position.Col
