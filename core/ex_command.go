@@ -45,48 +45,26 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 		return nil
 
 	case "w", "write":
-		// If a path is provided, use it; else nil to indicate current file
+		// Like Vim, write even when the buffer is unmodified. If a path is
+		// provided, use it; else nil to indicate current file.
 		// TODO: Improve file handling
-		if len(args) > 0 {
-			path := args[0]
-			e.Save(&path)
-		} else {
-			if !e.buffer.IsModified() {
-				return &EditorError{
-					id:  ErrNoChangesToSaveId,
-					err: ErrNoChangesToSave,
-				}
-			}
-
-			e.Save(nil)
-		}
-
+		e.save(args)
 		return nil
 
-	case "wq":
-		// Placeholder: write then quit
-		err := e.ExecuteCommand("w")
-		if err != nil {
-			return err // Error during write
-		}
-		return e.ExecuteCommand("q") // Attempt quit
-
-	case "wq!":
-		err := e.ExecuteCommand("w")
-		if err != nil {
-			return err
-		}
-		return e.ExecuteCommand("q!") // Force quit
+	case "wq", "wq!":
+		// Vim's :wq always writes, modified or not. The write leaves the
+		// buffer unmodified, so the quit can't be refused.
+		e.save(args)
+		e.Quit()
+		return nil
 
 	case "x", "xit":
 		// Write only if modified, then quit
 		if e.buffer.IsModified() {
-			err := e.ExecuteCommand("w")
-			if err != nil {
-				return err
-			}
+			e.save(args)
 		}
-		return e.ExecuteCommand("q")
+		e.Quit()
+		return nil
 
 		// Add more commands: e, edit, r, read, s, substitute etc.
 		// case "s": return e.executeSubstitute(args)
@@ -140,4 +118,15 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 			err: ErrInvalidCommand,
 		}
 	}
+}
+
+// save writes the buffer for :w, :wq and :x, to args[0] when a path is
+// given and to the current file otherwise.
+func (e *editor) save(args []string) {
+	if len(args) > 0 {
+		path := args[0]
+		e.Save(&path)
+		return
+	}
+	e.Save(nil)
 }
