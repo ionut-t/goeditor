@@ -71,6 +71,24 @@ func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions
 	return true
 }
 
+// matchRunesAt reports whether pattern occurs in line at rune column col.
+// With ignoreCase, pattern must already be lowercased; line runes are lowercased as they are compared.
+func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
+	if col < 0 || col+len(pattern) > len(line) {
+		return false
+	}
+	for i, p := range pattern {
+		r := line[col+i]
+		if ignoreCase {
+			r = unicode.ToLower(r)
+		}
+		if r != p {
+			return false
+		}
+	}
+	return true
+}
+
 // needsBoundaryCheck reports whether any word-boundary option is active.
 func needsBoundaryCheck(opts SearchOptions) bool {
 	return opts.WholeWord || opts.WordBoundaryStart || opts.WordBoundaryEnd
@@ -369,13 +387,20 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 
 	searchRunes := []rune(pattern)
 	if ignoreCase {
-		searchRunes = []rune(strings.ToLower(pattern))
+		for i, r := range searchRunes {
+			searchRunes[i] = unicode.ToLower(r)
+		}
 	}
-	searchLen := len(searchRunes)
 
 	numLines := b.LineCount()
 	currentLine := start.Row
 	currentCol := start.Col
+
+	// matchAt reports whether a match starts at rune column c and passes the boundary checks.
+	matchAt := func(lineRunes []rune, c int) bool {
+		return matchRunesAt(lineRunes, searchRunes, c, ignoreCase) &&
+			(!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, len(searchRunes), options))
+	}
 
 	if options.Backwards {
 		// Adjust starting column for backward search
@@ -396,28 +421,14 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 
 		for r := currentLine; r >= 0; r-- {
 			lineRunes := b.GetLineRunes(r)
-			lineContent := lineRunes
-			if ignoreCase {
-				lineContent = []rune(strings.ToLower(string(lineRunes)))
-			}
 
-			startSearchCol := len(lineContent) - 1
+			startSearchCol := len(lineRunes) - 1
 			if r == start.Row {
 				startSearchCol = currentCol
 			}
 
 			for c := startSearchCol; c >= 0; c-- {
-				if c+searchLen > len(lineContent) {
-					continue
-				}
-				match := true
-				for i := range searchLen {
-					if lineContent[c+i] != searchRunes[i] {
-						match = false
-						break
-					}
-				}
-				if match && (!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, searchLen, options)) {
+				if matchAt(lineRunes, c) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
@@ -429,33 +440,15 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 
 		for r := currentLine; r < numLines; r++ {
 			lineRunes := b.GetLineRunes(r)
-			lineContent := lineRunes
-			if ignoreCase {
-				lineContent = []rune(strings.ToLower(string(lineRunes)))
-			}
 
 			startSearchCol := 0
 			if r == start.Row {
 				startSearchCol = currentCol
 			}
 
-			// Scan forward through all occurrences on this line segment.
-			// With WholeWord we may need to skip non-boundary matches.
-			if startSearchCol < len(lineContent) {
-				// Convert once; use index arithmetic to avoid repeated allocations.
-				lineStr := string(lineContent)
-				searchStr := string(searchRunes)
-				from := startSearchCol
-				for from < len(lineStr) {
-					idx := strings.Index(lineStr[from:], searchStr)
-					if idx == -1 {
-						break
-					}
-					col := from + idx
-					if !needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, col, searchLen, options) {
-						return Position{Row: r, Col: col}, true
-					}
-					from = col + 1
+			for c := startSearchCol; c < len(lineRunes); c++ {
+				if matchAt(lineRunes, c) {
+					return Position{Row: r, Col: c}, true
 				}
 			}
 
