@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.2](https://github.com/ionut-t/goeditor/compare/v0.11.1...v0.11.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* **completion:** prevent panic when inserting completion with stale cursor ([#58](https://github.com/ionut-t/goeditor/issues/58)) ([a00e743](https://github.com/ionut-t/goeditor/commit/a00e74302747acd1018773d2d056a0bda1e4ffc2))
+* **core:** align :w and :wq command behaviour with Vim ([#57](https://github.com/ionut-t/goeditor/issues/57)) ([6fba344](https://github.com/ionut-t/goeditor/commit/6fba34495aacbe341eb80b32ce5862b801adb95b))
+* **core:** correct line number command behaviour ([#60](https://github.com/ionut-t/goeditor/issues/60)) ([4686610](https://github.com/ionut-t/goeditor/commit/4686610e94f43ab26317aafcee90781352b2d6c3))
+* **paste:** correct cursor position and count handling for paste operations ([#56](https://github.com/ionut-t/goeditor/issues/56)) ([42aca24](https://github.com/ionut-t/goeditor/commit/42aca246b134434e78330a3124804a99162463e9))
+* **search:** correct parsing of \c and \C case modifiers ([#59](https://github.com/ionut-t/goeditor/issues/59)) ([b34ea4a](https://github.com/ionut-t/goeditor/commit/b34ea4ad891ca4471f5b00a421fabc9f61d1462c))
+* **search:** ensure correct rune-based column indexing for multi-byte text ([#62](https://github.com/ionut-t/goeditor/issues/62)) ([5434eb3](https://github.com/ionut-t/goeditor/commit/5434eb3dadd17a66c1c2abe3cb0a246c91ac5754))
+* **search:** honour smart case option during search ([#61](https://github.com/ionut-t/goeditor/issues/61)) ([cb0126e](https://github.com/ionut-t/goeditor/commit/cb0126e35477c86c2bde2f936519f116435d13ba))
+* **visual:** normalise cursor state after visual operators ([#54](https://github.com/ionut-t/goeditor/issues/54)) ([089144f](https://github.com/ionut-t/goeditor/commit/089144fd4c76c8195a370e1a80bb7c4291a5d2d0))
+
 ## [0.11.1](https://github.com/ionut-t/goeditor/compare/v0.11.0...v0.11.1) (2026-10-19)
 
 
