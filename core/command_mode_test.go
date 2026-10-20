@@ -292,3 +292,44 @@ func TestCommandModeEmptyEnter(t *testing.T) {
 		assert.Equal(t, "hello", content(e))
 	})
 }
+
+// TestCommandModeGotoLine tests :{number}, which jumps to that line.
+func TestCommandModeGotoLine(t *testing.T) {
+	const text = "one\ntwo\nthree\nfour\nfive"
+
+	t.Run("jumps to the given line", func(t *testing.T) {
+		e := newTestEditor(text)
+		assert.Nil(t, e.ExecuteCommand("3"))
+		assert.Equal(t, Position{2, 0}, cursorPos(e))
+	})
+
+	t.Run(":0 jumps to the first line", func(t *testing.T) {
+		e := newTestEditor(text)
+		keys(e, 'G')
+		assert.Nil(t, e.ExecuteCommand("0"))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run("line past the end jumps to the last line", func(t *testing.T) {
+		e := newTestEditor(text)
+		assert.Nil(t, e.ExecuteCommand("99"))
+		assert.Equal(t, Position{4, 0}, cursorPos(e))
+	})
+
+	t.Run("number too large for int jumps to the last line", func(t *testing.T) {
+		e := newTestEditor(text)
+		assert.Nil(t, e.ExecuteCommand("99999999999999999999999"))
+		assert.Equal(t, Position{4, 0}, cursorPos(e))
+	})
+
+	for _, cmd := range []string{"10abc", "3 abc", "3x", "+2", "-1", "1e2"} {
+		t.Run("rejects "+cmd, func(t *testing.T) {
+			e := newTestEditor(text)
+			keys(e, 'j')
+			err := e.ExecuteCommand(cmd)
+			require.NotNil(t, err)
+			assert.Equal(t, ErrInvalidCommandId, err.ID())
+			assert.Equal(t, Position{1, 0}, cursorPos(e))
+		})
+	}
+}

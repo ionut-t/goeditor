@@ -1,7 +1,9 @@
 package core
 
 import (
-	"fmt"
+	"errors"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -90,18 +92,12 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 
 	default:
 		// Handle line number navigation (e.g., ":10")
-		lineNum := -1
-		_, scanErr := fmt.Sscan(command, &lineNum)
-		if scanErr == nil && lineNum > 0 {
-			targetRow := lineNum - 1 // User enters 1-based, we use 0-based
+		if lineNum, ok := parseLineNumber(command); ok && len(args) == 0 {
+			// User enters 1-based, we use 0-based. Like Vim, :0 goes to the
+			// first line and a number past the end goes to the last line.
+			targetRow := max(lineNum-1, 0)
+			targetRow = min(targetRow, e.buffer.LineCount()-1)
 			cursor := e.buffer.GetCursor()
-			// Clamp targetRow
-			if targetRow >= e.buffer.LineCount() {
-				targetRow = e.buffer.LineCount() - 1
-			}
-			if targetRow < 0 {
-				targetRow = 0
-			}
 
 			cursor.Position.Row = targetRow
 			cursor.Position.Col = 0 // Move to start of that line
@@ -127,4 +123,19 @@ func (e *editor) save(path string) {
 		return
 	}
 	e.Save(&path)
+}
+
+// parseLineNumber parses a :{number} line address. Only plain digits are
+// accepted: signs are relative addresses in Vim, which aren't supported yet.
+// A number too large for an int returns math.MaxInt, so it clamps to the
+// last line.
+func parseLineNumber(s string) (int, bool) {
+	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s)
+	if errors.Is(err, strconv.ErrRange) {
+		return math.MaxInt, true
+	}
+	return n, err == nil
 }
