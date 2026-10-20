@@ -72,25 +72,21 @@ func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions
 }
 
 // matchRunesAt reports whether pattern occurs in line at rune column col.
-func matchRunesAt(line, pattern []rune, col int) bool {
+// With ignoreCase, pattern must already be lowercased; line runes are lowercased as they are compared.
+func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
 	if col < 0 || col+len(pattern) > len(line) {
 		return false
 	}
 	for i, p := range pattern {
-		if line[col+i] != p {
+		r := line[col+i]
+		if ignoreCase {
+			r = unicode.ToLower(r)
+		}
+		if r != p {
 			return false
 		}
 	}
 	return true
-}
-
-// appendLowerRunes appends the lowercase of each rune in src to dst.
-// unicode.ToLower maps one rune to one rune, so columns in the result match src.
-func appendLowerRunes(dst, src []rune) []rune {
-	for _, r := range src {
-		dst = append(dst, unicode.ToLower(r))
-	}
-	return dst
 }
 
 // needsBoundaryCheck reports whether any word-boundary option is active.
@@ -400,22 +396,9 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	currentLine := start.Row
 	currentCol := start.Col
 
-	// lowered is reused across lines to hold the lowercased line when ignoring case.
-	var lowered []rune
-
-	// lineContent returns the runes to match against: the line itself, or its lowercase.
-	lineContent := func(lineRunes []rune) []rune {
-		if !ignoreCase {
-			return lineRunes
-		}
-		lowered = appendLowerRunes(lowered[:0], lineRunes)
-		return lowered
-	}
-
 	// matchAt reports whether a match starts at rune column c and passes the boundary checks.
-	// Boundaries are checked on the original line so word characters are classified correctly.
-	matchAt := func(lineRunes, content []rune, c int) bool {
-		return matchRunesAt(content, searchRunes, c) &&
+	matchAt := func(lineRunes []rune, c int) bool {
+		return matchRunesAt(lineRunes, searchRunes, c, ignoreCase) &&
 			(!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, len(searchRunes), options))
 	}
 
@@ -438,7 +421,6 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 
 		for r := currentLine; r >= 0; r-- {
 			lineRunes := b.GetLineRunes(r)
-			content := lineContent(lineRunes)
 
 			startSearchCol := len(lineRunes) - 1
 			if r == start.Row {
@@ -446,7 +428,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 			}
 
 			for c := startSearchCol; c >= 0; c-- {
-				if matchAt(lineRunes, content, c) {
+				if matchAt(lineRunes, c) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
@@ -458,7 +440,6 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 
 		for r := currentLine; r < numLines; r++ {
 			lineRunes := b.GetLineRunes(r)
-			content := lineContent(lineRunes)
 
 			startSearchCol := 0
 			if r == start.Row {
@@ -466,7 +447,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 			}
 
 			for c := startSearchCol; c < len(lineRunes); c++ {
-				if matchAt(lineRunes, content, c) {
+				if matchAt(lineRunes, c) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
