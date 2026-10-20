@@ -1084,27 +1084,22 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		// The paste puts the cursor where Vim does.
 		before := key.Rune == 'P'
 		var content string
-		var pasteErr error
 		if p, ok := editor.(paster); ok {
-			content, pasteErr = p.paste(before, count)
-		} else if before {
-			content, pasteErr = editor.PasteBefore()
+			content, err = p.paste(before, count)
 		} else {
-			content, pasteErr = editor.PasteAfter()
+			var pasteErr error
+			if before {
+				content, pasteErr = editor.PasteBefore()
+			} else {
+				content, pasteErr = editor.PasteAfter()
+			}
+			if pasteErr != nil {
+				err = &EditorError{id: ErrFailedToPasteId, err: pasteErr}
+			}
 		}
 		cursor = buffer.GetCursor()
 		skipCursorUpdate = true
-
-		var tooLong *EditorError
-		switch {
-		case errors.As(pasteErr, &tooLong):
-			err = tooLong
-		case pasteErr != nil:
-			err = &EditorError{
-				id:  ErrFailedToPasteId,
-				err: pasteErr,
-			}
-		default:
+		if err == nil {
 			editor.DispatchSignal(PasteSignal{content: content})
 		}
 
@@ -1285,4 +1280,10 @@ func (m *normalMode) composeOperatorCount(editor Editor) {
 	}
 	state.PendingCount = &n
 	editor.SetState(state)
+}
+
+// paster is implemented by the editor so that p and P can take a count
+// without it being part of the public Editor interface.
+type paster interface {
+	paste(before bool, count int) (string, *EditorError)
 }

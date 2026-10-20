@@ -21,17 +21,19 @@ func (e *editor) readClipboard() (string, error) {
 }
 
 func (e *editor) PasteAfter() (string, error) {
-	return e.paste(false, 1)
+	content, err := e.paste(false, 1)
+	if err != nil {
+		return "", err.err
+	}
+	return content, nil
 }
 
 func (e *editor) PasteBefore() (string, error) {
-	return e.paste(true, 1)
-}
-
-// paster is implemented by the editor so that p and P can take a count
-// without it being part of the public Editor interface.
-type paster interface {
-	paste(before bool, count int) (string, error)
+	content, err := e.paste(true, 1)
+	if err != nil {
+		return "", err.err
+	}
+	return content, nil
 }
 
 // paste puts count copies of the clipboard after the cursor, or before it,
@@ -42,18 +44,19 @@ type paster interface {
 // it: the first non-blank of the first pasted line for a linewise paste, the
 // last pasted char for text within a line, and the first pasted char for text
 // spanning lines. A count over maxRepeatedInsert runes in all fails with
-// ErrTextTooLong and pastes nothing.
-func (e *editor) paste(before bool, count int) (string, error) {
+// ErrTextTooLong and pastes nothing; a single copy has no limit, as a single
+// insert has none.
+func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	content, err := e.readClipboard()
 	if err != nil {
-		return "", err
+		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
 	text := []rune(content)
 	if len(text) == 0 {
 		return content, nil
 	}
 	count = max(count, 1)
-	if len(text) > maxRepeatedInsert/count {
+	if count > 1 && len(text) > maxRepeatedInsert/count {
 		return "", textTooLong(count, len(text), "rune")
 	}
 	all := slices.Repeat(text, count)
@@ -63,14 +66,21 @@ func (e *editor) paste(before bool, count int) (string, error) {
 	lineLen := e.buffer.LineRuneCount(row)
 
 	if all[len(all)-1] == '\n' {
-		if before {
-			// Inserting the lines at (row, 0) pushes the current line down,
-			// so the first pasted line is at row.
-			_ = e.buffer.InsertRunesAt(row, 0, all)
-		} else {
+		at := 0
+		if !before {
 			// The line break moves from the end of the pasted lines to
-			// before them, so they start on the next line.
-			_ = e.buffer.InsertRunesAt(row, lineLen, slices.Concat([]rune{'\n'}, all[:len(all)-1]))
+			// before them, so they start on the next line. Shifted in
+			// place: a long paste isn't copied a second time.
+			copy(all[1:], all)
+			all[0] = '\n'
+			at = lineLen
+		}
+		// Before: inserting the lines at (row, 0) pushes the current line
+		// down, so the first pasted line is at row.
+		if err := e.buffer.InsertRunesAt(row, at, all); err != nil {
+			return "", &EditorError{id: ErrInvalidPositionId, err: err}
+		}
+		if !before {
 			cursor.Position.Row++
 		}
 		cursor.MoveToFirstNonBlank(e.buffer)
@@ -84,7 +94,9 @@ func (e *editor) paste(before bool, count int) (string, error) {
 		// end, so the text goes at col 0.
 		col = min(col+1, lineLen)
 	}
-	_ = e.buffer.InsertRunesAt(row, col, all)
+	if err := e.buffer.InsertRunesAt(row, col, all); err != nil {
+		return "", &EditorError{id: ErrInvalidPositionId, err: err}
+	}
 	cursor.Position.Col = col
 	if !slices.Contains(text, '\n') {
 		cursor.Position.Col += len(all) - 1

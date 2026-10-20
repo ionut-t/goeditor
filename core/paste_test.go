@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -243,6 +244,13 @@ func TestPasteCountLimit(t *testing.T) {
 		})
 	}
 
+	t.Run("one copy has no limit", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard("hello")
+		cb.content = strings.Repeat("x", 10_000_001)
+		require.Nil(t, e.HandleKey(KeyEvent{Rune: 'p'}))
+		assert.Equal(t, 10_000_006, e.GetBuffer().LineRuneCount(0))
+	})
+
 	t.Run("up to the limit pastes", func(t *testing.T) {
 		e, _ := newTestEditorWithClipboard("hello")
 		typeKeys(t, e, "yl10000000p")
@@ -439,11 +447,12 @@ func TestPasteWithoutClipboard(t *testing.T) {
 			t.Run(c.name+"/"+tt.name, func(t *testing.T) {
 				e := New(c.cb)
 				e.SetContent([]byte(text))
-				var err error
+				var err *EditorError
 				for _, r := range tt.keys {
 					err = e.HandleKey(KeyEvent{Rune: r})
 				}
-				assert.Error(t, err)
+				require.NotNil(t, err)
+				assert.Equal(t, ErrFailedToPasteId, err.ID())
 				assert.True(t, e.IsNormalMode())
 				assert.Equal(t, tt.text, content(e))
 				assert.Equal(t, tt.want, cursorPos(e))
