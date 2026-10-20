@@ -116,6 +116,38 @@ func TestSearchInlineModifiers(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
+	t.Run(`\c keeps a trailing c in the pattern`, func(t *testing.T) {
+		// "music\c" must search for "music", not "musi" (col 4 is "MUSI" with no C).
+		e := newTestEditor("abc MUSI MUSIC")
+		e.ExecuteSearch(`music\c`, SearchOptions{})
+		assert.Equal(t, "music", e.GetState().SearchQuery.Term)
+		assert.Equal(t, Position{0, 9}, cursorPos(e))
+	})
+
+	t.Run(`\C keeps a trailing C in the pattern`, func(t *testing.T) {
+		// "ABC\C" must search for "ABC", not "AB" (col 2 is "AB" with no C).
+		e := newTestEditor("x AB ABC")
+		e.ExecuteSearch(`ABC\C`, SearchOptions{})
+		assert.Equal(t, "ABC", e.GetState().SearchQuery.Term)
+		assert.Equal(t, Position{0, 5}, cursorPos(e))
+	})
+
+	t.Run(`\C forces case-sensitive search and disables smartcase`, func(t *testing.T) {
+		e := newTestEditor("x hello Hello")
+		e.ExecuteSearch(`Hello\C`, SearchOptions{IgnoreCase: true, SmartCase: true})
+		assert.Equal(t, Position{0, 8}, cursorPos(e))
+		assert.False(t, e.GetState().SearchOptions.IgnoreCase)
+		assert.False(t, e.GetState().SearchOptions.SmartCase)
+	})
+
+	t.Run(`\c forces case-insensitive search and disables smartcase`, func(t *testing.T) {
+		e := newTestEditor("x hello Hello")
+		e.ExecuteSearch(`Hello\c`, SearchOptions{SmartCase: true})
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		assert.True(t, e.GetState().SearchOptions.IgnoreCase)
+		assert.False(t, e.GetState().SearchOptions.SmartCase)
+	})
+
 	t.Run(`\<word\> matches whole word, skips partial`, func(t *testing.T) {
 		// "foo foobar foo": whole-word "foo" at col 0 and col 11; "foobar" at col 4 is not a match.
 		e := newTestEditor("foo foobar foo")

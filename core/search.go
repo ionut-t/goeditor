@@ -10,15 +10,13 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	smartCase := searchOptions.SmartCase
 
 	if before, ok := strings.CutSuffix(pattern, "\\c"); ok {
-		pattern = before
 		ignoreCase = true
 		smartCase = false
-		query = strings.TrimRight(pattern, "\\c")
-	} else if before0, ok0 := strings.CutSuffix(pattern, "\\C"); ok0 {
-		pattern = before0
+		query = before
+	} else if before, ok := strings.CutSuffix(pattern, "\\C"); ok {
 		ignoreCase = false
-		searchOptions.SmartCase = true
-		query = strings.TrimRight(pattern, "\\C")
+		smartCase = false
+		query = before
 	}
 
 	// Parse \< (word-start) and \> (word-end) boundary anchors.
