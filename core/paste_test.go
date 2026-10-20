@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPasteCharacterWise tests 'p' after a character-wise yank.
@@ -48,7 +49,7 @@ func TestPasteCharacterWiseOnEmptyLine(t *testing.T) {
 		keys(e, 'j')      // move to empty line (row 1)
 		keys(e, 'p')      // paste on empty line
 		assert.Equal(t, "hello\nhello\nworld", content(e))
-		assert.Equal(t, Position{1, 5}, cursorPos(e))
+		assert.Equal(t, Position{1, 4}, cursorPos(e))
 	})
 
 	t.Run("P on empty line inserts text at col 0", func(t *testing.T) {
@@ -57,13 +58,13 @@ func TestPasteCharacterWiseOnEmptyLine(t *testing.T) {
 		keys(e, 'j')      // move to empty line (row 1)
 		keys(e, 'P')      // paste before on empty line
 		assert.Equal(t, "hello\nhello\nworld", content(e))
-		assert.Equal(t, Position{1, 5}, cursorPos(e))
+		assert.Equal(t, Position{1, 4}, cursorPos(e))
 	})
 }
 
 // TestPasteLinewise tests 'p' after a line-wise yank ('yy').
 // Linewise paste inserts the yanked line below the current line and moves the cursor
-// to the start of the newly inserted line — matching Vim's behaviour.
+// to the first non-blank of the newly inserted line — matching Vim's behaviour.
 func TestPasteLinewise(t *testing.T) {
 	t.Run("yy then p on single line duplicates it below", func(t *testing.T) {
 		e, _ := newTestEditorWithClipboard("hello")
@@ -100,16 +101,158 @@ func TestPasteLinewise(t *testing.T) {
 		assert.Equal(t, Position{2, 0}, cursorPos(e))
 	})
 
-	t.Run("count: 3p pastes three copies below", func(t *testing.T) {
+	t.Run("count: 3p pastes three copies below, cursor on the first", func(t *testing.T) {
 		e, _ := newTestEditorWithClipboard("hello")
 		keys(e, 'y', 'y', '3', 'p')
 		assert.Equal(t, "hello\nhello\nhello\nhello", content(e))
-		assert.Equal(t, Position{3, 0}, cursorPos(e))
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+	})
+}
+
+// TestPasteLinewiseFirstNonBlank checks that linewise p and P, in normal and
+// visual-line mode, put the cursor on the first non-blank of the first pasted
+// line, and that j and k keep that column. Expected results are from Vim 9.2.
+func TestPasteLinewiseFirstNonBlank(t *testing.T) {
+	const text = "hello world\n  second line\n    third line\nfourth"
+	tests := []struct {
+		keys string
+		want Position
+		text string
+	}{
+		{"jyyp", Position{2, 2}, "hello world\n  second line\n  second line\n    third line\nfourth"},
+		{"jyypj", Position{3, 2}, ""},
+		{"jyyP", Position{1, 2}, "hello world\n  second line\n  second line\n    third line\nfourth"},
+		{"jyyPj", Position{2, 2}, ""},
+		{"jyyGp", Position{4, 2}, "hello world\n  second line\n    third line\nfourth\n  second line"},
+		{"jyyggP", Position{0, 2}, "  second line\nhello world\n  second line\n    third line\nfourth"},
+		{"jyyklllp", Position{1, 2}, ""},
+		{"jyyklllP", Position{0, 2}, ""},
+		{"yyjp", Position{2, 0}, "hello world\n  second line\nhello world\n    third line\nfourth"},
+		// Multi-line: the first non-blank of the first pasted line.
+		{"jVjyp", Position{2, 2}, "hello world\n  second line\n  second line\n    third line\n    third line\nfourth"},
+		{"jVjypj", Position{3, 2}, ""},
+		{"jVjyP", Position{1, 2}, "hello world\n  second line\n    third line\n  second line\n    third line\nfourth"},
+		{"jVjyGp", Position{4, 2}, "hello world\n  second line\n    third line\nfourth\n  second line\n    third line"},
+		{"jjVkyggp", Position{1, 2}, "hello world\n  second line\n    third line\n  second line\n    third line\nfourth"},
+		{"yjjp", Position{2, 0}, "hello world\n  second line\nhello world\n  second line\n    third line\nfourth"},
+		// Counts: the copies stay in order and the cursor goes to the first.
+		{"jyy3p", Position{2, 2}, "hello world\n  second line\n  second line\n  second line\n  second line\n    third line\nfourth"},
+		{"jyy3pj", Position{3, 2}, ""},
+		{"jyy3P", Position{1, 2}, "hello world\n  second line\n  second line\n  second line\n  second line\n    third line\nfourth"},
+		{"jVjy2p", Position{2, 2}, "hello world\n  second line\n  second line\n    third line\n  second line\n    third line\n    third line\nfourth"},
+		{"jVjy2P", Position{1, 2}, "hello world\n  second line\n    third line\n  second line\n    third line\n  second line\n    third line\nfourth"},
+		// Visual-line mode.
+		{"jyyklllVp", Position{0, 2}, "  second line\n  second line\n    third line\nfourth"},
+		{"jyyklllVP", Position{0, 2}, "  second line\n  second line\n    third line\nfourth"},
+		{"jVjyklllVp", Position{0, 2}, "  second line\n    third line\n  second line\n    third line\nfourth"},
+		{"jyyjVjp", Position{2, 2}, "hello world\n  second line\n  second line"},
+		{"jyyGVp", Position{3, 2}, "hello world\n  second line\n    third line\n  second line"},
+		{"jyyGVpk", Position{2, 2}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(text)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+		})
+	}
+}
+
+// TestPasteCharacterwiseCount checks charwise p and P with a count, multi-line
+// charwise text, and where they leave the cursor: on the last pasted char for
+// text within a line, on the first for text spanning lines. Expected results
+// are from Vim 9.2.
+func TestPasteCharacterwiseCount(t *testing.T) {
+	const text = "hello world\nsecond line\nthird"
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		text    string
+	}{
+		{text, "yl3p", Position{0, 3}, "hhhhello world\nsecond line\nthird"},
+		{text, "yl3pj", Position{1, 3}, ""},
+		{text, "yl3P", Position{0, 2}, "hhhhello world\nsecond line\nthird"},
+		{text, "y2l3p", Position{0, 6}, "hheheheello world\nsecond line\nthird"},
+		{text, "y2l3P", Position{0, 5}, "hehehehello world\nsecond line\nthird"},
+		{text, "ye3p", Position{0, 15}, "hhellohellohelloello world\nsecond line\nthird"},
+		{text, "ye3P", Position{0, 14}, "hellohellohellohello world\nsecond line\nthird"},
+		{text, "ylp", Position{0, 1}, "hhello world\nsecond line\nthird"},
+		{text, "ylP", Position{0, 0}, "hhello world\nsecond line\nthird"},
+		{text, "yl$3p", Position{0, 13}, "hello worldhhh\nsecond line\nthird"},
+		{text, "yl2p.", Position{0, 4}, "hhhhhello world\nsecond line\nthird"},
+		{text, "yl3pu", Position{0, 0}, text},
+		// Text spanning lines: the cursor goes to its first char.
+		{text, "lvjyp", Position{0, 2}, "heello world\nsello world\nsecond line\nthird"},
+		{text, "lvjyP", Position{0, 1}, "hello world\nseello world\nsecond line\nthird"},
+		{text, "lvjy2p", Position{0, 2}, "heello world\nseello world\nsello world\nsecond line\nthird"},
+		{text, "lvjy2pj", Position{1, 2}, ""},
+		{text, "lvjy2P", Position{0, 1}, "hello world\nseello world\nseello world\nsecond line\nthird"},
+		{text, "lvjy2pu", Position{0, 1}, text},
+		// Visual p: the same cursor rules.
+		{text, "lvjyjjlllvlp", Position{2, 4}, "hello world\nsecond line\nthirello world\nse"},
+		{text, "lvjyjjlllvlpk", Position{1, 4}, ""},
+		{text, "yejjlllvlp", Position{2, 7}, "hello world\nsecond line\nthihello"},
+		// Runes, not bytes.
+		{"héllo", "lylp", Position{0, 2}, "hééllo"},
+		{"héllo", "lylP", Position{0, 1}, "hééllo"},
+		// Empty line: the text goes at col 0.
+		{"hello\n\nworld", "yej3p", Position{1, 14}, "hello\nhellohellohello\nworld"},
+		{"hello\n\nworld", "yej3P", Position{1, 14}, "hello\nhellohellohello\nworld"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+		})
+	}
+}
+
+// TestPasteCountLimit checks that a count that would paste more than
+// maxRepeatedInsert runes pastes nothing and fails with ErrTextTooLong, as the
+// insert count limit does.
+func TestPasteCountLimit(t *testing.T) {
+	tests := []struct {
+		name, yank, count, msg string
+	}{
+		{"charwise", "yl", "10000001p", "resulting text too long: 10000001 copies of 1 rune"},
+		{"charwise before", "yl", "10000001P", "resulting text too long: 10000001 copies of 1 rune"},
+		{"linewise", "yy", "1666667p", "resulting text too long: 1666667 copies of 6 runes"},
+		{"linewise before", "yy", "1666667P", "resulting text too long: 1666667 copies of 6 runes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard("hello")
+			typeKeys(t, e, tt.yank+tt.count[:len(tt.count)-1])
+			err := e.HandleKey(KeyEvent{Rune: rune(tt.count[len(tt.count)-1])})
+			require.NotNil(t, err)
+			assert.Equal(t, ErrTextTooLongId, err.ID())
+			assert.True(t, errors.Is(err, ErrTextTooLong))
+			assert.Equal(t, tt.msg, err.Error())
+			assert.Equal(t, "hello", content(e))
+			assert.Equal(t, Position{0, 0}, cursorPos(e))
+		})
+	}
+
+	t.Run("up to the limit pastes", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello")
+		typeKeys(t, e, "yl10000000p")
+		assert.Equal(t, 10_000_005, e.GetBuffer().LineRuneCount(0))
+		assert.Equal(t, Position{0, 10_000_000}, cursorPos(e))
 	})
 }
 
 // TestPasteCharacterWiseBefore tests 'P' after a character-wise yank.
-// Content is inserted at the cursor position (same column) — cursor moves right by the pasted length.
+// Content is inserted at the cursor position (same column) — the cursor lands on the last pasted character.
 func TestPasteCharacterWiseBefore(t *testing.T) {
 	t.Run("ye then P inserts word at cursor position", func(t *testing.T) {
 		e, cb := newTestEditorWithClipboard("hello world")
@@ -117,7 +260,7 @@ func TestPasteCharacterWiseBefore(t *testing.T) {
 		assert.Equal(t, "hello", cb.content)
 		keys(e, 'P')
 		assert.Equal(t, "hellohello world", content(e))
-		assert.Equal(t, Position{0, 5}, cursorPos(e))
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
 	})
 
 	t.Run("P mid-line inserts at cursor column", func(t *testing.T) {
@@ -126,7 +269,7 @@ func TestPasteCharacterWiseBefore(t *testing.T) {
 		keys(e, 'w')      // move to col 6 ("world")
 		keys(e, 'P')      // paste "hello" at col 6
 		assert.Equal(t, "hello helloworld", content(e))
-		assert.Equal(t, Position{0, 11}, cursorPos(e))
+		assert.Equal(t, Position{0, 10}, cursorPos(e))
 	})
 }
 
