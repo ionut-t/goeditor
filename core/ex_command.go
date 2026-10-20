@@ -95,8 +95,8 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 		if lineNum, ok := parseLineNumber(command); ok && len(args) == 0 {
 			// User enters 1-based, we use 0-based. Like Vim, :0 goes to the
 			// first line and a number past the end goes to the last line.
-			targetRow := max(lineNum-1, 0)
-			targetRow = min(targetRow, e.buffer.LineCount()-1)
+			maxRow := max(0, e.buffer.LineCount()-1)
+			targetRow := min(max(0, lineNum-1), maxRow)
 			cursor := e.buffer.GetCursor()
 
 			cursor.Position.Row = targetRow

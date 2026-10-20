@@ -322,6 +322,12 @@ func TestCommandModeGotoLine(t *testing.T) {
 		assert.Equal(t, Position{4, 0}, cursorPos(e))
 	})
 
+	t.Run("empty buffer stays on the first line", func(t *testing.T) {
+		e := newTestEditor("")
+		assert.Nil(t, e.ExecuteCommand("1"))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
 	for _, cmd := range []string{"10abc", "3 abc", "3x", "+2", "-1", "1e2"} {
 		t.Run("rejects "+cmd, func(t *testing.T) {
 			e := newTestEditor(text)
