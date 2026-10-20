@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // drainSignals discards all pending signals from the editor's signal channel.
@@ -184,10 +185,9 @@ func TestCommandModeWrite(t *testing.T) {
 func assertSavedThenQuit(t *testing.T, e Editor, wantContent string) {
 	t.Helper()
 	save, ok := nextSignal(e).(SaveSignal)
-	if assert.True(t, ok, "expected SaveSignal") {
-		_, savedContent := save.Value()
-		assert.Equal(t, wantContent, savedContent)
-	}
+	require.True(t, ok, "expected SaveSignal")
+	_, savedContent := save.Value()
+	assert.Equal(t, wantContent, savedContent)
 	_, ok = nextSignal(e).(QuitSignal)
 	assert.True(t, ok, "expected QuitSignal")
 	assert.True(t, e.GetState().Quit)
