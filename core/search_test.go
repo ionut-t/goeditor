@@ -131,10 +131,9 @@ func TestSearchSmartCase(t *testing.T) {
 	})
 
 	t.Run("non-ASCII uppercase counts", func(t *testing.T) {
-		// Separate lines: forward-search columns after multibyte text are byte offsets (separate bug).
-		e := newTestEditor("x élan\nÉlan")
+		e := newTestEditor("x élan Élan")
 		e.ExecuteSearch("Élan", smartCase)
-		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 
 	t.Run("n and N stay case-sensitive", func(t *testing.T) {
@@ -163,6 +162,82 @@ func TestSearchSmartCase(t *testing.T) {
 	t.Run(`\c overrides smartcase`, func(t *testing.T) {
 		e := newTestEditor("x foo Foo")
 		e.ExecuteSearch(`Foo\c`, smartCase)
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+}
+
+// TestSearchMultibyte tests that match columns are rune indices when the line contains multibyte text.
+func TestSearchMultibyte(t *testing.T) {
+	t.Run("forward match after multibyte text", func(t *testing.T) {
+		e := newTestEditor("é foo")
+		defaultSearch(e, "foo")
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("forward search starts after the cursor rune", func(t *testing.T) {
+		// "ééxx": cursor on the first x (col 2) must find the second x (col 3).
+		e := newTestEditor("ééxx")
+		e.GetBuffer().SetCursor(Cursor{Position: Position{Row: 0, Col: 2}})
+		defaultSearch(e, "x")
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+
+	t.Run("n and N after multibyte text", func(t *testing.T) {
+		e := newTestEditor("é x é x")
+		wrapSearch(e, "x")
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		e.NextSearchResult()
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		e.NextSearchResult()
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+		e.PreviousSearchResult()
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	t.Run("forward ignore-case match after multibyte text", func(t *testing.T) {
+		e := newTestEditor("É FOO")
+		e.ExecuteSearch("foo", SearchOptions{IgnoreCase: true})
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("backward match after multibyte text", func(t *testing.T) {
+		e := newTestEditor("é foo x")
+		e.GetBuffer().SetCursor(Cursor{Position: Position{Row: 0, Col: 6}})
+		e.ExecuteSearch("foo", SearchOptions{Backwards: true})
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run(`\<x after word-char multibyte text does not panic`, func(t *testing.T) {
+		// é is a word character, so x does not start a word.
+		e := newTestEditor("éééx")
+		assert.NotPanics(t, func() { defaultSearch(e, `\<x`) })
+		assert.Empty(t, e.SearchResults())
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	t.Run(`\<x after multibyte text`, func(t *testing.T) {
+		e := newTestEditor("ééé x")
+		defaultSearch(e, `\<x`)
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	t.Run("* after multibyte text", func(t *testing.T) {
+		e := newTestEditor("éé foo foobar foo")
+		e.GetBuffer().SetCursor(Cursor{Position: Position{Row: 0, Col: 3}})
+		assert.NotPanics(t, func() { e.SearchWordUnderCursor(false) })
+		assert.Equal(t, Position{0, 14}, cursorPos(e))
+	})
+
+	t.Run("ignore-case match after text whose lowercase is longer in bytes", func(t *testing.T) {
+		// Ⱥ (2 bytes) lowercases to ⱥ (3 bytes); the column must not depend on either.
+		e := newTestEditor("Ⱥ FOO")
+		e.ExecuteSearch("foo", SearchOptions{IgnoreCase: true})
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
+	})
+
+	t.Run("ignore-case pattern with multibyte uppercase", func(t *testing.T) {
+		e := newTestEditor("x ÉLAN élan")
+		e.ExecuteSearch("élan", SearchOptions{IgnoreCase: true})
 		assert.Equal(t, Position{0, 2}, cursorPos(e))
 	})
 }
