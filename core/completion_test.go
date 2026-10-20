@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- findWordLengthBeforeCursor ---
@@ -143,6 +144,28 @@ func TestInsertCompletionSavesHistory(t *testing.T) {
 		escape(e)
 		keys(e, 'u')
 		assert.Equal(t, "sel", content(e))
+	})
+}
+
+// TestInsertCompletionStaleCursor tests that a completion arriving after the
+// buffer changed under the cursor returns an error instead of panicking.
+func TestInsertCompletionStaleCursor(t *testing.T) {
+	t.Run("column past end of shortened line", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', 'a')                                    // col 5
+		require.Nil(t, e.GetBuffer().DeleteRunesAt(0, 2, 3)) // line is now "he"
+		err := e.InsertCompletion(Completion{Text: "select"})
+		assert.ErrorIs(t, err, ErrInvalidPosition)
+		assert.Equal(t, "he", content(e))
+	})
+
+	t.Run("row past end of shortened buffer", func(t *testing.T) {
+		e := newTestEditor("a\nhello")
+		keys(e, 'j', '$', 'a')                               // row 1, col 5
+		require.Nil(t, e.GetBuffer().DeleteRunesAt(0, 1, 6)) // buffer is now "a"
+		err := e.InsertCompletion(Completion{Text: "select"})
+		assert.ErrorIs(t, err, ErrInvalidPosition)
+		assert.Equal(t, "a", content(e))
 	})
 }
 

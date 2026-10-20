@@ -101,17 +101,18 @@ func (e *editor) InsertCompletion(completion Completion) error {
 	cursor := e.buffer.GetCursor()
 	pos := cursor.Position
 
-	var lineRunes []rune
-	if pos.Row >= 0 && pos.Row < e.buffer.LineCount() {
-		lineRunes = e.buffer.GetLineRunes(pos.Row)
+	// The buffer may have changed since the completion was requested (e.g. an
+	// async completion arriving late), leaving the cursor out of range.
+	if pos.Row < 0 || pos.Row >= e.buffer.LineCount() {
+		return fmt.Errorf("InsertCompletion: %w: row %d out of bounds [0, %d)", ErrInvalidPosition, pos.Row, e.buffer.LineCount())
+	}
+	lineRunes := e.buffer.GetLineRunes(pos.Row)
+	if pos.Col < 0 || pos.Col > len(lineRunes) {
+		return fmt.Errorf("InsertCompletion: %w: col %d out of bounds [0, %d]", ErrInvalidPosition, pos.Col, len(lineRunes))
 	}
 
 	// Count word chars before cursor (the fragment already typed).
-	var textBeforeCursor string
-	if pos.Col >= 0 && pos.Col <= len(lineRunes) {
-		textBeforeCursor = string(lineRunes[:pos.Col])
-	}
-	wordBefore := findWordLengthBeforeCursor(textBeforeCursor, e.IsWordChar)
+	wordBefore := findWordLengthBeforeCursor(string(lineRunes[:pos.Col]), e.IsWordChar)
 
 	// Count word chars after cursor (the remainder of the same word).
 	wordAfter := 0
