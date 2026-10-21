@@ -914,3 +914,60 @@ func TestFirstNonBlankBlankLine(t *testing.T) {
 		})
 	}
 }
+
+// TestWordBackwardOverBlanks checks that b and B don't stop on the blanks at
+// the start of a line: they carry on to the last word of the line above. All
+// cases are from Vim 9.2.
+func TestWordBackwardOverBlanks(t *testing.T) {
+	const (
+		tabs      = "one\nab cd\n\t\t\t\tLorem ipsum\nCras"
+		spaces    = "one\nab cd\n    Lorem ipsum\nCras"
+		blankLine = "ab cd\n   \n  x y"
+		emptyLine = "ab cd\n\n  x y"
+		first     = "  foo bar\nbaz"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		text    string // checked if not empty
+	}{
+		{tabs, "jj0llllb", Position{1, 3}, ""},
+		{tabs, "jj0llllB", Position{1, 3}, ""},
+		{tabs, "jj0llll2b", Position{1, 0}, ""},
+		{tabs, "jj0llb", Position{1, 3}, ""},
+		{tabs, "jj0b", Position{1, 3}, ""},
+		{tabs, "jj0lllllb", Position{2, 4}, ""},
+		{tabs, "jj010l3b", Position{1, 0}, ""},
+		{tabs, "jj0lllldb", Position{1, 3}, "one\nab Lorem ipsum\nCras"},
+		{tabs, "jj0lllldB", Position{1, 3}, "one\nab Lorem ipsum\nCras"},
+		{tabs, "jj0lllld2b", Position{1, 0}, "one\nLorem ipsum\nCras"},
+		{tabs, "jj0lldb", Position{1, 3}, "one\nab \t\tLorem ipsum\nCras"},
+		{tabs, "jj0llllcbX<Esc>", Position{1, 3}, "one\nab XLorem ipsum\nCras"},
+		{tabs, "jj0llllybP", Position{1, 3}, "one\nab cd\n\t\t\t\tcd\n\t\t\t\tLorem ipsum\nCras"},
+		{tabs, "jj0llllg~b", Position{1, 3}, "one\nab CD\n\t\t\t\tLorem ipsum\nCras"},
+		{spaces, "jj0llllb", Position{1, 3}, ""},
+		{spaces, "jj0lllldb", Position{1, 3}, "one\nab Lorem ipsum\nCras"},
+		// A line of blanks is skipped; an empty line is a word.
+		{blankLine, "jj0llb", Position{0, 3}, ""},
+		{blankLine, "jj0ll2b", Position{0, 0}, ""},
+		{blankLine, "jj0lldb", Position{0, 3}, "ab x y"},
+		{emptyLine, "jj0llb", Position{1, 0}, ""},
+		{emptyLine, "jj0lldb", Position{1, 0}, "ab cd\nx y"},
+		// Blanks at the start of the buffer: b stops at its start.
+		{first, "llb", Position{0, 0}, ""},
+		{first, "lb", Position{0, 0}, ""},
+		{first, "lldb", Position{0, 0}, "foo bar\nbaz"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q on %q", tt.keys, tt.content), func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+			assert.Equal(t, NormalMode, e.GetState().Mode)
+		})
+	}
+}

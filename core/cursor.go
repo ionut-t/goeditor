@@ -485,8 +485,14 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune
 				}
 				// Move one forward to land on the start of the word/punctuation found
 				pos++
+			} else if c.Position.Row > 0 {
+				// Only blanks before the cursor: they aren't a word, so carry
+				// on from the end of the previous line (Vim's b doesn't stop
+				// on indentation or on a line of blanks).
+				c.Position.Col = 0
+				continue
 			} else {
-				// If we skipped whitespace and hit beginning of line
+				// Blanks at the start of the buffer: stop at its start.
 				pos = 0
 			}
 

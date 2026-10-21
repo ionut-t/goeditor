@@ -13,6 +13,9 @@ import (
 	"github.com/rivo/uniseg"
 )
 
+// tabWidth is how many columns apart the tab stops are.
+const tabWidth = 4
+
 // getVisualWidth calculates the visual width of a string, properly handling
 // grapheme clusters (e.g., emojis with variation selectors, combining characters) and tabs.
 // Tabs are expanded to the next tab stop (multiples of 4).
@@ -23,7 +26,6 @@ func getVisualWidth(s string) int {
 // getVisualWidthAt calculates the visual width of a string starting at a given column position.
 // This is necessary for proper tab width calculation, as tabs expand to the next tab stop.
 func getVisualWidthAt(s string, startCol int) int {
-	const tabWidth = 4
 	width := 0
 	currentCol := startCol
 	gr := uniseg.NewGraphemes(s)
@@ -81,8 +83,6 @@ const printableASCII = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUV
 // It only converts a short window of runes after startIdx to a string, not the
 // rest of the line, so iterating a line grapheme by grapheme stays linear.
 func nextGrapheme(runes []rune, startIdx int, currentCol int) (graphemeStr string, visualWidth int, runesConsumed int) {
-	const tabWidth = 4
-
 	if startIdx >= len(runes) {
 		return "", 0, 0
 	}
@@ -597,17 +597,27 @@ func (m *Model) calculateVisualMetrics() {
 		// Use the pre-computed visual row offset from lazy layout
 		visualRowOffset := m.visualLayoutCacheStartVisualRow
 
+		// The column just past a segment is the first column of the next
+		// segment when the wrap dropped nothing (a hard break, or a break
+		// before a tab), so a segment that contains the column wins. Only
+		// when none does (the cursor after the end of the line, or on a space
+		// dropped at a wrap point) is the cursor drawn after a segment's end.
+		afterSegmentEnd := -1
 		for cacheIdx, vli := range m.visualLayoutCache {
-			if vli.LogicalRow == clampedCursorRow {
-				segmentRuneLen := len([]rune(vli.Content))
-				if m.clampedCursorLogicalCol >= vli.LogicalStartCol {
-					if (segmentRuneLen > 0 && m.clampedCursorLogicalCol <= vli.LogicalStartCol+segmentRuneLen) ||
-						(segmentRuneLen == 0 && m.clampedCursorLogicalCol == vli.LogicalStartCol) {
-						absoluteTargetVisualRow = visualRowOffset + cacheIdx
-						break
-					}
-				}
+			if vli.LogicalRow != clampedCursorRow || m.clampedCursorLogicalCol < vli.LogicalStartCol {
+				continue
 			}
+			segmentEnd := vli.LogicalStartCol + len([]rune(vli.Content))
+			if m.clampedCursorLogicalCol < segmentEnd {
+				absoluteTargetVisualRow = visualRowOffset + cacheIdx
+				break
+			}
+			if afterSegmentEnd == -1 && m.clampedCursorLogicalCol == segmentEnd {
+				afterSegmentEnd = visualRowOffset + cacheIdx
+			}
+		}
+		if absoluteTargetVisualRow == -1 {
+			absoluteTargetVisualRow = afterSegmentEnd
 		}
 
 		if absoluteTargetVisualRow == -1 {
@@ -777,12 +787,13 @@ func (m *Model) renderVisibleSliceDefault() {
 					currentScreenColForChar := lineNumWidth + currentVisualCol
 					isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-					if isCursorOnThisChar && m.isFocused && m.cursorVisible {
-						styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
-					} else {
-						styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
+					charWidth := getRuneVisualWidth(chRuneToStyle)
+					if chRuneToStyle == '\t' {
+						charWidth = tabWidth - currentVisualCol%tabWidth
 					}
-					currentVisualCol += getRuneVisualWidth(chRuneToStyle)
+					m.writeGrapheme(&styledSegment, string(chRuneToStyle), charWidth, charSpecificRenderStyle,
+						isCursorOnThisChar && m.isFocused && m.cursorVisible)
+					currentVisualCol += charWidth
 				}
 				charsToAdvance = bestMatchLen
 			} else {
@@ -802,11 +813,8 @@ func (m *Model) renderVisibleSliceDefault() {
 				currentScreenColForChar := lineNumWidth + currentVisualCol
 				isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-				if isCursorOnChar && m.isFocused && m.cursorVisible {
-					styledSegment.WriteString(m.getCursorStyles().Render(graphemeStr))
-				} else {
-					styledSegment.WriteString(baseCharStyle.Render(graphemeStr))
-				}
+				m.writeGrapheme(&styledSegment, graphemeStr, graphemeWidth, baseCharStyle,
+					isCursorOnChar && m.isFocused && m.cursorVisible)
 				currentVisualCol += graphemeWidth
 			}
 			charIdx += charsToAdvance
@@ -901,6 +909,56 @@ func (m *Model) renderVisibleSliceDefault() {
 	}
 
 	m.viewport.SetContent(finalContentSlice)
+}
+
+// writeGrapheme writes one grapheme in style, or in the cursor style when
+// cursorOn is set. A tab is written as the width spaces the layout gives it,
+// since lipgloss would turn it into 4 spaces wherever it is. The cursor on a
+// tab takes one of its cells, the one Vim puts it on (tabCursorOnLastCell).
+func (m *Model) writeGrapheme(b *strings.Builder, grapheme string, width int, style lipgloss.Style, cursorOn bool) {
+	if grapheme != "\t" {
+		if cursorOn {
+			b.WriteString(m.getCursorStyles().Render(grapheme))
+		} else {
+			b.WriteString(style.Render(grapheme))
+		}
+		return
+	}
+
+	if !cursorOn {
+		b.WriteString(style.Render(strings.Repeat(" ", width)))
+		return
+	}
+
+	before := 0
+	if m.tabCursorOnLastCell() {
+		before = width - 1
+	}
+	if before > 0 {
+		b.WriteString(style.Render(strings.Repeat(" ", before)))
+	}
+	b.WriteString(m.getCursorStyles().Render(" "))
+	if after := width - 1 - before; after > 0 {
+		b.WriteString(style.Render(strings.Repeat(" ", after)))
+	}
+}
+
+// tabCursorOnLastCell reports whether the cursor on a tab is drawn on the
+// tab's last cell rather than its first. Vim draws it on the last cell in
+// normal mode, on the first in insert mode, and in visual mode on the last
+// only when the cursor is after the anchor.
+func (m *Model) tabCursorOnLastCell() bool {
+	state := m.editor.GetState()
+	switch state.Mode {
+	case core.InsertMode:
+		return false
+	case core.VisualMode, core.VisualLineMode:
+		cursor := m.editor.GetBuffer().GetCursor().Position
+		anchor := state.VisualStart
+		return cursor.Row > anchor.Row || (cursor.Row == anchor.Row && cursor.Col > anchor.Col)
+	default:
+		return true
+	}
 }
 
 // renderVisibleSlice renders the visible slice of the visual layout.
@@ -1416,12 +1474,13 @@ func (m *Model) renderSegment(
 				currentScreenColForChar := lineNumWidth + currentVisualCol // <-- MUST USE currentVisualCol
 				isCursorOnThisChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-				if isCursorOnThisChar && m.isFocused && m.cursorVisible {
-					styledSegment.WriteString(m.getCursorStyles().Render(string(chRuneToStyle)))
-				} else {
-					styledSegment.WriteString(charSpecificRenderStyle.Render(string(chRuneToStyle)))
+				charWidth := getRuneVisualWidth(chRuneToStyle)
+				if chRuneToStyle == '\t' {
+					charWidth = tabWidth - currentVisualCol%tabWidth
 				}
-				currentVisualCol += getRuneVisualWidth(chRuneToStyle) // <-- MUST INCREMENT BY WIDTH
+				m.writeGrapheme(&styledSegment, string(chRuneToStyle), charWidth, charSpecificRenderStyle,
+					isCursorOnThisChar && m.isFocused && m.cursorVisible)
+				currentVisualCol += charWidth // <-- MUST INCREMENT BY WIDTH
 			}
 			charsToAdvance = bestMatchLen
 		} else {
@@ -1442,11 +1501,8 @@ func (m *Model) renderSegment(
 			currentScreenColForChar := lineNumWidth + currentVisualCol
 			isCursorOnChar := (currentSliceRow == targetVisualRowInSlice && currentScreenColForChar == targetScreenColForCursor)
 
-			if isCursorOnChar && m.isFocused && m.cursorVisible {
-				styledSegment.WriteString(m.getCursorStyles().Render(graphemeStr))
-			} else {
-				styledSegment.WriteString(baseCharStyle.Render(graphemeStr))
-			}
+			m.writeGrapheme(&styledSegment, graphemeStr, graphemeWidth, baseCharStyle,
+				isCursorOnChar && m.isFocused && m.cursorVisible)
 			currentVisualCol += graphemeWidth
 		}
 
