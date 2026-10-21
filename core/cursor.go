@@ -230,12 +230,23 @@ func (c *Cursor) MoveToAfterLineEnd(buffer Buffer) {
 // the last one.
 func (c *Cursor) MoveToFirstNonBlank(buffer Buffer) {
 	line := buffer.GetLineRunes(c.Position.Row)
-	c.Position.Col = min(firstNonBlankCol(line), max(len(line)-1, 0))
+	col := firstNonBlankCol(line)
+	if col == len(line) && col > 0 { // only blanks: stop on the last one
+		col--
+	}
+	c.Position.Col = col
+	c.Preferred = c.Position.Col
+}
+
+// moveToInsertStart moves the cursor to where Vim's I inserts: the first
+// non-blank, or after the blanks on a line of only blanks.
+func (c *Cursor) moveToInsertStart(buffer Buffer) {
+	c.Position.Col = firstNonBlankCol(buffer.GetLineRunes(c.Position.Row))
 	c.Preferred = c.Position.Col
 }
 
 // firstNonBlankCol returns the column of the first non-blank in line, or
-// len(line) if there is none (where Vim's I inserts).
+// len(line) if there is none.
 func firstNonBlankCol(line []rune) int {
 	for i, r := range line {
 		if !isWhiteSpace(r) {

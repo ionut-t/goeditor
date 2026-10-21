@@ -911,8 +911,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		startInsert(editor, count, false)
 
 	case key.Rune == 'I': // Insert at first non-blank, or after the blanks of a blank line
-		cursor.Position.Col = firstNonBlankCol(buffer.GetLineRunes(cursor.Position.Row))
-		cursor.Preferred = cursor.Position.Col
+		cursor.moveToInsertStart(buffer)
 		buffer.SetCursor(cursor) // Update buffer's cursor
 		startInsert(editor, count, false)
 
