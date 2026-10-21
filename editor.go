@@ -521,9 +521,6 @@ func (m *Model) SetSize(width, height int) {
 
 // SetBytes sets the content of the core.
 func (m *Model) SetBytes(content []byte) {
-	if len(content) == 0 {
-		content = []byte("\n")
-	}
 	m.editor.SetContent(content)
 	m.handleContentChange()
 	m.renderVisibleSlice()
