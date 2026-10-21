@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"unicode"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -261,6 +262,81 @@ func TestSearchMultibyte(t *testing.T) {
 		e.ExecuteSearch("élan", SearchOptions{IgnoreCase: true})
 		assert.Equal(t, Position{0, 2}, cursorPos(e))
 	})
+}
+
+// TestSearchCaseFolding checks that ignore case matches a rune's whole simple-fold
+// orbit, as Vim does, rather than comparing lowercased runes.
+func TestSearchCaseFolding(t *testing.T) {
+	ignoreCase := SearchOptions{IgnoreCase: true}
+
+	tests := []struct {
+		name    string
+		content string
+		pattern string
+		opts    SearchOptions
+		want    Position
+	}{
+		// ToLower(ς) is ς, so lowercasing never matched it to σ or Σ.
+		{"final sigma matches capital sigma", "xΣ", "ς", ignoreCase, Position{0, 1}},
+		{"sigma matches final sigma", "xς", "σ", ignoreCase, Position{0, 1}},
+		{"capital sigma matches final sigma", "xς", "Σ", ignoreCase, Position{0, 1}},
+		// ToLower(ſ) is ſ.
+		{"s matches long s", "xſ", "s", ignoreCase, Position{0, 1}},
+		{"long s matches S", "xS", "ſ", ignoreCase, Position{0, 1}},
+		// Go's ToLower(İ) is i, but İ is alone in its fold orbit, so Vim matches neither way.
+		{"i does not match dotted capital I", "xİ i", "i", ignoreCase, Position{0, 3}},
+		{`İ\c does not match i or I`, "xi I İ", `İ\c`, SearchOptions{}, Position{0, 5}},
+		{"dotless i matches only itself", "xi I ı", "ı", ignoreCase, Position{0, 5}},
+		// These already matched by lowercasing; folding must keep them.
+		{"k matches Kelvin sign", "x\u212a", "k", ignoreCase, Position{0, 1}},
+		{"Kelvin sign matches K", "xK", "\u212a", ignoreCase, Position{0, 1}},
+		{"omega matches Ohm sign", "x\u2126", "ω", ignoreCase, Position{0, 1}},
+		{"sharp s matches capital sharp s", "xẞ", "ß", ignoreCase, Position{0, 1}},
+		{"titlecase dz matches uppercase", "xǄ", "ǅ", ignoreCase, Position{0, 1}},
+		// Lowercase-only sigmas keep smartcase case-insensitive.
+		{"final sigma with smartcase", "xΣ", "ς", SearchOptions{IgnoreCase: true, SmartCase: true}, Position{0, 1}},
+		{"sigma with smartcase", "xς", "σ", SearchOptions{IgnoreCase: true, SmartCase: true}, Position{0, 1}},
+		{`\c without ignore case folds too`, "xΣ", `ς\c`, SearchOptions{}, Position{0, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			e.ExecuteSearch(tt.pattern, tt.opts)
+			assert.Equal(t, tt.want, cursorPos(e))
+		})
+	}
+
+	t.Run("sharp s does not match ss", func(t *testing.T) {
+		e := newTestEditor("x ss SS")
+		e.ExecuteSearch("ß", ignoreCase)
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("backward search folds", func(t *testing.T) {
+		e := newTestEditor("Σ x")
+		e.GetBuffer().SetCursor(Cursor{Position: Position{Row: 0, Col: 2}})
+		e.ExecuteSearch("ς", SearchOptions{IgnoreCase: true, Backwards: true})
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+}
+
+// TestFoldRune checks foldRune against unicode.SimpleFold for every rune: it must
+// return the smallest rune in the orbit (the ASCII fast path included), and no orbit
+// may be larger than Find's firstRunes array, which would drop matches.
+func TestFoldRune(t *testing.T) {
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		want, size := r, 1
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			want = min(want, f)
+			size++
+		}
+		if got := foldRune(r); got != want {
+			t.Fatalf("foldRune(%U) = %U, want %U", r, got, want)
+		}
+		if size > 4 {
+			t.Fatalf("fold orbit of %U has %d runes; grow firstRunes in Find", r, size)
+		}
+	}
 }
 
 // TestSearchInlineModifiers tests the \c, \C, \<, and \> inline modifiers.
