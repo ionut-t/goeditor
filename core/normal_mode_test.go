@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -202,5 +203,38 @@ func TestCtrlCancelsPendingCommand(t *testing.T) {
 				assert.Equal(t, Position{Row: 0, Col: 4}, cursorPos(e))
 			})
 		}
+	}
+}
+
+// TestEmptyBuffer checks editing a buffer whose content was set to "".
+// Expected values are from Vim 9.2 on an empty file.
+func TestEmptyBuffer(t *testing.T) {
+	tests := []struct {
+		name string
+		keys string
+		text string
+		want Position
+	}{
+		{"ihi<Esc>", "ihi\x1b", "hi", Position{0, 1}},
+		{"ohi<Esc>", "ohi\x1b", "\nhi", Position{1, 1}},
+		{"Ohi<Esc>", "Ohi\x1b", "hi\n", Position{0, 1}},
+		{"dd", "dd", "", Position{0, 0}},
+		{"G", "G", "", Position{0, 0}},
+		{"ihi<Esc>u", "ihi\x1bu", "", Position{0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard("")
+			for _, r := range tt.keys {
+				if r == '\x1b' {
+					escape(e)
+					continue
+				}
+				require.Nil(t, e.HandleKey(KeyEvent{Rune: r}))
+			}
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, 1+strings.Count(tt.text, "\n"), e.GetBuffer().LineCount())
+		})
 	}
 }
