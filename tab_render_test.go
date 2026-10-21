@@ -20,11 +20,11 @@ const tabCursorBackground = "#abcdef"
 // drawnCursorCol returns the screen column of the first cell drawn with
 // tabCursorBackground in a rendered row, or -1 if there is none.
 func drawnCursorCol(row string) int {
-	idx := strings.Index(row, "48;2;171;205;239")
-	if idx < 0 {
+	before, _, ok := strings.Cut(row, "48;2;171;205;239")
+	if !ok {
 		return -1
 	}
-	start := strings.LastIndex(row[:idx], "\x1b[")
+	start := strings.LastIndex(before, "\x1b[")
 	return ansi.StringWidth(row[:start])
 }
 
@@ -145,10 +145,9 @@ func TestTabsRenderAtTabStops(t *testing.T) {
 }
 
 // TestCursorAtWrapPoint walks the cursor back with h over lines that wrap
-// with nothing dropped at the break (hard breaks, breaks before a tab). The
-// column just past a row is the first column of the next row, so the cursor
-// must be drawn there, not after the end of the row above. The lines have no
-// spaces: a space at a wrap point is dropped, which is a separate bug.
+// (hard breaks, breaks after a space or a tab). Nothing is dropped at a wrap
+// point, so the column just past a row is the first column of the next row:
+// the cursor must be drawn there, not after the end of the row above.
 func TestCursorAtWrapPoint(t *testing.T) {
 	lines := []string{
 		"abcdefghij",
@@ -157,6 +156,9 @@ func TestCursorAtWrapPoint(t *testing.T) {
 		"abc\tdefg\thij\tk",
 		"a\tb\tc\td\te\tf\tg\th",
 		"if(x){\n\t\treturn\tnil\n\t}",
+		"abcdefgh ijkl",
+		"if x {\n\t\treturn  nil\n\t}",
+		"hello   world  !",
 	}
 
 	for _, content := range lines {
