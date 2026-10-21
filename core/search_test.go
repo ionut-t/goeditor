@@ -143,6 +143,20 @@ func TestSearchSmartCase(t *testing.T) {
 		assert.Equal(t, Position{0, 5}, cursorPos(e))
 	})
 
+	t.Run("Other_Uppercase counts as uppercase", func(t *testing.T) {
+		// Ⓐ (U+24B6) isn't IsUpper or IsTitle, but it has a lowercase form.
+		e := newTestEditor("xⓐ Ⓐ")
+		e.ExecuteSearch("Ⓐ", smartCase)
+		assert.Equal(t, Position{0, 3}, cursorPos(e))
+	})
+
+	t.Run("uppercase without a lowercase form doesn't count", func(t *testing.T) {
+		// ϒ (U+03D2) is IsUpper but has no lowercase form, so Vim keeps ϒa case-insensitive.
+		e := newTestEditor("xϒA ϒa")
+		e.ExecuteSearch("ϒa", smartCase)
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
+	})
+
 	t.Run("n and N stay case-sensitive", func(t *testing.T) {
 		e := newTestEditor("Foo foo Foo foo")
 		e.ExecuteSearch("Foo", SearchOptions{IgnoreCase: true, SmartCase: true, Wrap: true})

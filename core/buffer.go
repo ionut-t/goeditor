@@ -71,6 +71,10 @@ func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions
 	return true
 }
 
+// hasUpper reports whether r changes when lowercased. This is Vim's smartcase test,
+// so it also covers titlecase (ǅ) and Other_Uppercase (Ⓐ), which unicode.IsUpper misses.
+func hasUpper(r rune) bool { return unicode.ToLower(r) != r }
+
 // matchRunesAt reports whether pattern occurs in line at rune column col.
 // With ignoreCase, pattern must already be lowercased; line runes are lowercased as they are compared.
 func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
@@ -383,9 +387,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	}
 
 	// Smartcase: with IgnoreCase on, a pattern containing an uppercase letter is case-sensitive.
-	// Like Vim, any letter that changes when lowercased counts, so titlecase (ǅ) does too.
-	hasUpper := strings.ContainsFunc(pattern, func(r rune) bool { return unicode.ToLower(r) != r })
-	ignoreCase := options.IgnoreCase && (!options.SmartCase || !hasUpper)
+	ignoreCase := options.IgnoreCase && (!options.SmartCase || !strings.ContainsFunc(pattern, hasUpper))
 
 	searchRunes := []rune(pattern)
 	if ignoreCase {
