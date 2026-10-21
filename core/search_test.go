@@ -86,6 +86,107 @@ func TestSearchWrap(t *testing.T) {
 		defaultSearch(e, "hello")
 		assert.Empty(t, e.SearchResults())
 	})
+
+	t.Run("failed ?pattern at the top scans the buffer once", func(t *testing.T) {
+		e := newTestEditor("foo\nbar\nbaz")
+		finds := countFinds(e)
+		backwardSearch(e, "xyz")
+		assert.Empty(t, e.SearchResults())
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assert.Equal(t, 1, *finds)
+	})
+
+	t.Run("failed /pattern scans the buffer once", func(t *testing.T) {
+		e := newTestEditor("foo\nbar\nbaz")
+		finds := countFinds(e)
+		wrapSearch(e, "xyz")
+		assert.Empty(t, e.SearchResults())
+		assert.Equal(t, 1, *finds)
+	})
+}
+
+// findCounter counts calls to Find on the wrapped buffer.
+type findCounter struct {
+	Buffer
+	calls int
+}
+
+func (f *findCounter) Find(pattern string, start Position, options SearchOptions) (Position, bool) {
+	f.calls++
+	return f.Buffer.Find(pattern, start, options)
+}
+
+// countFinds makes e's buffer count Find calls and returns the counter.
+func countFinds(e Editor) *int {
+	rb := e.(*editor).buffer
+	fc := &findCounter{Buffer: rb.Buffer}
+	rb.Buffer = fc
+	return &fc.calls
+}
+
+// TestFindWrap tests wrapping in Buffer.Find itself, which hosts can call directly.
+func TestFindWrap(t *testing.T) {
+	find := func(content, pattern string, start Position, opts SearchOptions) (Position, bool) {
+		b := NewBuffer()
+		b.SetContent([]byte(content))
+		return b.Find(pattern, start, opts)
+	}
+
+	t.Run("forward wraps to the top", func(t *testing.T) {
+		pos, found := find("foo\nbar\nbaz", "foo", Position{1, 1}, SearchOptions{Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{0, 0}, pos)
+	})
+
+	t.Run("forward wraps to an earlier column on the start line", func(t *testing.T) {
+		pos, found := find("foo bar", "foo", Position{0, 4}, SearchOptions{Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{0, 0}, pos)
+	})
+
+	t.Run("forward without wrap stops at the bottom", func(t *testing.T) {
+		_, found := find("foo\nbar\nbaz", "foo", Position{1, 1}, SearchOptions{})
+		assert.False(t, found)
+	})
+
+	t.Run("forward wrap finds the match at the start position", func(t *testing.T) {
+		pos, found := find("x foo y", "foo", Position{0, 2}, SearchOptions{Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{0, 2}, pos)
+	})
+
+	t.Run("backward wraps to the bottom", func(t *testing.T) {
+		pos, found := find("foo\nbar\nbaz", "baz", Position{1, 1}, SearchOptions{Backwards: true, Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{2, 0}, pos)
+	})
+
+	t.Run("backward wraps to a later column on the start line", func(t *testing.T) {
+		pos, found := find("foo bar", "bar", Position{0, 2}, SearchOptions{Backwards: true, Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{0, 4}, pos)
+	})
+
+	t.Run("backward without wrap stops at the top", func(t *testing.T) {
+		_, found := find("foo\nbar\nbaz", "baz", Position{0, 0}, SearchOptions{Backwards: true})
+		assert.False(t, found)
+	})
+
+	t.Run("backward wrap finds the match at the start position", func(t *testing.T) {
+		pos, found := find("x foo y", "foo", Position{0, 2}, SearchOptions{Backwards: true, Wrap: true})
+		assert.True(t, found)
+		assert.Equal(t, Position{0, 2}, pos)
+	})
+
+	t.Run("start outside the buffer doesn't panic", func(t *testing.T) {
+		for _, start := range []Position{{-5, 0}, {100, 0}, {0, -3}, {0, 1000}, {100, 100}} {
+			for _, backwards := range []bool{false, true} {
+				pos, found := find("foo\nbar", "bar", start, SearchOptions{Backwards: backwards, Wrap: true})
+				assert.True(t, found, "start %v backwards %v", start, backwards)
+				assert.Equal(t, Position{1, 0}, pos, "start %v backwards %v", start, backwards)
+			}
+		}
+	})
 }
 
 // TestSearchCaseInsensitive tests IgnoreCase search option.
@@ -567,6 +668,16 @@ func TestCancelSearch(t *testing.T) {
 		assert.NotEmpty(t, e.SearchResults())
 		e.CancelSearch()
 		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("resets index and options after cancel", func(t *testing.T) {
+		e := newTestEditor("hello world")
+		e.ExecuteSearch("world", SearchOptions{IgnoreCase: true, Backwards: true, Wrap: true})
+		e.CancelSearch()
+		state := e.GetState()
+		assert.Equal(t, SearchQuery{}, state.SearchQuery)
+		assert.Equal(t, -1, state.SearchResultIndex)
+		assert.Equal(t, SearchOptions{}, state.SearchOptions)
 	})
 
 	t.Run("next result is no-op after cancel", func(t *testing.T) {

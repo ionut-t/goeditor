@@ -403,7 +403,9 @@ func (b *textBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 	return nil
 }
 
-// Find searches forward or backward for the next occurrence of pattern.
+// Find searches forward or backward for the next occurrence of pattern, starting
+// after (or before) start. With options.Wrap, a search that reaches the end (or
+// start) of the buffer continues from the other end, up to and including start.
 // Returns the position and true if found, or false otherwise.
 func (b *textBuffer) Find(pattern string, start Position, options SearchOptions) (Position, bool) {
 	if pattern == "" {
@@ -421,8 +423,6 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	}
 
 	numLines := b.LineCount()
-	currentLine := start.Row
-	currentCol := start.Col
 
 	// firstRunes holds every rune that can match the pattern's first rune: its whole fold
 	// orbit with ignoreCase (at most 4 runes in Unicode). Comparing against it rejects most
@@ -451,62 +451,66 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 			(!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, len(searchRunes), options))
 	}
 
+	// Scan from just after (or before) start to the end (or start) of the buffer. With Wrap,
+	// continue from the other end back to start, inclusive, so a lone match at start is found.
+	// Each position is checked at most once, even when nothing matches.
 	if options.Backwards {
-		// Adjust starting column for backward search
-		if currentCol > 0 {
-			currentCol-- // Start searching *before* the cursor
-		} else if currentLine > 0 {
-			currentLine--
-			currentCol = b.LineRuneCount(currentLine)
-		} else {
-			if !options.Wrap {
-				return Position{}, false // Already at start of buffer
-			}
-
-			// Wrap to end of buffer
-			currentLine = numLines - 1
-			currentCol = b.LineRuneCount(currentLine)
-		}
-
-		for r := currentLine; r >= 0; r-- {
+		for r := min(start.Row, numLines-1); r >= 0; r-- {
 			lineRunes := b.GetLineRunes(r)
-
-			startSearchCol := len(lineRunes) - 1
+			from := len(lineRunes) - 1
 			if r == start.Row {
-				startSearchCol = currentCol
+				from = min(start.Col-1, from)
 			}
-
-			for c := startSearchCol; c >= 0; c-- {
+			for c := from; c >= 0; c-- {
 				if matchAt(lineRunes, c) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
 		}
-
-	} else { // Forward search
-		// Adjust starting column for forward search
-		currentCol++ // Start search *after* the cursor
-
-		for r := currentLine; r < numLines; r++ {
+		if !options.Wrap {
+			return Position{}, false
+		}
+		for r := numLines - 1; r >= max(start.Row, 0); r-- {
 			lineRunes := b.GetLineRunes(r)
-
-			startSearchCol := 0
+			to := 0
 			if r == start.Row {
-				startSearchCol = currentCol
+				to = max(start.Col, 0)
 			}
-
-			for c := startSearchCol; c < len(lineRunes); c++ {
+			for c := len(lineRunes) - 1; c >= to; c-- {
 				if matchAt(lineRunes, c) {
 					return Position{Row: r, Col: c}, true
 				}
 			}
-
-			// Reset column for next line down
-			currentCol = 0 // Start search from beginning of subsequent lines
 		}
+		return Position{}, false
 	}
 
-	// TODO: Implement wrapping if options.Wrap is true
-
-	return Position{}, false // Not found
+	for r := max(start.Row, 0); r < numLines; r++ {
+		lineRunes := b.GetLineRunes(r)
+		from := 0
+		if r == start.Row {
+			from = max(start.Col+1, 0)
+		}
+		for c := from; c < len(lineRunes); c++ {
+			if matchAt(lineRunes, c) {
+				return Position{Row: r, Col: c}, true
+			}
+		}
+	}
+	if !options.Wrap {
+		return Position{}, false
+	}
+	for r := 0; r <= min(start.Row, numLines-1); r++ {
+		lineRunes := b.GetLineRunes(r)
+		to := len(lineRunes) - 1
+		if r == start.Row {
+			to = min(start.Col, to)
+		}
+		for c := 0; c <= to; c++ {
+			if matchAt(lineRunes, c) {
+				return Position{Row: r, Col: c}, true
+			}
+		}
+	}
+	return Position{}, false
 }
