@@ -3,8 +3,10 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Buffer represents the text content being edited (Using Runes)
@@ -75,16 +77,38 @@ func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions
 // so it also covers titlecase (ǅ) and Other_Uppercase (Ⓐ), which unicode.IsUpper misses.
 func isSmartCaseUpper(r rune) bool { return unicode.ToLower(r) != r }
 
+// foldRune returns the smallest rune in r's simple case-fold orbit, so runes that
+// fold together (ς σ Σ, ſ s S, K k and the Kelvin sign) map to the same rune.
+// Like Vim, there's no multi-rune folding (ß doesn't match ss), and İ and ı fold
+// only to themselves.
+func foldRune(r rune) rune {
+	if r < utf8.RuneSelf {
+		// The smallest rune in an ASCII letter's orbit is its ASCII uppercase.
+		if 'a' <= r && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		return r
+	}
+	m := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		m = min(m, f)
+	}
+	return m
+}
+
 // matchRunesAt reports whether pattern occurs in line at rune column col.
-// With ignoreCase, pattern must already be lowercased; line runes are lowercased as they are compared.
+// With ignoreCase, pattern must already be folded with foldRune; line runes are folded as they are compared.
 func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
 	if col < 0 || col+len(pattern) > len(line) {
 		return false
 	}
 	for i, p := range pattern {
 		r := line[col+i]
+		if r == p {
+			continue // p is already folded, so an equal rune folds to it too
+		}
 		if ignoreCase {
-			r = unicode.ToLower(r)
+			r = foldRune(r)
 		}
 		if r != p {
 			return false
@@ -392,7 +416,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	searchRunes := []rune(pattern)
 	if ignoreCase {
 		for i, r := range searchRunes {
-			searchRunes[i] = unicode.ToLower(r)
+			searchRunes[i] = foldRune(r)
 		}
 	}
 
@@ -400,8 +424,29 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	currentLine := start.Row
 	currentCol := start.Col
 
+	// firstRunes holds every rune that can match the pattern's first rune: its whole fold
+	// orbit with ignoreCase (at most 4 runes in Unicode). Comparing against it rejects most
+	// columns without folding the line rune, which costs table lookups for non-ASCII text.
+	var firstRunes [4]rune
+	firstRunes[0] = searchRunes[0]
+	numFirst := 1
+	if ignoreCase {
+		for f := unicode.SimpleFold(searchRunes[0]); f != searchRunes[0] && numFirst < len(firstRunes); f = unicode.SimpleFold(f) {
+			firstRunes[numFirst] = f
+			numFirst++
+		}
+	}
+
 	// matchAt reports whether a match starts at rune column c and passes the boundary checks.
 	matchAt := func(lineRunes []rune, c int) bool {
+		if c < 0 || c >= len(lineRunes) {
+			return false
+		}
+		// Compare with firstRunes[0] before calling slices.Contains: calling it for every
+		// column made exact search about 35% slower.
+		if r := lineRunes[c]; r != firstRunes[0] && !slices.Contains(firstRunes[1:numFirst], r) {
+			return false
+		}
 		return matchRunesAt(lineRunes, searchRunes, c, ignoreCase) &&
 			(!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, c, len(searchRunes), options))
 	}
