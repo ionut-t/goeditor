@@ -273,16 +273,7 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	}
 	switch key.Rune {
 	case 'g': // gg — go to top; with count N go to line N
-		if gCount > 1 {
-			row := gCount - 1
-			if row >= buffer.LineCount() {
-				row = buffer.LineCount() - 1
-			}
-			cursor.Position.Row = row
-			cursor.Position.Col = 0
-		} else {
-			cursor.MoveToBufferStart()
-		}
+		cursor.moveToLine(buffer, max(gCount, 1))
 		buffer.SetCursor(cursor)
 	case 'e': // ge — end of previous word
 		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, editor.IsWordChar)
@@ -919,8 +910,9 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == 'i': // Insert before cursor
 		startInsert(editor, count, false)
 
-	case key.Rune == 'I': // Insert at first non-blank
-		cursor.MoveToFirstNonBlank(buffer)
+	case key.Rune == 'I': // Insert at first non-blank, or after the blanks of a blank line
+		cursor.Position.Col = firstNonBlankCol(buffer.GetLineRunes(cursor.Position.Row))
+		cursor.Preferred = cursor.Position.Col
 		buffer.SetCursor(cursor) // Update buffer's cursor
 		startInsert(editor, count, false)
 

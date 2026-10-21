@@ -446,10 +446,10 @@ func TestMoveToFirstNonBlank(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
-	t.Run("all spaces goes to col 0", func(t *testing.T) {
+	t.Run("all spaces goes to the last space", func(t *testing.T) {
 		e := newTestEditor("   ")
 		keys(e, '^')
-		assert.Equal(t, Position{0, 0}, cursorPos(e))
+		assert.Equal(t, Position{0, 2}, cursorPos(e))
 	})
 }
 
@@ -829,4 +829,88 @@ func TestOperatorWithUnknownGKeyIsCancelled(t *testing.T) {
 	keys(e, 'w')
 	assert.Equal(t, "one two three", content(e))
 	assert.Equal(t, 4, cursorPos(e).Col)
+}
+
+// TestFirstNonBlankBlankLine checks ^ and everything else that goes to the
+// first non-blank, on lines of only blanks: as Vim's beginline(BL_WHITE|BL_FIX),
+// the cursor stops on the last blank, not col 0. I inserts after the blanks.
+// Only space and tab are blanks. Expected results are from Vim 9.2.
+func TestFirstNonBlankBlankLine(t *testing.T) {
+	const (
+		spaces = "hello\n   \nworld"
+		tabs   = "hello\n\t\t\nworld"
+		endsBl = "ab\n   \ncd\n   "
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		text    string // checked if not empty
+		mode    Mode   // checked if not empty
+	}{
+		// Motions.
+		{spaces, "j^", Position{1, 2}, "", NormalMode},
+		{spaces, "j$^", Position{1, 2}, "", NormalMode},
+		{tabs, "j^", Position{1, 1}, "", NormalMode},
+		{"x\n \t \ny", "j^", Position{1, 2}, "", NormalMode},
+		{spaces, "<CR>", Position{1, 2}, "", NormalMode},
+		{spaces, "<CR>j", Position{2, 2}, "", NormalMode},
+		{endsBl, "G", Position{3, 2}, "", NormalMode},
+		{endsBl, "2G", Position{1, 2}, "", NormalMode},
+		{"   \nx", "Ggg", Position{0, 2}, "", NormalMode},
+		// gg goes to the first non-blank too, not col 0.
+		{"  x\n    y\nz", "Ggg", Position{0, 2}, "", NormalMode},
+		{"  x\n    y\nz", "G2gg", Position{1, 4}, "", NormalMode},
+		{"  x\n    y\nz", "G9gg", Position{2, 0}, "", NormalMode},
+		{"  x\n    y\nz", "Gvgg", Position{0, 2}, "", VisualMode},
+		{"  x\n    y\nz", "Gv2gg", Position{1, 4}, "", VisualMode},
+		{"  x\n    y\nz", "GVgg", Position{0, 2}, "", VisualLineMode},
+		{"  x\n    y\nz", "GV2gg", Position{1, 4}, "", VisualLineMode},
+		{spaces, "2z<CR>", Position{1, 2}, "", NormalMode},
+		{spaces, "2z.", Position{1, 2}, "", NormalMode},
+		{spaces, "2z-", Position{1, 2}, "", NormalMode},
+		{spaces, "jv^", Position{1, 2}, "", VisualMode},
+		{spaces, "jV^", Position{1, 2}, "", VisualLineMode},
+		{spaces, "j$hv^d", Position{1, 0}, "hello\n \nworld", NormalMode},
+		// Linewise delete lands on a blank line.
+		{"x\nhello\n   \nw", "jdd", Position{1, 2}, "x\n   \nw", NormalMode},
+		{endsBl, "Gkdd", Position{2, 2}, "ab\n   \n   ", NormalMode},
+		// Operators with ^.
+		{spaces, "j0d^", Position{1, 0}, "hello\n \nworld", NormalMode},
+		{spaces, "j$d^", Position{1, 2}, spaces, NormalMode},
+		{spaces, "jld^", Position{1, 1}, "hello\n  \nworld", NormalMode},
+		{spaces, "j0y^$p", Position{1, 4}, "hello\n     \nworld", NormalMode},
+		{spaces, "j0c^X<Esc>", Position{1, 0}, "hello\nX \nworld", NormalMode},
+		{"a\n b c\n  ", "jj$g~^", Position{2, 1}, "a\n b c\n  ", NormalMode},
+		// I inserts after the blanks.
+		{spaces, "jIX<Esc>", Position{1, 3}, "hello\n   X\nworld", NormalMode},
+		{tabs, "jIX<Esc>", Position{1, 2}, "hello\n\t\tX\nworld", NormalMode},
+		// Linewise paste of a blank line.
+		{spaces, "jyyp", Position{2, 2}, "hello\n   \n   \nworld", NormalMode},
+		{spaces, "jyyP", Position{1, 2}, "hello\n   \n   \nworld", NormalMode},
+		{spaces, "jyyggVp", Position{0, 2}, "   \n   \nworld", NormalMode},
+		{"hello\n   \nworld\nend", "jyyjjVp", Position{3, 2}, "hello\n   \nworld\n   ", NormalMode},
+		// Unaffected: new lines are empty, cc and S clear the line.
+		{spaces, "joX<Esc>", Position{2, 0}, "hello\n   \nX\nworld", NormalMode},
+		{spaces, "jOX<Esc>", Position{1, 0}, "hello\nX\n   \nworld", NormalMode},
+		{spaces, "jccX<Esc>", Position{1, 0}, "hello\nX\nworld", NormalMode},
+		{spaces, "jSX<Esc>", Position{1, 0}, "hello\nX\nworld", NormalMode},
+		// Only space and tab are blanks.
+		{"  x", "$^", Position{0, 0}, "", NormalMode},
+		{"\fx", "$^", Position{0, 0}, "", NormalMode},
+		{"\vx", "$^", Position{0, 0}, "", NormalMode},
+		{"  ", "$^", Position{0, 0}, "", NormalMode},
+		{" x", "$IX<Esc>", Position{0, 0}, "X x", NormalMode},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q on %q", tt.keys, tt.content), func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, cursorPos(e))
+			if tt.text != "" {
+				assert.Equal(t, tt.text, content(e))
+			}
+			assert.Equal(t, tt.mode, e.GetState().Mode)
+		})
+	}
 }
