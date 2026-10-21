@@ -125,6 +125,19 @@ func (m *Model) calculateCursorScreenCol(vli VisualLineInfo, lineNumWidth int) i
 	return lineNumWidth + visualColInSegmentWidth
 }
 
+// cursorScreenCol returns the screen column (including line number width) the
+// cursor is drawn at, from the layout calculateVisualMetrics left.
+func (m *Model) cursorScreenCol(lineNumWidth int) int {
+	if m.cursorPastFullRow {
+		return lineNumWidth
+	}
+	cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
+	if m.fullVisualLayoutHeight > 0 && cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
+		return m.calculateCursorScreenCol(m.visualLayoutCache[cursorCacheIdx], lineNumWidth)
+	}
+	return lineNumWidth
+}
+
 type VisualLineInfo struct {
 	Content         string
 	LogicalRow      int
@@ -584,6 +597,7 @@ func (m *Model) calculateVisualMetrics() {
 		m.clampedCursorLogicalCol = 0
 	}
 
+	m.cursorPastFullRow = false
 	if m.fullVisualLayoutHeight == 0 {
 		absoluteTargetVisualRow = 0
 	} else {
@@ -595,6 +609,7 @@ func (m *Model) calculateVisualMetrics() {
 		// wins. Only when none does (the cursor after the end of the line) is
 		// the cursor drawn after a segment's end.
 		afterSegmentEnd := -1
+		afterSegmentEndFull := false
 		for cacheIdx, vli := range m.visualLayoutCache {
 			if vli.LogicalRow != clampedCursorRow || m.clampedCursorLogicalCol < vli.LogicalStartCol {
 				continue
@@ -606,10 +621,19 @@ func (m *Model) calculateVisualMetrics() {
 			}
 			if afterSegmentEnd == -1 && m.clampedCursorLogicalCol == segmentEnd {
 				afterSegmentEnd = visualRowOffset + cacheIdx
+				afterSegmentEndFull = vli.Content != "" && getVisualWidth(vli.Content) >= availableWidth
 			}
 		}
-		if absoluteTargetVisualRow == -1 {
+		if absoluteTargetVisualRow == -1 && afterSegmentEnd != -1 {
 			absoluteTargetVisualRow = afterSegmentEnd
+			if afterSegmentEndFull {
+				// A full row has no cell after it. Vim draws the cursor on the
+				// first cell of the next screen row, over whatever is there,
+				// without adding a row: the next line's first character, or an
+				// empty row past the end of the buffer.
+				absoluteTargetVisualRow++
+				m.cursorPastFullRow = true
+			}
 		}
 
 		if absoluteTargetVisualRow == -1 {
@@ -640,7 +664,11 @@ func (m *Model) calculateVisualMetrics() {
 	}
 
 	if m.fullVisualLayoutHeight > 0 {
-		absoluteTargetVisualRow = max(0, min(absoluteTargetVisualRow, m.fullVisualLayoutHeight-1))
+		lastRow := m.fullVisualLayoutHeight - 1
+		if m.cursorPastFullRow {
+			lastRow++ // the empty row after the buffer
+		}
+		absoluteTargetVisualRow = max(0, min(absoluteTargetVisualRow, lastRow))
 	} else {
 		absoluteTargetVisualRow = 0
 	}
@@ -679,19 +707,7 @@ func (m *Model) renderVisibleSliceDefault() {
 		targetVisualRowInSlice = m.cursorAbsoluteVisualRow - startRenderVisualRow
 	}
 
-	targetScreenColForCursor := -1
-	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
-		// Convert absolute visual row to cache-relative index for cursor lookup
-		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
-		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
-			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
-			targetScreenColForCursor = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
-		} else if m.fullVisualLayoutHeight > 0 {
-			targetScreenColForCursor = lineNumWidth
-		}
-	} else if m.fullVisualLayoutHeight == 0 {
-		targetScreenColForCursor = lineNumWidth
-	}
+	targetScreenColForCursor := m.cursorScreenCol(lineNumWidth)
 
 	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
@@ -868,7 +884,9 @@ func (m *Model) renderVisibleSliceDefault() {
 		if m.showLineNumbers && m.showTildeIndicator {
 			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
 		}
-
+		if renderedDisplayLineCount == targetVisualRowInSlice {
+			m.writeCursorOnFillerRow(&contentBuilder, lineNumWidth)
+		}
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
 	}
@@ -935,11 +953,27 @@ func (m *Model) writeGrapheme(b *strings.Builder, grapheme string, width int, st
 	}
 }
 
+// writeCursorOnFillerRow draws the cursor on an empty row past the end of the
+// buffer, where the cursor after the full last row of the last line goes.
+func (m *Model) writeCursorOnFillerRow(b *strings.Builder, lineNumWidth int) {
+	if !m.cursorPastFullRow || !m.isFocused || !m.cursorVisible {
+		return
+	}
+	if m.showLineNumbers && !m.showTildeIndicator {
+		b.WriteString(strings.Repeat(" ", lineNumWidth))
+	}
+	b.WriteString(m.getCursorStyles().Render(" "))
+}
+
 // tabCursorOnLastCell reports whether the cursor on a tab is drawn on the
 // tab's last cell rather than its first. Vim draws it on the last cell in
 // normal mode, on the first in insert mode, and in visual mode on the last
-// only when the cursor is after the anchor.
+// only when the cursor is after the anchor. The cursor after a full row,
+// drawn over the next line, is always on the first cell.
 func (m *Model) tabCursorOnLastCell() bool {
+	if m.cursorPastFullRow {
+		return false
+	}
 	state := m.editor.GetState()
 	switch state.Mode {
 	case core.InsertMode:
@@ -1159,19 +1193,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		targetVisualRowInSlice = m.cursorAbsoluteVisualRow - startRenderVisualRow
 	}
 
-	targetScreenColForCursor := -1
-	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
-		// Convert absolute visual row to cache-relative index for cursor lookup
-		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
-		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
-			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
-			targetScreenColForCursor = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
-		} else if m.fullVisualLayoutHeight > 0 {
-			targetScreenColForCursor = lineNumWidth
-		}
-	} else if m.fullVisualLayoutHeight == 0 {
-		targetScreenColForCursor = lineNumWidth
-	}
+	targetScreenColForCursor := m.cursorScreenCol(lineNumWidth)
 
 	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
@@ -1346,6 +1368,9 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		tildeStyle := m.theme.LineNumberStyle
 		if m.showLineNumbers && m.showTildeIndicator {
 			contentBuilder.WriteString(tildeStyle.Width(lineNumWidth-1).Render("~") + " ")
+		}
+		if renderedDisplayLineCount == targetVisualRowInSlice {
+			m.writeCursorOnFillerRow(&contentBuilder, lineNumWidth)
 		}
 		contentBuilder.WriteString("\n")
 		renderedDisplayLineCount++
@@ -1669,22 +1694,9 @@ func (m Model) renderWithCompletionMenu(content string) string {
 	}
 
 	// Calculate cursor's screen column (including line numbers)
-	menuCol := 0
 	allLogicalLines := m.editor.GetBuffer().GetLines()
 	lineNumWidth := m.calculateLineNumberWidth(len(allLogicalLines))
-
-	if m.fullVisualLayoutHeight > 0 && m.cursorAbsoluteVisualRow >= 0 && m.cursorAbsoluteVisualRow < m.fullVisualLayoutHeight {
-		// Convert absolute visual row to cache-relative index for cursor lookup
-		cursorCacheIdx := m.cursorAbsoluteVisualRow - m.visualLayoutCacheStartVisualRow
-		if cursorCacheIdx >= 0 && cursorCacheIdx < len(m.visualLayoutCache) {
-			vliAtCursor := m.visualLayoutCache[cursorCacheIdx]
-			menuCol = m.calculateCursorScreenCol(vliAtCursor, lineNumWidth)
-		} else {
-			menuCol = lineNumWidth
-		}
-	} else {
-		menuCol = lineNumWidth
-	}
+	menuCol := m.cursorScreenCol(lineNumWidth)
 
 	contentLayer := lipgloss.NewLayer(content).X(0).Y(0).Z(0)
 	menuLayer := lipgloss.NewLayer(menuBox).X(menuCol).Y(menuRow).Z(1)
