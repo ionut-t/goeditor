@@ -171,6 +171,11 @@ func (b *textBuffer) SetContent(content []byte) {
 		linesRune = append(linesRune, currentLine) // Add the last line if not empty
 	}
 
+	// Empty content is one empty line, as in NewBuffer
+	if len(linesRune) == 0 {
+		linesRune = [][]rune{{}}
+	}
+
 	b.lines = linesRune
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/ionut-t/goeditor/core"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWithClipboardNil checks that WithClipboard(nil) disables the clipboard:
@@ -21,11 +22,11 @@ func TestWithClipboardNil(t *testing.T) {
 		t.Run(keys, func(t *testing.T) {
 			m := newModel()
 			e := m.GetEditor()
-			var err error
+			var err *core.EditorError
 			for _, r := range keys {
 				err = e.HandleKey(core.KeyEvent{Rune: r})
 			}
-			assert.Error(t, err)
+			require.NotNil(t, err)
 		})
 	}
 

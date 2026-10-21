@@ -32,3 +32,23 @@ func TestDeleteRunesAtAcrossLines(t *testing.T) {
 		})
 	}
 }
+
+// TestSetContentEmpty checks that empty content gives one empty line, like
+// NewBuffer. TestEmptyBuffer checks that it can be edited.
+func TestSetContentEmpty(t *testing.T) {
+	t.Run("buffer", func(t *testing.T) {
+		for _, content := range [][]byte{nil, {}} {
+			b := NewBufferFromBytes(content)
+			assert.Equal(t, 1, b.LineCount())
+			assert.True(t, b.IsEmpty())
+			assert.Equal(t, []string{""}, b.GetLines())
+		}
+	})
+
+	t.Run("replacing content", func(t *testing.T) {
+		b := NewBufferFromBytes([]byte("hello\nworld"))
+		b.SetContent(nil)
+		assert.Equal(t, 1, b.LineCount())
+		assert.True(t, b.IsEmpty())
+	})
+}
