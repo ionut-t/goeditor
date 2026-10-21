@@ -491,11 +491,9 @@ func (m *Model) calculateLazyVisualLayout(allLogicalLines []string, cursor core.
 
 // appendVisualLayoutForLine wraps a single logical line and appends to visual layout
 func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent string, availableWidth int, visualLayout *[]VisualLineInfo) {
-	originalLineRunes := []rune(logicalLineContent)
-	originalLineLen := len(originalLineRunes)
 	segmentStartRuneIdx := 0
 
-	if originalLineLen == 0 {
+	if logicalLineContent == "" {
 		*visualLayout = append(*visualLayout, VisualLineInfo{
 			Content:         "",
 			LogicalRow:      bufferRowIdx,
@@ -519,11 +517,6 @@ func (m *Model) appendVisualLayoutForLine(bufferRowIdx int, logicalLineContent s
 		*visualLayout = append(*visualLayout, info)
 
 		segmentStartRuneIdx += segmentRunesLen
-		if segIdx < len(wrappedSegmentStrings)-1 {
-			for segmentStartRuneIdx < originalLineLen && isWrappableSpace(originalLineRunes[segmentStartRuneIdx]) {
-				segmentStartRuneIdx++
-			}
-		}
 	}
 }
 
@@ -598,10 +591,9 @@ func (m *Model) calculateVisualMetrics() {
 		visualRowOffset := m.visualLayoutCacheStartVisualRow
 
 		// The column just past a segment is the first column of the next
-		// segment when the wrap dropped nothing (a hard break, or a break
-		// before a tab), so a segment that contains the column wins. Only
-		// when none does (the cursor after the end of the line, or on a space
-		// dropped at a wrap point) is the cursor drawn after a segment's end.
+		// one (a wrap drops nothing), so a segment that contains the column
+		// wins. Only when none does (the cursor after the end of the line) is
+		// the cursor drawn after a segment's end.
 		afterSegmentEnd := -1
 		for cacheIdx, vli := range m.visualLayoutCache {
 			if vli.LogicalRow != clampedCursorRow || m.clampedCursorLogicalCol < vli.LogicalStartCol {
@@ -1020,15 +1012,10 @@ func lineRows(line []rune, width int) int {
 	return len(wrapLine(string(line), width))
 }
 
-// isWrappableSpace reports whether r is dropped at the start of a wrapped
-// segment. Only ' ' is: other whitespace such as a tab is content and must be
-// drawn. wrapLine and appendVisualLayoutForLine both skip with it, so segment
-// content and LogicalStartCol stay in step.
-func isWrappableSpace(r rune) bool {
-	return r == ' '
-}
-
-// wrapLine wraps a line to fit within the specified width.
+// wrapLine wraps a line to fit within the specified width, breaking after the
+// last whitespace that fits (as Vim's 'linebreak' does). Nothing is dropped:
+// the segments joined are the line, so every column has a screen cell and
+// appendVisualLayoutForLine can start each segment where the last one ended.
 // It operates on grapheme clusters (not runes) to correctly handle multi-rune characters
 // like flag emojis (🇷🇴), skin tone modifiers (👍🏽), and ZWJ sequences (👨‍👩‍👧‍👦).
 func wrapLine(line string, width int) []string {
@@ -1062,7 +1049,7 @@ func wrapLine(line string, width int) []string {
 
 		lineStartRuneIdx := currentRuneIdx
 		currentVisualWidth := 0
-		lastSpaceGraphemeStartRuneIdx := -1 // Start rune index of space grapheme
+		afterLastSpaceRuneIdx := -1 // Rune index just after the last space grapheme
 
 		// Find the longest segment that fits within width, breaking at grapheme boundaries
 		tempRuneIdx := currentRuneIdx
@@ -1079,7 +1066,7 @@ func wrapLine(line string, width int) []string {
 			// Check if this grapheme starts with whitespace
 			graphemeRunes := []rune(graphemeStr)
 			if len(graphemeRunes) > 0 && unicode.IsSpace(graphemeRunes[0]) {
-				lastSpaceGraphemeStartRuneIdx = tempRuneIdx
+				afterLastSpaceRuneIdx = tempRuneIdx + runesConsumed
 			}
 
 			tempRuneIdx += runesConsumed
@@ -1091,9 +1078,9 @@ func wrapLine(line string, width int) []string {
 			// First grapheme is wider than width - must include it anyway to make progress
 			_, _, runesConsumed := nextGrapheme(runes, lineStartRuneIdx, 0)
 			breakEndRuneIdx = lineStartRuneIdx + runesConsumed
-		} else if lastSpaceGraphemeStartRuneIdx >= lineStartRuneIdx {
-			// Break before the space
-			breakEndRuneIdx = lastSpaceGraphemeStartRuneIdx
+		} else if afterLastSpaceRuneIdx > lineStartRuneIdx {
+			// Break after the space, which stays at the end of the row
+			breakEndRuneIdx = afterLastSpaceRuneIdx
 		} else {
 			// Hard break at grapheme boundary
 			breakEndRuneIdx = tempRuneIdx
@@ -1113,11 +1100,7 @@ func wrapLine(line string, width int) []string {
 		segment := string(runes[lineStartRuneIdx:breakEndRuneIdx])
 		wrappedLines = append(wrappedLines, segment)
 
-		// Advance, skipping leading spaces on the next line
 		currentRuneIdx = breakEndRuneIdx
-		for currentRuneIdx < len(runes) && isWrappableSpace(runes[currentRuneIdx]) {
-			currentRuneIdx++
-		}
 	}
 
 	if len(wrappedLines) == 0 {

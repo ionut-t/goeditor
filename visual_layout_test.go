@@ -411,12 +411,16 @@ func TestWrapLine(t *testing.T) {
 		{"empty", "", 10, []string{""}},
 		{"fits exactly", "hello", 5, []string{"hello"}},
 		{"fits under", "hi", 10, []string{"hi"}},
-		{"breaks at space", "hello world", 5, []string{"hello", "world"}},
+		{"keeps the space at a full row", "hello world", 5, []string{"hello", " ", "world"}},
+		{"breaks after the space", "abcdefgh ijkl", 10, []string{"abcdefgh ", "ijkl"}},
+		{"breaks after a tab", "abcdef\tghij", 8, []string{"abcdef\t", "ghij"}},
 		{"hard break, no spaces", "abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
 		{"zero width returns whole line", "hello world", 0, []string{"hello world"}},
 		{"negative width returns whole line", "hello world", -1, []string{"hello world"}},
 		{"single grapheme wider than width still makes progress", "a", 0, []string{"a"}},
-		{"multiple spaces collapse leading whitespace on wrap", "aaaaa   bbbbb", 5, []string{"aaaaa", "bbbbb"}},
+		{"keeps a run of spaces at a wrap", "aaaaa   bbbbb", 5, []string{"aaaaa", "   ", "bbbbb"}},
+		{"spaces longer than the row continue on the next rows", "ab" + strings.Repeat(" ", 20) + "cd", 10, []string{"ab        ", "          ", "  cd"}},
+		{"spaces only", strings.Repeat(" ", 25), 10, []string{"          ", "          ", "     "}},
 	}
 
 	for _, tt := range tests {
@@ -448,6 +452,8 @@ func TestLineRowsMatchesWrapLine(t *testing.T) {
 	}
 }
 
+// TestWrapLineNeverDropsRunes checks that the segments put back together are
+// the line: nothing, not even a blank at a wrap point, is dropped.
 func TestWrapLineNeverDropsRunes(t *testing.T) {
 	inputs := []string{
 		"the quick brown fox jumps over the lazy dog",
@@ -456,29 +462,14 @@ func TestWrapLineNeverDropsRunes(t *testing.T) {
 		"👍🏽 emoji flag 🇷🇴 and text mixed together for width edge cases",
 		"aaaa bbbb\tcccc dddd",
 		"\tleading\ttabs\t\tand  double  spaces\t",
+		strings.Repeat(" ", 25),
+		"ab" + strings.Repeat(" ", 20) + "cd",
 	}
 
 	for _, in := range inputs {
 		for width := 1; width <= 20; width++ {
 			segs := wrapLine(in, width)
-			joined := strings.Join(segs, "")
-			// Wrapping only removes whitespace at break points, so every
-			// non-space rune of the input must survive somewhere in the
-			// concatenated segments, in order.
-			wantNonSpace := []rune{}
-			for _, r := range in {
-				if r != ' ' {
-					wantNonSpace = append(wantNonSpace, r)
-				}
-			}
-			gotNonSpace := []rune{}
-			for _, r := range joined {
-				if r != ' ' {
-					gotNonSpace = append(gotNonSpace, r)
-				}
-			}
-			require.Equalf(t, string(wantNonSpace), string(gotNonSpace),
-				"input %q at width %d lost or reordered non-space characters: segments=%q", in, width, segs)
+			require.Equalf(t, in, strings.Join(segs, ""), "input %q at width %d: segments=%q", in, width, segs)
 		}
 	}
 }
@@ -490,6 +481,8 @@ func TestVisualLayoutSegmentsMatchBuffer(t *testing.T) {
 		"the quick brown fox jumps over the lazy dog",
 		"👍🏽 emoji flag 🇷🇴 and\ttabs 漢字 mixed together for width edge cases",
 		"trailing spaces   ",
+		strings.Repeat(" ", 25),
+		"ab" + strings.Repeat(" ", 20) + "cd",
 	}
 
 	m := New(80, 20)
@@ -498,13 +491,16 @@ func TestVisualLayoutSegmentsMatchBuffer(t *testing.T) {
 		for width := 1; width <= 20; width++ {
 			var layout []VisualLineInfo
 			m.appendVisualLayoutForLine(0, in, width, &layout)
+			end := 0
 			for i, vli := range layout {
+				require.Equalf(t, end, vli.LogicalStartCol, "input %q at width %d segment %d doesn't start where the previous one ended", in, width, i)
 				content := []rune(vli.Content)
-				end := vli.LogicalStartCol + len(content)
+				end = vli.LogicalStartCol + len(content)
 				require.LessOrEqualf(t, end, len(runes), "input %q at width %d segment %d overruns the line", in, width, i)
 				require.Equalf(t, string(runes[vli.LogicalStartCol:end]), vli.Content,
 					"input %q at width %d segment %d: content does not match buffer at LogicalStartCol=%d", in, width, i, vli.LogicalStartCol)
 			}
+			require.Equalf(t, len(runes), end, "input %q at width %d: segments stop before the end of the line", in, width)
 		}
 	}
 }
