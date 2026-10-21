@@ -126,7 +126,7 @@ func (e *editor) Copy(op copyType) error {
 
 		// Check if the selection is line-wise
 		// Either from visual-line mode OR from YankSelection being set to SelectionLine
-		if state.Mode == "visual-line" || state.YankSelection == SelectionLine {
+		if state.Mode == VisualLineMode || state.YankSelection == SelectionLine {
 			isLineWise = true
 			start = Position{Row: start.Row, Col: 0}                             // Start of the line
 			end = Position{Row: end.Row, Col: buffer.LineRuneCount(end.Row) - 1} // End of the line
@@ -202,8 +202,7 @@ func (e *editor) Copy(op copyType) error {
 
 	// Write to the actual clipboard
 	if err := e.clipboard.Write(content); err != nil {
-		errMsg := fmt.Sprintf("failed to copy to clipboard: %v", err)
-		return errors.New(errMsg)
+		return fmt.Errorf("failed to copy to clipboard: %w", err)
 	}
 
 	if op == cutType {

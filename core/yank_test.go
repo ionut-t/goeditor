@@ -1,9 +1,11 @@
 package core
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestYankLine tests 'yy' — yank current line (line-wise, includes trailing newline).
@@ -370,5 +372,37 @@ func TestYankWORDMotions(t *testing.T) {
 		e, cb := newTestEditorWithClipboard("one two three")
 		keys(e, 'y', '2', 'a', 'w')
 		assert.Equal(t, "one two ", cb.content)
+	})
+}
+
+var errClipboardWrite = errors.New("clipboard write failed")
+
+type failWriteClipboard struct{}
+
+func (failWriteClipboard) Write(string) error    { return errClipboardWrite }
+func (failWriteClipboard) Read() (string, error) { return "", nil }
+
+// TestYankClipboardWriteError checks that a failing clipboard write is wrapped,
+// so callers can match the underlying error with errors.Is.
+func TestYankClipboardWriteError(t *testing.T) {
+	t.Run("Copy", func(t *testing.T) {
+		e := New(failWriteClipboard{})
+		e.SetContent([]byte("hello"))
+		err := e.Copy(yankType)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errClipboardWrite)
+		assert.EqualError(t, err, "failed to copy to clipboard: clipboard write failed")
+	})
+
+	t.Run("yw", func(t *testing.T) {
+		e := New(failWriteClipboard{})
+		e.SetContent([]byte("hello world"))
+		var err *EditorError
+		for _, r := range "yw" {
+			err = e.HandleKey(KeyEvent{Rune: r})
+		}
+		require.NotNil(t, err)
+		assert.Equal(t, ErrFailedToYankId, err.ID())
+		assert.ErrorIs(t, err, errClipboardWrite)
 	})
 }

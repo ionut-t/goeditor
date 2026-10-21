@@ -456,7 +456,7 @@ func (e *editor) GetSelectionStatus(pos Position) SelectionType {
 	selStart, selEnd := NormalizeSelection(state.VisualStart, cursor.Position)
 
 	// Check if this is line-wise selection (either visual-line mode or yank line selection)
-	isLineWise := state.Mode == "visual-line" || state.YankSelection == SelectionLine
+	isLineWise := state.Mode == VisualLineMode || state.YankSelection == SelectionLine
 	if isLineWise {
 		if pos.Row >= selStart.Row && pos.Row <= selEnd.Row {
 			return SelectionLine
