@@ -104,6 +104,9 @@ func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
 	}
 	for i, p := range pattern {
 		r := line[col+i]
+		if r == p {
+			continue // p is already folded, so an equal rune folds to it too
+		}
 		if ignoreCase {
 			r = foldRune(r)
 		}
@@ -439,6 +442,8 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		if c < 0 || c >= len(lineRunes) {
 			return false
 		}
+		// Compare with firstRunes[0] before calling slices.Contains: calling it for every
+		// column made exact search about 35% slower.
 		if r := lineRunes[c]; r != firstRunes[0] && !slices.Contains(firstRunes[1:numFirst], r) {
 			return false
 		}

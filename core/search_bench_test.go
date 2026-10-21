@@ -21,6 +21,7 @@ func BenchmarkFind(b *testing.B) {
 		{"ignorecase/match-at-end", ascii[:len(ascii)-5] + "XYZZY", "xyzzy", SearchOptions{IgnoreCase: true}},
 		{"ignorecase/worst-case", strings.Repeat("a", 50_000), "aaaaaaaaab", SearchOptions{IgnoreCase: true}},
 		{"ignorecase/non-ascii/no-match", string(nonASCII), "ωψ", SearchOptions{IgnoreCase: true}},
+		{"ignorecase/uncased-worst-case", strings.Repeat("中", 50_000), "中中中中中中中中中文", SearchOptions{IgnoreCase: true}},
 	}
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
