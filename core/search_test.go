@@ -136,6 +136,13 @@ func TestSearchSmartCase(t *testing.T) {
 		assert.Equal(t, Position{0, 7}, cursorPos(e))
 	})
 
+	t.Run("titlecase counts as uppercase", func(t *testing.T) {
+		// ǅ (U+01C5) is titlecase, not IsUpper; Vim still treats it as uppercase for smartcase.
+		e := newTestEditor("xǄ ǆ ǅ")
+		e.ExecuteSearch("ǅ", smartCase)
+		assert.Equal(t, Position{0, 5}, cursorPos(e))
+	})
+
 	t.Run("n and N stay case-sensitive", func(t *testing.T) {
 		e := newTestEditor("Foo foo Foo foo")
 		e.ExecuteSearch("Foo", SearchOptions{IgnoreCase: true, SmartCase: true, Wrap: true})

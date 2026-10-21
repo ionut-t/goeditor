@@ -383,7 +383,9 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 	}
 
 	// Smartcase: with IgnoreCase on, a pattern containing an uppercase letter is case-sensitive.
-	ignoreCase := options.IgnoreCase && (!options.SmartCase || !strings.ContainsFunc(pattern, unicode.IsUpper))
+	// Like Vim, any letter that changes when lowercased counts, so titlecase (ǅ) does too.
+	hasUpper := strings.ContainsFunc(pattern, func(r rune) bool { return unicode.ToLower(r) != r })
+	ignoreCase := options.IgnoreCase && (!options.SmartCase || !hasUpper)
 
 	searchRunes := []rune(pattern)
 	if ignoreCase {
