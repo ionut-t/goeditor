@@ -24,12 +24,7 @@ func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 	cursor := buffer.GetCursor()
 	switch key.Rune {
 	case 'g':
-		if count > 0 && buffer.LineCount() > 0 {
-			cursor.Position.Row = min(count, buffer.LineCount()) - 1
-			cursor.Position.Col = 0
-		} else {
-			cursor.MoveToBufferStart()
-		}
+		cursor.moveToLine(buffer, max(count, 1))
 		buffer.SetCursor(cursor)
 	case 'e':
 		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.IsWordChar)

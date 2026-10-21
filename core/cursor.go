@@ -1,9 +1,5 @@
 package core
 
-import (
-	"unicode"
-)
-
 // Cursor represents the current position for editing operations
 type Cursor struct {
 	Position  Position // Current position (row, column)
@@ -229,25 +225,35 @@ func (c *Cursor) MoveToAfterLineEnd(buffer Buffer) {
 	c.Preferred = c.Position.Col
 }
 
-// MoveToFirstNonBlank moves the cursor to the first non-whitespace character
+// MoveToFirstNonBlank moves the cursor to the first non-blank character, as
+// Vim's ^. Blanks are spaces and tabs. On a line of only blanks it stops on
+// the last one.
 func (c *Cursor) MoveToFirstNonBlank(buffer Buffer) {
 	line := buffer.GetLineRunes(c.Position.Row)
-	firstNonBlank := 0
-	found := false
+	col := firstNonBlankCol(line)
+	if col == len(line) && col > 0 { // only blanks: stop on the last one
+		col--
+	}
+	c.Position.Col = col
+	c.Preferred = c.Position.Col
+}
+
+// moveToInsertStart moves the cursor to where Vim's I inserts: the first
+// non-blank, or after the blanks on a line of only blanks.
+func (c *Cursor) moveToInsertStart(buffer Buffer) {
+	c.Position.Col = firstNonBlankCol(buffer.GetLineRunes(c.Position.Row))
+	c.Preferred = c.Position.Col
+}
+
+// firstNonBlankCol returns the column of the first non-blank in line, or
+// len(line) if there is none.
+func firstNonBlankCol(line []rune) int {
 	for i, r := range line {
-		if !unicode.IsSpace(r) {
-			firstNonBlank = i
-			found = true
-			break
+		if !isWhiteSpace(r) {
+			return i
 		}
 	}
-	// If loop finishes and not found, all are spaces (or empty), move to col 0
-	if !found {
-		firstNonBlank = 0
-	}
-
-	c.Position.Col = firstNonBlank
-	c.Preferred = c.Position.Col
+	return len(line)
 }
 
 // MoveToBufferStart moves the cursor to the start of the buffer
