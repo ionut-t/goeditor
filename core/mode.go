@@ -142,11 +142,11 @@ func moveLeft(editor Editor, c *Cursor, buffer Buffer, count int) error {
 }
 
 // moveRight is l and <Right> in normal and visual mode. They stop on the last
-// character, as with Vim's default 'whichwrap', unless the editor's
-// MoveAcrossLines option is on.
-func moveRight(editor Editor, c *Cursor, buffer Buffer, count int) error {
+// character, or with pastEnd, as in visual mode, on the line break, as with
+// Vim's default 'whichwrap', unless the editor's MoveAcrossLines option is on.
+func moveRight(editor Editor, c *Cursor, buffer Buffer, count int, pastEnd bool) error {
 	if editor.MoveAcrossLines() {
-		return c.MoveRightOrDown(buffer, count)
+		return c.moveRightOrDown(buffer, count, pastEnd)
 	}
-	return c.moveRightToLastChar(buffer, count)
+	return c.moveRightToLastChar(buffer, count, pastEnd)
 }

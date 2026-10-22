@@ -129,6 +129,7 @@ func keySeq(parts ...any) []KeyEvent {
 func TestWhichwrap(t *testing.T) {
 	left, right, space, bs, esc := whichwrapKeys()
 	seq := keySeq
+	const t3 = "abcdef\nab\nabcdefghij"
 
 	tests := []whichwrapCase{
 		{"normal jh", "abc\ndef", seq("jh"), Position{1, 0}, ""},
@@ -147,12 +148,24 @@ func TestWhichwrap(t *testing.T) {
 		{"insert A<Right>", "abc\ndef", seq("A", right), Position{0, 3}, ""},
 		{"insert A<Right>x", "abc\ndef", seq("A", right, "x", esc), Position{0, 3}, "abcx\ndef"},
 		{"visual jvh", "abc\ndef", seq("jvh"), Position{1, 0}, ""},
-		{"visual $vl", "abc\ndef", seq("$vl"), Position{0, 2}, ""},
-		{"visual $v3l", "abc\ndef", seq("$v3l"), Position{0, 2}, ""},
+		{"visual $vl goes onto the line break", "abc\ndef", seq("$vl"), Position{0, 3}, ""},
+		{"visual $v<Right>", "abc\ndef", seq("$v", right), Position{0, 3}, ""},
+		{"visual $v3l", "abc\ndef", seq("$v3l"), Position{0, 3}, ""},
+		{"visual v9l", t3, seq("v9l"), Position{0, 6}, ""},
+		{"visual v5ll", t3, seq("v5ll"), Position{0, 6}, ""},
+		{"visual v5lljj keeps the column", t3, seq("v5lljj"), Position{2, 6}, ""},
+		{"visual v5llld deletes the line break", t3, seq("v5llld"), Position{0, 0}, "ab\nabcdefghij"},
+		{"visual v5ll<Esc> goes onto the last character", t3, seq("v5ll", esc, "jj"), Position{2, 5}, ""},
+		{"visual jv2l on a short line", t3, seq("jv2l"), Position{1, 2}, ""},
+		{"visual Gv19l on the last line", t3, seq("Gv19l"), Position{2, 10}, ""},
+		{"visual Glv19ld on the last line", t3, seq("Glv19ld"), Position{2, 0}, "abcdef\nab\na"},
+		{"visual vl on a one-character line", "a\nabc", seq("vl"), Position{0, 1}, ""},
+		{"visual vl on an empty line", "\nabc", seq("vl"), Position{0, 0}, ""},
 		{"visual jjv<BS>d", "abc\n\ndef\nghi", seq("jjv", bs, "d"), Position{1, 0}, "abc\nef\nghi"},
 		{"visual $v<Space>", "abc\ndef", seq("$v", space), Position{1, 0}, ""},
 		{"visual line jVh", "abc\ndef", seq("jVh"), Position{1, 0}, ""},
-		{"visual line $Vl", "abc\ndef", seq("$Vl"), Position{0, 2}, ""},
+		{"visual line $Vl", "abc\ndef", seq("$Vl"), Position{0, 3}, ""},
+		{"visual line jVll on a short line", t3, seq("jVll"), Position{1, 2}, ""},
 		{"visual line jV<BS>", "abc\ndef", seq("jV", bs), Position{0, 2}, ""},
 		{"visual line $V<Space>", "abc\ndef", seq("$V", space), Position{1, 0}, ""},
 	}
@@ -368,7 +381,15 @@ func TestMoveAcrossLines(t *testing.T) {
 		{"insert jji<Left>x", text, seq("jji", left, "x", esc), Position{1, 0}, "abc\nx\ndef"},
 		{"insert jji<Left><Left>x", text, seq("jji", left, left, "x", esc), Position{0, 3}, "abcx\n\ndef"},
 		{"visual jjvh", text, seq("jjvh"), Position{1, 0}, ""},
-		{"visual $vl", text, seq("$vl"), Position{1, 0}, ""},
+		{"visual $vl goes onto the line break", text, seq("$vl"), Position{0, 3}, ""},
+		{"visual $vll", text, seq("$vll"), Position{1, 0}, ""},
+		{"visual $v2l", text, seq("$v2l"), Position{1, 0}, ""},
+		{"visual $v3l", text, seq("$v3l"), Position{2, 0}, ""},
+		{"visual jv$l from an empty line", text, seq("jv$l"), Position{2, 0}, ""},
+		{"visual lv$l", "abcdef\nab\nabcdefghij", seq("lv$l"), Position{1, 0}, ""},
+		{"visual lv$ljj", "abcdef\nab\nabcdefghij", seq("lv$ljj"), Position{2, 0}, ""},
+		{"visual Glv$l at end of buffer keeps the column", "abcdefghijkl\nab\nabcdef", seq("Glv$lkk"), Position{0, 12}, ""},
+		{"normal G$l at end of buffer keeps the column", "abcdefghijkl\nab\nabcdef", seq("G$lkk"), Position{0, 11}, ""},
 		{"visual line jjVhd", text, seq("jjVhd"), Position{0, 0}, "abc"},
 	}, func(e Editor) { e.SetMoveAcrossLines(true) })
 
