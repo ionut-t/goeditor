@@ -168,6 +168,12 @@ func TestCaseWord(t *testing.T) {
 		keys(e, '2', 'g', 'U', 'w')
 		assert.Equal(t, "FOO BAR baz", content(e))
 	})
+
+	// Vim 9.2: w skips lines of only blanks; e goes to the end of the buffer.
+	runDollarCases(t, []dollarCase{
+		{name: "gU2w over a blank line", content: "abc\n  \nx y", keys: keySeq("gU2w"), want: Position{0, 0}, text: "ABC\n  \nX y"},
+		{name: "gU2e past the last word", content: "foobar\n   x", keys: keySeq("$gU2e"), want: Position{0, 5}, text: "foobaR\n   X"},
+	})
 }
 
 // ---------------------------------------------------------------------------

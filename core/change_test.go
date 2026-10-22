@@ -67,6 +67,39 @@ func TestChangeWord(t *testing.T) {
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 		assertInsertMode(t, e)
 	})
+
+	// Vim 9.2: on a word, cw is ce; on blanks it is dw's motion, and on an
+	// empty line it changes the line.
+	seq := keySeq
+	esc := KeyEvent{Key: KeyEscape}
+	runDollarCases(t, []dollarCase{
+		{name: "last word of a line", content: "abc def\nab", keys: seq("wcwX", esc), want: Position{0, 4}, text: "abc X\nab"},
+		{name: "last word of a line then .", content: "abc def\nab def", keys: seq("wcwX", esc, "j."), want: Position{1, 4}, text: "abc X\nab dX"},
+		{name: "2cw crosses the line", content: "abc def\nab cd", keys: seq("w2cwX", esc), want: Position{0, 4}, text: "abc X cd"},
+		{name: "2cw from the line start", content: "abc\ndef\nghi", keys: seq("2cwX", esc), want: Position{0, 0}, text: "X\nghi"},
+		{name: "last character", content: "abc def\nab", keys: seq("$cwX", esc), want: Position{0, 6}, text: "abc deX\nab"},
+		{name: "2cw from the last character", content: "abc def\nab cd", keys: seq("$2cwX", esc), want: Position{0, 6}, text: "abc deX cd"},
+		{name: "end of a word", content: "abc def", keys: seq("llcwX", esc), want: Position{0, 2}, text: "abX def"},
+		{name: "ce from the end of a word goes on", content: "abc def", keys: seq("llceX", esc), want: Position{0, 2}, text: "abX"},
+		{name: "end of punctuation", content: "abc d.f", keys: seq("wlcwX", esc), want: Position{0, 5}, text: "abc dXf"},
+		{name: "cW from the end of a WORD", content: "abc d.f g", keys: seq("wllcWX", esc), want: Position{0, 6}, text: "abc d.X g"},
+		{name: "one blank", content: "abc def", keys: seq("3lcwX", esc), want: Position{0, 3}, text: "abcXdef"},
+		{name: "blanks", content: "abc   def", keys: seq("3lcwX", esc), want: Position{0, 3}, text: "abcXdef"},
+		{name: "2cw on blanks", content: "abc   def ghi", keys: seq("3l2cwX", esc), want: Position{0, 3}, text: "abcXghi"},
+		{name: "trailing blanks", content: "abc   \nx", keys: seq("3lcwX", esc), want: Position{0, 3}, text: "abcX\nx"},
+		{name: "empty line", content: "abc\n\ndef", keys: seq("jcwX", esc), want: Position{1, 0}, text: "abc\nX\ndef"},
+		{name: "cW on the last WORD of a line", content: "abc d.f\nab", keys: seq("wcWX", esc), want: Position{0, 4}, text: "abc X\nab"},
+		{name: "cW on blanks", content: "abc   d.f", keys: seq("3lcWX", esc), want: Position{0, 3}, text: "abcXd.f"},
+		{name: "2cw past the last word", content: "foobar\n         ", keys: seq("$c2wX", esc), want: Position{0, 5}, text: "foobaX"},
+		{name: "2cw onto an empty last line", content: "foobar\n\n", keys: seq("$c2wX", esc), want: Position{0, 5}, text: "foobaX"},
+
+		// Other motions: e goes to the end of the buffer; an end in column 0
+		// ends at the end of the line above, linewise from the indent.
+		{name: "ce past the last word", content: "foobar\n   ", keys: seq("$ceX", esc), want: Position{0, 5}, text: "foobaX"},
+		{name: "2ce from the indent stays charwise", content: "  a\nbc", keys: seq("w2ceX", esc), want: Position{0, 2}, text: "  X"},
+		{name: "cb from column 0 is linewise", content: "abc\ndef", keys: seq("jcbX", esc), want: Position{0, 0}, text: "X\ndef"},
+		{name: "c} from the line start is linewise", content: "abc\ndef\n\nx", keys: seq("c}X", esc), want: Position{0, 0}, text: "X\n\nx"},
+	})
 }
 
 // TestChangeToWordEnd tests 'ce' — same motion as 'cw'.

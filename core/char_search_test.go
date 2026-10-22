@@ -174,7 +174,7 @@ func TestCharSearchWithOperators(t *testing.T) {
 		// cursor at col 10 ('d'); 'w' at col 6; dF deletes cols 6–10 ("world"), leaving "hello "
 		keys(e, '$', 'd', 'F', 'w')
 		assert.Equal(t, "hello ", content(e))
-		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e)) // back onto the last character
 	})
 
 	t.Run("dT deletes backward one-after found char up to but not including cursor char", func(t *testing.T) {

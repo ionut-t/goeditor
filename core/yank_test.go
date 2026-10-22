@@ -55,6 +55,33 @@ func TestYankWord(t *testing.T) {
 		assert.Equal(t, "one two ", cb.content)
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
+
+	// Vim 9.2: the last word stops at the end of its line, and an empty line
+	// is yanked linewise.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "last word of a line", content: "abc def\nab", keys: seq("wyw"), want: Position{0, 4}, yanked: "def"},
+		{name: "2yw crosses the line", content: "abc def\nab cd", keys: seq("w2yw"), want: Position{0, 4}, yanked: "def\nab "},
+		{name: "2yw onto an empty line", content: "abc def\n\nx", keys: seq("w2yw"), want: Position{0, 4}, yanked: "def\n"},
+		{name: "trailing blanks", content: "abc def  \nab", keys: seq("wyw"), want: Position{0, 4}, yanked: "def  "},
+		{name: "count past the end of the buffer", content: "abc def\nab", keys: seq("w5yw"), want: Position{0, 4}, yanked: "def\nab"},
+		{name: "2yw from the line start stays charwise", content: "abc\ndef\nghi", keys: seq("2yw"), want: Position{0, 0}, yanked: "abc\ndef"},
+		{name: "last line", content: "ab\nabc def", keys: seq("jwyw"), want: Position{1, 4}, yanked: "def"},
+		{name: "empty line is yanked linewise", content: "abc\n\ndef", keys: seq("jyw"), want: Position{1, 0}, yanked: "\n"},
+		{name: "yW on the last WORD of a line", content: "abc d.f\nab", keys: seq("wyW"), want: Position{0, 4}, yanked: "d.f"},
+		{name: "yW with trailing blanks", content: "abc d.f  \nab", keys: seq("wyW"), want: Position{0, 4}, yanked: "d.f  "},
+		{name: "2yw over a blank line", content: "abc\n  \nx y", keys: seq("2yw"), want: Position{0, 0}, yanked: "abc\n  \nx "},
+
+		// Other motions: an end in column 0 ends at the end of the line above,
+		// linewise from the indent; e goes to the end of the buffer.
+		{name: "yb from column 0 is linewise", content: "abc\ndef", keys: seq("jyb"), want: Position{0, 0}, yanked: "abc\n"},
+		{name: "ye past the last word", content: "foobar\n   ", keys: seq("$ye"), want: Position{0, 5}, yanked: "r\n   "},
+		{name: "2ye from the indent stays charwise", content: "  a\nbc", keys: seq("w2ye"), want: Position{0, 2}, yanked: "a\nbc"},
+		{name: "y} from the line start is linewise", content: "abc\ndef\n\nx", keys: seq("y}"), want: Position{0, 0}, yanked: "abc\ndef\n"},
+		{name: "y} from mid-line", content: "abc\ndef\n\nx", keys: seq("ly}"), want: Position{0, 1}, yanked: "bc\ndef"},
+		{name: "y{ from column 0 is linewise", content: "x\n\nabc\ndef", keys: seq("Gy{"), want: Position{1, 0}, yanked: "\nabc\n"},
+		{name: "y% from the indent stays charwise", content: "  (abc\ndef)", keys: seq("wy%"), want: Position{0, 2}, yanked: "(abc\ndef)"},
+	})
 }
 
 // TestYankWordBackward tests 'yb' — yank to start of previous word (exclusive).

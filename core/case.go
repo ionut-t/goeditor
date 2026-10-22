@@ -100,8 +100,8 @@ func applyCaseWord(editor Editor, buffer Buffer, op rune, count int) *EditorErro
 	startPos := cursor.Position
 	tempCursor := cursor
 
-	_ = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
-	endPos := tempCursor.Position // exclusive end (start of next word)
+	_ = tempCursor.moveWordForward(buffer, count, editor.IsWordChar, true)
+	endPos := tempCursor.Position // exclusive end (start of next word, or the end of its line)
 
 	if startPos == endPos {
 		return nil

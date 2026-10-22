@@ -58,7 +58,7 @@ func TestUndoCursorPosition(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'w', 'd', 'w') // move to col 6, delete "world"
 		assert.Equal(t, "hello ", content(e))
-		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e)) // back onto the last character, as Vim
 		keys(e, 'u')
 		assert.Equal(t, "hello world", content(e))
 		assert.Equal(t, Position{0, 6}, cursorPos(e))

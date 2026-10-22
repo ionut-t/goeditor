@@ -78,6 +78,54 @@ func TestDeleteWord(t *testing.T) {
 		assert.Equal(t, "three", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
+
+	// Vim 9.2: the last word stops at the end of its line, an empty line is
+	// deleted linewise, and so is a delete over several lines from the indent
+	// to the end of a line.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "last word of a line", content: "abc def\nab", keys: seq("wdw"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "last word of a line then .", content: "abc def\nab", keys: seq("wdw."), want: Position{0, 2}, text: "abc\nab"},
+		{name: "last word of a line then jj", content: "abc def\nab\nabcdefghij", keys: seq("wdwjj"), want: Position{2, 3}},
+		{name: "last word of a line then j.", content: "abc def\nab", keys: seq("wdwj."), want: Position{1, 0}, text: "abc \na"},
+		{name: "2dw crosses the line", content: "abc def\nab cd", keys: seq("w2dw"), want: Position{0, 4}, text: "abc cd"},
+		{name: "d2w crosses the line", content: "abc def\nab cd", keys: seq("wd2w"), want: Position{0, 4}, text: "abc cd"},
+		{name: "3dw ends on a later line's last word", content: "abc def\nab cd\nxy", keys: seq("w3dw"), want: Position{0, 3}, text: "abc \nxy"},
+		{name: "d3w ends on a later line's last word", content: "abc def\nab cd\nxy", keys: seq("wd3w"), want: Position{0, 3}, text: "abc \nxy"},
+		{name: "3dw then .", content: "abc def\nab cd\nxy z\nq r\ns", keys: seq("w3dwj."), want: Position{1, 2}, text: "abc \nxy \ns"},
+		{name: "3dw then . on the last line", content: "a b c d\ne\nf g h i", keys: seq("3dwG."), want: Position{2, 0}, text: "d\ne\ni"},
+		{name: "count past the end of the buffer", content: "abc def\nab", keys: seq("w5dw"), want: Position{0, 3}, text: "abc "},
+		{name: "next line empty", content: "abc def\n\nx", keys: seq("wdw"), want: Position{0, 3}, text: "abc \n\nx"},
+		{name: "2dw onto an empty line", content: "abc def\n\nx", keys: seq("w2dw"), want: Position{0, 3}, text: "abc \nx"},
+		{name: "trailing blanks", content: "abc def  \nab", keys: seq("wdw"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "on trailing blanks", content: "abc   \nx", keys: seq("3ldw"), want: Position{0, 2}, text: "abc\nx"},
+		{name: "a line's only word", content: "abc\ndef", keys: seq("dw"), want: Position{0, 0}, text: "\ndef"},
+		{name: "a line's only word then .", content: "abc\ndef", keys: seq("dw."), want: Position{0, 0}, text: "def"},
+		{name: "last line", content: "ab\nabc def", keys: seq("jwdw"), want: Position{1, 3}, text: "ab\nabc "},
+		{name: "only word of the last line", content: "ab\nabc", keys: seq("jdw"), want: Position{1, 0}, text: "ab\n"},
+		{name: "from inside the word", content: "abc def\nab", keys: seq("wldw"), want: Position{0, 4}, text: "abc d\nab"},
+		{name: "from inside the word then .", content: "abc def\nab def", keys: seq("wldwjl."), want: Position{1, 4}, text: "abc d\nab de"},
+		{name: "last character", content: "abc def\nab", keys: seq("$dw"), want: Position{0, 5}, text: "abc de\nab"},
+		{name: "empty line is deleted linewise", content: "abc\n\ndef", keys: seq("jdw"), want: Position{1, 0}, text: "abc\ndef"},
+		{name: "empty line then .", content: "abc\n\n\ndef", keys: seq("jdw."), want: Position{1, 0}, text: "abc\ndef"},
+		{name: "empty line above an indented line", content: "abc\n\n  def", keys: seq("jdw"), want: Position{1, 2}, text: "abc\n  def"},
+		{name: "empty line above an empty last line", content: "abc\n\n\n", keys: seq("jdw"), want: Position{1, 0}, text: "abc\n"},
+		{name: "empty last line does nothing", content: "abc\n\n", keys: seq("jdw"), want: Position{1, 0}, text: "abc\n"},
+		{name: "2dw over two empty lines", content: "abc\n\n\ndef", keys: seq("j2dw"), want: Position{1, 0}, text: "abc\ndef"},
+		{name: "2dw from an empty line", content: "abc\n\ndef ghi", keys: seq("j2dw"), want: Position{1, 0}, text: "abc\nghi"},
+		{name: "2dw from the line start to a line end is linewise", content: "abc\ndef\nghi", keys: seq("2dw"), want: Position{0, 0}, text: "ghi"},
+		{name: "2dw from the indent is linewise", content: "  abc\ndef\nghi", keys: seq("w2dw"), want: Position{0, 0}, text: "ghi"},
+		{name: "2dw on the indent stays on the line", content: "  abc\ndef\nghi", keys: seq("2dw"), want: Position{0, 0}, text: "\ndef\nghi"},
+		{name: "2dw to trailing blanks is linewise", content: "abc\ndef  \nghi", keys: seq("2dw"), want: Position{0, 0}, text: "ghi"},
+		{name: "2dw to a later word is not linewise", content: "abc\ndef ghi", keys: seq("2dw"), want: Position{0, 0}, text: "ghi"},
+		{name: "blank line", content: "   \nx", keys: seq("dw"), want: Position{0, 0}, text: "\nx"},
+		{name: "2dw from a blank line", content: "   \nabc\nx", keys: seq("2dw"), want: Position{0, 0}, text: "x"},
+		{name: "2dw over a blank line", content: "abc\n  \nx y", keys: seq("2dw"), want: Position{0, 0}, text: "y"},
+		{name: "w2dw over a blank line", content: "abc def\n  \nx", keys: seq("w2dw"), want: Position{0, 3}, text: "abc "},
+		{name: "w2dw from the indent over a blank line", content: "  abc\n  \nx", keys: seq("w2dw"), want: Position{0, 0}, empty: true},
+		{name: "before a blank last line", content: "abc\n   ", keys: seq("dw"), want: Position{0, 0}, text: "\n   "},
+		{name: "2dw onto a blank last line", content: "abc\n   ", keys: seq("2dw"), want: Position{0, 0}, empty: true},
+	})
 }
 
 // TestDeleteWordBackward tests 'db' — delete to start of previous word.
@@ -95,6 +143,17 @@ func TestDeleteWordBackward(t *testing.T) {
 		// w→col6, l→col7, l→col8; db deletes back to start of "world" (col6)
 		keys(e, 'w', 'l', 'l', 'd', 'b')
 		assert.Equal(t, "hello rld", content(e))
+	})
+
+	// Vim 9.2: an exclusive motion ending in column 0 ends at the end of the
+	// line above, and is linewise if it starts in the indent.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "from column 0 is linewise", content: "abc\ndef", keys: seq("jdb"), want: Position{0, 0}, text: "def"},
+		{name: "from column 0 after text", content: "x abc\ndef", keys: seq("jdb"), want: Position{0, 1}, text: "x \ndef"},
+		{name: "over a blank line", content: "abc\n   \ndef", keys: seq("Gdb"), want: Position{0, 0}, text: "def"},
+		{name: "from the indent", content: "abc\n  def", keys: seq("jwdb"), want: Position{0, 0}, text: "def"},
+		{name: "dB from column 0", content: "abc\ndef", keys: seq("jdB"), want: Position{0, 0}, text: "def"},
 	})
 }
 
@@ -119,6 +178,17 @@ func TestDeleteToWordEnd(t *testing.T) {
 		keys(e, '2', 'd', 'e')
 		assert.Equal(t, " three", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
+	})
+
+	// Vim 9.2: past the last word e goes to the end of the buffer; a delete
+	// from the indent to the end of a later line is linewise.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "past the last word", content: "foobar\n   ", keys: seq("$de"), want: Position{0, 4}, text: "fooba"},
+		{name: "onto an empty last line", content: "foobar\n\n", keys: seq("$de"), want: Position{0, 4}, text: "fooba"},
+		{name: "count past the end", content: "ab cd\n  ", keys: seq("l3de"), want: Position{0, 0}, text: "a"},
+		{name: "2de from the indent to a line end is linewise", content: "  a\nbc", keys: seq("w2de"), want: Position{0, 0}, empty: true},
+		{name: "d2E from the indent to a line end is linewise", content: "  a\nbc", keys: seq("wd2E"), want: Position{0, 0}, empty: true},
 	})
 }
 
@@ -782,6 +852,17 @@ func TestDeleteParagraphMotion(t *testing.T) {
 		assert.Equal(t, "one\ntwo", content(e))
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
 	})
+
+	// Vim 9.2: an end in column 0 ends at the end of the line above, and the
+	// delete is linewise if it starts in the indent.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "d} from the line start is linewise", content: "abc\ndef\n\nx", keys: seq("d}"), want: Position{0, 0}, text: "\nx"},
+		{name: "d} from mid-line", content: "abc\ndef\n\nx", keys: seq("ld}"), want: Position{0, 0}, text: "a\n\nx"},
+		{name: "d} from the indent", content: "  abc\ndef\n\nx", keys: seq("wd}"), want: Position{0, 0}, text: "\nx"},
+		{name: "d{ from column 0", content: "x\n\nabc\ndef", keys: seq("Gd{"), want: Position{1, 0}, text: "x\ndef"},
+		{name: "d{ from the line end", content: "x\n\nabc\ndef", keys: seq("G$d{"), want: Position{1, 0}, text: "x\nf"},
+	})
 }
 
 // TestDeleteToEndOfPrevWord tests 'dge' — delete back to end of previous word (inclusive).
@@ -791,6 +872,13 @@ func TestDeleteToEndOfPrevWord(t *testing.T) {
 		keys(e, 'w', 'd', 'g', 'e')
 		assert.Equal(t, "hellorld", content(e))
 		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+
+	// Vim 9.2: a delete from the indent to the end of a later line is linewise.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "dge from a line end to the indent", content: "  a\nbc", keys: seq("j$dge"), want: Position{0, 0}, empty: true},
+		{name: "dgE from a line end to the indent", content: "  a\nbc", keys: seq("j$dgE"), want: Position{0, 0}, empty: true},
 	})
 }
 
@@ -958,6 +1046,16 @@ func TestDeleteWORDMotions(t *testing.T) {
 		keys(e, 'W', 'd', 'g', 'E')
 		assert.Equal(t, "foo-baaz", content(e))
 	})
+
+	// Vim 9.2: dW stops at the end of the line like dw.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "dW on the last WORD of a line", content: "abc d.f\nab", keys: seq("wdW"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "dW then .", content: "abc d.f\nab d.f", keys: seq("wdWj."), want: Position{1, 2}, text: "abc \nab "},
+		{name: "dw stops at punctuation", content: "abc d.f\nab", keys: seq("wdw"), want: Position{0, 4}, text: "abc .f\nab"},
+		{name: "2dW crosses the line", content: "abc d.f\nab c.d", keys: seq("w2dW"), want: Position{0, 4}, text: "abc c.d"},
+		{name: "dW on an empty line", content: "abc\n\ndef", keys: seq("jdW"), want: Position{1, 0}, text: "abc\ndef"},
+	})
 }
 
 // TestDeleteMatchingBracket tests 'd%' — delete through the matching bracket.
@@ -966,6 +1064,12 @@ func TestDeleteMatchingBracket(t *testing.T) {
 		e := newTestEditor("(foo) bar")
 		keys(e, 'd', '%')
 		assert.Equal(t, " bar", content(e))
+	})
+
+	// Vim 9.2: a delete from the indent to the end of a later line is linewise.
+	runDollarCases(t, []dollarCase{
+		{name: "from the indent to a line end", content: "  (abc\ndef)", keys: keySeq("wd%"), want: Position{0, 0}, empty: true},
+		{name: "from the indent with text after", content: "  (abc\ndef) x", keys: keySeq("wd%"), want: Position{0, 2}, text: "   x"},
 	})
 
 	t.Run("from before the bracket deletes from cursor through match", func(t *testing.T) {

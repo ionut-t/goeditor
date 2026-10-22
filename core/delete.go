@@ -127,64 +127,6 @@ func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError)
 	return deleteLineRange(editor, buffer, startRow, endRow)
 }
 
-func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
-	endPos := tempCursor.Position
-
-	if startPos != endPos {
-		err = deleteRange(buffer, startPos, endPos)
-		if err == nil {
-			buffer.SetCursor(cursor) // Cursor stays at startPos
-		}
-	}
-
-	return err
-}
-
-func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
-	cursor := buffer.GetCursor()
-	originalPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
-	startPos := tempCursor.Position
-
-	if startPos != originalPos {
-		err := deleteRange(buffer, startPos, originalPos)
-		if err == nil {
-			cursor.Position = startPos // Move cursor to the beginning of the deleted range
-			buffer.SetCursor(cursor)
-		}
-		return err
-	}
-	return nil
-}
-
-func deleteWordToEnd(editor Editor, buffer Buffer, count int) *EditorError {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
-	// MoveWordToEnd lands on the last char of the word (inclusive), so move one right
-	// to get the exclusive end for deleteRange.
-	_ = tempCursor.MoveRight(buffer, 1)
-	exclusiveEndPos := tempCursor.Position
-
-	if startPos != exclusiveEndPos {
-		err := deleteRange(buffer, startPos, exclusiveEndPos)
-		if err == nil {
-			buffer.SetCursor(cursor)
-		}
-		return err
-	}
-	return nil
-}
-
 // joinLines implements 'J': join the current line with the line(s) below,
 // replacing the newline and the next line's leading whitespace with a single
 // space. A count of 1 or 2 joins two lines; larger counts join count lines.

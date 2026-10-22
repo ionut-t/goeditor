@@ -340,7 +340,18 @@ func isBigWordChar(r rune) bool {
 
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
 func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune) bool) error {
-	for range count {
+	return c.moveWordForward(buffer, count, isWordChar, false)
+}
+
+// moveWordForward is w. It stops on empty lines but not on lines of only
+// blanks, and at the end of the buffer it leaves the cursor after the last
+// character. With stopAtEOL, as w after an operator, the last of the count
+// words stops at the end of its line instead of going on to the next one,
+// and from an empty line it stops at the start of the next line, as Vim's
+// fwd_word with eol.
+func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune) bool, stopAtEOL bool) error {
+	for i := range count {
+		eol := stopAtEOL && i == count-1
 		moved := false // Flag to track if we actually moved
 
 		// Loop in case a 'w' spans multiple lines
@@ -355,16 +366,15 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune)
 				}
 				c.Position.Row++
 				c.Position.Col = 0
-				// Find first non-blank on the new line
-				newLineRunes := buffer.GetLineRunes(c.Position.Row)
-				for startCol, r := range newLineRunes {
-					if !isWhiteSpace(r) {
-						c.Position.Col = startCol
-						break
-					}
+				if eol {
+					break
 				}
-				moved = true // Moved to a new line
-				continue     // Restart logic on the new line if needed
+				// Go to the first non-blank on the new line; a line of only
+				// blanks is skipped like the blanks at the end of a line.
+				newLineRunes := buffer.GetLineRunes(c.Position.Row)
+				c.Position.Col = firstNonBlankCol(newLineRunes)
+				moved = len(newLineRunes) == 0 || c.Position.Col < len(newLineRunes)
+				continue
 			}
 
 			// Current position
@@ -401,6 +411,7 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune)
 			if pos >= lineLen {
 				// Don't move yet, let the next iteration handle moving to the next line
 				c.Position.Col = lineLen // Stay at the end for now
+				moved = eol
 			} else {
 				c.Position.Col = pos
 				moved = true // Moved within the line
@@ -411,8 +422,19 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune)
 	return nil
 }
 
+// stayOnLastChar moves the cursor back onto the last character after w or W
+// ran into the end of the buffer (err), which leaves it after that character.
+// Normal mode can't stand there; Vim's w stops on the last character.
+func (c *Cursor) stayOnLastChar(buffer Buffer, err error) {
+	if err == ErrEndOfBuffer {
+		c.Position.Col = lastCol(buffer, c.Position.Row, false)
+		c.Preferred = c.Position.Col
+	}
+}
+
 // moveWordToEndOnce advances the cursor to the end of the next word once.
-// Returns true if the end of the buffer was reached without finding a word end.
+// Returns true if the end of the buffer was reached without finding a word
+// end; the cursor is then on the last character of the buffer, as Vim's e.
 func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bool {
 	pos := c.Position.Col + 1
 	for {
@@ -421,6 +443,7 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 
 		if pos >= lineLen {
 			if c.Position.Row >= buffer.LineCount()-1 {
+				c.Position.Col = lastCol(buffer, c.Position.Row, false)
 				return true // end of buffer
 			}
 			c.Position.Row++
@@ -450,18 +473,21 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 	}
 }
 
-// MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e' behavior).
+// MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e'
+// behavior). Past the last word it goes to the last character of the buffer,
+// and returns ErrEndOfBuffer if there was no word end at all to go to.
 func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, isWordChar func(rune) bool) error {
+	var err error
 	for i := range count {
 		if atEnd := c.moveWordToEndOnce(buffer, isWordChar); atEnd {
 			if i == 0 {
-				return ErrEndOfBuffer
+				err = ErrEndOfBuffer
 			}
 			break
 		}
 	}
 	c.Preferred = c.Position.Col
-	return nil
+	return err
 }
 
 // MoveWordBackward moves the cursor backward by count words (Vim 'b' behavior)

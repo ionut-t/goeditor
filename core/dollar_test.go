@@ -14,6 +14,7 @@ type dollarCase struct {
 	want    Position
 	text    string // buffer after the keys; empty to skip the check
 	yanked  string // clipboard after the keys; empty to skip the check
+	empty   bool   // the buffer is empty after the keys
 }
 
 func runDollarCases(t *testing.T, tests []dollarCase) {
@@ -25,7 +26,7 @@ func runDollarCases(t *testing.T, tests []dollarCase) {
 				_ = e.HandleKey(k)
 			}
 			assert.Equal(t, tt.want, cursorPos(e))
-			if tt.text != "" {
+			if tt.text != "" || tt.empty {
 				assert.Equal(t, tt.text, content(e))
 			}
 			if tt.yanked != "" {
@@ -99,6 +100,16 @@ func TestDollarSticksToLineEnd(t *testing.T) {
 		{name: "d$ goes onto the last character", content: t1, keys: seq("5ld$"), want: Position{0, 4}},
 		{name: "D goes onto the last character", content: t1, keys: seq("5lD"), want: Position{0, 4}},
 		{name: "D", content: t3, keys: seq("$Djj"), want: Position{2, 4}},
+		{name: "de to the line end goes onto the last character", content: "abc def\nab\nabcdefghij", keys: seq("wde"), want: Position{0, 3}, text: "abc \nab\nabcdefghij"},
+		{name: "de to the line end then jj", content: "abc def\nab\nabcdefghij", keys: seq("wdejj"), want: Position{2, 3}},
+		{name: "dE to the line end", content: "abc def\nab", keys: seq("wdE"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "dl on the last character", content: t3, keys: seq("$dl"), want: Position{0, 4}, text: "abcde\nab\nabcdefghij"},
+		{name: "dl on the last character then jj", content: t3, keys: seq("$dljj"), want: Position{2, 4}},
+		{name: "diw on the last word", content: "abc def\nab", keys: seq("wdiw"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "daw on the last word", content: "abc def\nab", keys: seq("wdaw"), want: Position{0, 2}, text: "abc\nab"},
+		{name: "daw on the last word then jj", content: "abc def\nab\nabcdefghij", keys: seq("wdawjj"), want: Position{2, 2}},
+		{name: "df to the line end", content: "abc def\nab", keys: seq("wdff"), want: Position{0, 3}, text: "abc \nab"},
+		{name: "d% to the line end", content: "abc (d)\nab", keys: seq("wd%"), want: Position{0, 3}, text: "abc \nab"},
 		{name: "~", content: t3, keys: seq("$~jj"), want: Position{2, 5}, text: "abcdeF\nab\nabcdefghij"},
 		{name: "r", content: t3, keys: seq("$rxjj"), want: Position{2, 5}, text: "abcdex\nab\nabcdefghij"},
 		{name: "J", content: t3, keys: seq("$Jj"), want: Position{1, 6}, text: "abcdef ab\nabcdefghij"},
