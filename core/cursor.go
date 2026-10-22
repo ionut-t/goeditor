@@ -165,10 +165,15 @@ func (c *Cursor) moveLeftOrUp(buffer Buffer, count int, pastEnd bool) error {
 	return err
 }
 
-// moveRightOrDown is MoveRightOrDown. With pastEnd, as in insert mode, the
-// cursor can sit after the last character, and goes from there to the start
-// of the line below, as Vim's insert-mode <Right> with ']' in 'whichwrap'.
+// moveRightOrDown is MoveRightOrDown. With pastEnd, as in insert and visual
+// mode, the cursor can sit after the last character, and goes from there to
+// the start of the line below, as Vim's insert-mode <Right> with ']' in
+// 'whichwrap'. If it can't move at all, Preferred is left as it is, as Vim's l
+// and <Space>.
 func (c *Cursor) moveRightOrDown(buffer Buffer, count int, pastEnd bool) error {
+	if count > 0 && c.Position.Row >= buffer.LineCount()-1 && c.Position.Col >= lastCol(buffer, c.Position.Row, pastEnd) {
+		return ErrEndOfBuffer
+	}
 	var err error
 	for range count {
 		if c.Position.Col < lastCol(buffer, c.Position.Row, pastEnd) {
@@ -195,14 +200,14 @@ func lastCol(buffer Buffer, row int, pastEnd bool) int {
 }
 
 // moveRightToLastChar moves the cursor right by count characters, stopping on
-// the last character of the line, as Vim's l in normal and visual mode. It
-// moves as far as it can and returns ErrEndOfLine if it reaches that character.
-// On the last character it doesn't move and leaves Preferred as it is, as Vim's
-// l; after it, on the line break in visual mode, Preferred becomes the column.
-func (c *Cursor) moveRightToLastChar(buffer Buffer, count int) error {
+// the last character of the line, or with pastEnd, as in visual mode, on the
+// line break, as Vim's l. It moves as far as it can and returns ErrEndOfLine
+// if it reaches that position. There it doesn't move and leaves Preferred as
+// it is, as Vim's l, so after $ j and k still go to the end of every line.
+func (c *Cursor) moveRightToLastChar(buffer Buffer, count int, pastEnd bool) error {
 	var err error
-	last := lastCol(buffer, c.Position.Row, false)
-	if c.Position.Col == last && count > 0 {
+	last := lastCol(buffer, c.Position.Row, pastEnd)
+	if c.Position.Col >= last && count > 0 {
 		return ErrEndOfLine
 	}
 	if c.Position.Col+count > last {

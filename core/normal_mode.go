@@ -883,7 +883,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == 'k' || key.Key == KeyUp:
 		moveErr = cursor.MoveUp(buffer, count)
 	case key.Rune == 'l' || key.Key == KeyRight:
-		moveErr = moveRight(editor, &cursor, buffer, count)
+		moveErr = moveRight(editor, &cursor, buffer, count, false)
 	case key.Key == KeySpace:
 		moveErr = cursor.MoveRightOrDown(buffer, count)
 	case key.Rune == '{':

@@ -39,7 +39,7 @@ func runDollarCases(t *testing.T, tests []dollarCase) {
 // of the line through j and k, as Vim's curswant MAXCOL does, until a command
 // sets the column again. Expected positions are from Vim 9.2.
 func TestDollarSticksToLineEnd(t *testing.T) {
-	_, _, _, bs, esc := whichwrapKeys()
+	_, _, space, bs, esc := whichwrapKeys()
 	seq := keySeq
 	down, end := KeyEvent{Key: KeyDown}, KeyEvent{Key: KeyEnd}
 	const t1 = "abcdefghijkl\nab\nabcdefghijkl\nhello world"
@@ -58,6 +58,7 @@ func TestDollarSticksToLineEnd(t *testing.T) {
 		{name: "count past the last line", content: t3, keys: seq("$9j"), want: Position{2, 9}},
 		{name: "count past the first line", content: t3, keys: seq("$jj9k"), want: Position{0, 5}},
 		{name: "l that can't move keeps it", content: t3, keys: seq("$jlj"), want: Position{2, 9}},
+		{name: "<Space> that can't move keeps it", content: "abcdef\nab", keys: seq("j$", space, "k"), want: Position{0, 5}},
 		{name: "failed % keeps it", content: t3, keys: seq("$%jj"), want: Position{2, 9}},
 		{name: "failed f keeps it", content: t3, keys: seq("$jfaj"), want: Position{2, 9}},
 		{name: "zz keeps it", content: t3, keys: seq("$zzjj"), want: Position{2, 9}},
@@ -113,12 +114,13 @@ func TestDollarSticksToLineEnd(t *testing.T) {
 // onto the line break, so the selection includes it, and stays at the end of
 // each line through j and k.
 func TestVisualDollar(t *testing.T) {
-	_, _, _, _, esc := whichwrapKeys()
+	_, right, _, _, esc := whichwrapKeys()
 	seq := keySeq
 	end := KeyEvent{Key: KeyEnd}
 	const abc = "abc\ndef\nghi"
 	const short = "abcdef\nab\nabcdef"
 	const t3 = "abcdef\nab\nabcdefghij"
+	const long = "abcdefghijkl\nab\nabcdef"
 
 	runDollarCases(t, []dollarCase{
 		{name: "v$ is on the line break", content: "abc\ndef", keys: seq("lv$"), want: Position{0, 3}},
@@ -157,6 +159,14 @@ func TestVisualDollar(t *testing.T) {
 		{name: "v$d on the third line", content: abc, keys: seq("jjlv$d"), text: "abc\ndef\ng", want: Position{2, 0}},
 		{name: "v$j$d to the last line", content: abc, keys: seq("jlv$j$d"), text: "abc\nd", want: Position{1, 0}},
 
+		// l on the line break can't move, so it keeps the column.
+		{name: "v$l", content: t3, keys: seq("lv$ljj"), want: Position{2, 10}},
+		{name: "V$l", content: t3, keys: seq("lV$ljj"), want: Position{2, 10}},
+		{name: "v$<Right>", content: t3, keys: seq("lv$", right, "jj"), want: Position{2, 10}},
+		{name: "v$2l", content: t3, keys: seq("lv$2ljj"), want: Position{2, 10}},
+		{name: "v$l on the last line", content: long, keys: seq("Glv$lkk"), want: Position{0, 12}},
+		{name: "v$l on an empty line", content: "\nabc", keys: seq("v$lj"), want: Position{1, 3}},
+
 		// Leaving visual mode.
 		{name: "<Esc> goes onto the last character", content: abc, keys: seq("lv$", esc), want: Position{0, 2}},
 		{name: "<Esc> resets the column", content: short, keys: seq("lv$", esc, "jj"), want: Position{2, 5}},
@@ -179,6 +189,7 @@ func TestVisualRepeatAfterDollar(t *testing.T) {
 		{name: "v$d", content: four, keys: seq("lv$dj."), text: "aabcdef\naabcdef", want: Position{1, 1}},
 		{name: "vj$d", content: four, keys: seq("llvj$dj."), text: "ababcdef\nab", want: Position{1, 1}},
 		{name: "v$jhd is not to the end", content: four, keys: seq("llv$jhdj."), text: "ab\na", want: Position{1, 0}},
+		{name: "v$ld", content: "abcdef\nab\nabcdefghij", keys: seq("lv$ldj."), text: "aab\na", want: Position{1, 0}},
 		{name: "v$hd is not to the end", content: four, keys: seq("lv$hdj."), text: "a\nf\nabcdef\nabcdef", want: Position{1, 0}},
 		{name: "v$U", content: four, keys: seq("lv$Uj."), text: "aBCDEF\naBCDEF\nabcdef\nabcdef", want: Position{1, 1}},
 		{name: "longer line", content: "abcdef\nab\nabcdefgh\nabcdefghij", keys: seq("lv$djj."), text: "aab\nabcdefgh\na", want: Position{2, 0}},
