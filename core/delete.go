@@ -127,24 +127,6 @@ func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError)
 	return deleteLineRange(editor, buffer, startRow, endRow)
 }
 
-func deleteWords(editor Editor, buffer Buffer, count int) (err *EditorError) {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
-	endPos := tempCursor.Position
-
-	if startPos != endPos {
-		err = deleteRange(buffer, startPos, endPos)
-		if err == nil {
-			buffer.SetCursor(cursor) // Cursor stays at startPos
-		}
-	}
-
-	return err
-}
-
 func deleteWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	originalPos := cursor.Position

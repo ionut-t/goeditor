@@ -340,7 +340,16 @@ func isBigWordChar(r rune) bool {
 
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
 func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune) bool) error {
-	for range count {
+	return c.moveWordForward(buffer, count, isWordChar, false)
+}
+
+// moveWordForward is w. With stopAtEOL, as w after an operator, the last of
+// the count words stops at the end of its line instead of going on to the
+// next one, and from an empty line it stops at the start of the next line,
+// as Vim's fwd_word with eol.
+func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune) bool, stopAtEOL bool) error {
+	for i := range count {
+		eol := stopAtEOL && i == count-1
 		moved := false // Flag to track if we actually moved
 
 		// Loop in case a 'w' spans multiple lines
@@ -355,6 +364,9 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune)
 				}
 				c.Position.Row++
 				c.Position.Col = 0
+				if eol {
+					break
+				}
 				// Find first non-blank on the new line
 				newLineRunes := buffer.GetLineRunes(c.Position.Row)
 				for startCol, r := range newLineRunes {
@@ -401,6 +413,7 @@ func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune)
 			if pos >= lineLen {
 				// Don't move yet, let the next iteration handle moving to the next line
 				c.Position.Col = lineLen // Stay at the end for now
+				moved = eol
 			} else {
 				c.Position.Col = pos
 				moved = true // Moved within the line

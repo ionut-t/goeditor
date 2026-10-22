@@ -55,6 +55,22 @@ func TestYankWord(t *testing.T) {
 		assert.Equal(t, "one two ", cb.content)
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
+
+	// Vim 9.2: the last word stops at the end of its line, and an empty line
+	// is yanked linewise.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "last word of a line", content: "abc def\nab", keys: seq("wyw"), want: Position{0, 4}, yanked: "def"},
+		{name: "2yw crosses the line", content: "abc def\nab cd", keys: seq("w2yw"), want: Position{0, 4}, yanked: "def\nab "},
+		{name: "2yw onto an empty line", content: "abc def\n\nx", keys: seq("w2yw"), want: Position{0, 4}, yanked: "def\n"},
+		{name: "trailing blanks", content: "abc def  \nab", keys: seq("wyw"), want: Position{0, 4}, yanked: "def  "},
+		{name: "count past the end of the buffer", content: "abc def\nab", keys: seq("w5yw"), want: Position{0, 4}, yanked: "def\nab"},
+		{name: "2yw from the line start stays charwise", content: "abc\ndef\nghi", keys: seq("2yw"), want: Position{0, 0}, yanked: "abc\ndef"},
+		{name: "last line", content: "ab\nabc def", keys: seq("jwyw"), want: Position{1, 4}, yanked: "def"},
+		{name: "empty line is yanked linewise", content: "abc\n\ndef", keys: seq("jyw"), want: Position{1, 0}, yanked: "\n"},
+		{name: "yW on the last WORD of a line", content: "abc d.f\nab", keys: seq("wyW"), want: Position{0, 4}, yanked: "d.f"},
+		{name: "yW with trailing blanks", content: "abc d.f  \nab", keys: seq("wyW"), want: Position{0, 4}, yanked: "d.f  "},
+	})
 }
 
 // TestYankWordBackward tests 'yb' — yank to start of previous word (exclusive).

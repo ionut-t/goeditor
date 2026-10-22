@@ -100,6 +100,11 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	err := m.handleKey(editor, buffer, key)
 	if sets && err == nil && m.Idle() {
 		cursor := buffer.GetCursor()
+		// A delete up to the end of the line (dw, de, dl, diw, ...) leaves the
+		// cursor past it; Vim puts it back on the last character.
+		if editor.IsNormalMode() {
+			cursor.Position.Col = min(cursor.Position.Col, lastCol(buffer, cursor.Position.Row, false))
+		}
 		cursor.Preferred = cursor.Position.Col
 		buffer.SetCursor(cursor)
 	}
@@ -641,14 +646,11 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		}
 	case 'w': // dw = delete word, yw = yank word forward, cw = change word
 		switch op {
-		case "delete":
-			err = deleteWords(editor, buffer, count)
-			actionTaken = true
-		case "yank":
-			err = yankWords(editor, buffer, count, true) // forward
+		case "delete", "yank":
+			err = applyOperatorToWords(editor, buffer, op, count, editor.IsWordChar)
 			actionTaken = true
 		case "change":
-			err = changeWords(editor, buffer, count)
+			err = changeWordsForward(editor, buffer, count, editor.IsWordChar)
 			actionTaken = true
 		}
 	case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
@@ -657,7 +659,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			err = deleteWordsBackward(editor, buffer, count)
 			actionTaken = true
 		case "yank":
-			err = yankWords(editor, buffer, count, false) // backward
+			err = yankWordsBackward(editor, buffer, count)
 			actionTaken = true
 		case "change":
 			err = changeWordsBackward(editor, buffer, count)
@@ -672,7 +674,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			err = yankWordToEnd(editor, buffer, count)
 			actionTaken = true
 		case "change":
-			err = changeWords(editor, buffer, count) // ce and cw behave the same
+			err = changeWords(editor, buffer, count)
 			actionTaken = true
 		}
 	case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
@@ -745,14 +747,11 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		actionTaken = true
 
 	case 'W': // dW, yW, cW — WORD forward (cW changes to end of WORD, like cE)
-		tempCursor := cursor
 		if op == "change" {
-			_ = tempCursor.MoveWordToEnd(buffer, count, isBigWordChar)
-			_ = tempCursor.MoveRight(buffer, 1)
+			err = changeWordsForward(editor, buffer, count, isBigWordChar)
 		} else {
-			_ = tempCursor.MoveWordForward(buffer, count, isBigWordChar)
+			err = applyOperatorToWords(editor, buffer, op, count, isBigWordChar)
 		}
-		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
 
 	case 'E': // dE, yE, cE — to end of WORD (inclusive)

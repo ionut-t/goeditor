@@ -2,12 +2,47 @@ package core
 
 import "errors"
 
+// changeWordsForward implements cw (cW with isBigWordChar). On a word Vim
+// changes to its end, as ce, except that from the word's last character it
+// changes only that character on the first count. On blanks or an empty line
+// it takes w's motion, as dw (Vim without 'w' in 'cpoptions').
+func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func(rune) bool) *EditorError {
+	cursor := buffer.GetCursor()
+	start := cursor.Position
+	line := buffer.GetLineRunes(start.Row)
+	if start.Col >= len(line) || isWhiteSpace(line[start.Col]) {
+		return applyOperatorToWords(editor, buffer, "change", count, isWordChar)
+	}
+
+	tempCursor := cursor
+	if start.Col+1 < len(line) && wordClass(line[start.Col+1], isWordChar) == wordClass(line[start.Col], isWordChar) {
+		_ = tempCursor.MoveWordToEnd(buffer, count, isWordChar)
+	} else if count > 1 {
+		_ = tempCursor.MoveWordToEnd(buffer, count-1, isWordChar)
+	}
+	end := Position{Row: tempCursor.Position.Row, Col: tempCursor.Position.Col + 1}
+	return applyOperatorToRange(editor, buffer, "change", start, end)
+}
+
+// wordClass is Vim's cls(): 0 for a blank, 2 for a word character and 1 for
+// any other character.
+func wordClass(r rune, isWordChar func(rune) bool) int {
+	switch {
+	case isWhiteSpace(r):
+		return 0
+	case isWordChar(r):
+		return 2
+	default:
+		return 1
+	}
+}
+
+// changeWords implements ce: change to the end of the word.
 func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	startPos := cursor.Position
 	tempCursor := cursor
 
-	// For 'cw', Vim deletes to the end of the current word (like 'ce').
 	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
 
 	// In 'cw', we delete INCLUDING the character at the end of the word.

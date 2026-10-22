@@ -39,24 +39,20 @@ func yankLines(editor Editor, buffer Buffer, count int) *EditorError {
 	return nil
 }
 
-func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorError {
+// yankWordsBackward implements yb.
+func yankWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	originalPos := cursor.Position
 
 	// Calculate end position by moving cursor
 	tempCursor := cursor
-	var moveErr error
-	if forward {
-		moveErr = tempCursor.MoveWordForward(buffer, count, editor.IsWordChar)
-	} else {
-		moveErr = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
-	}
+	moveErr := tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
 
 	endPos := tempCursor.Position
 
 	// If the cursor actually moved, we need to make the yank exclusive.
-	// In Vim, 'yw' and 'yb' are exclusive motions.
+	// In Vim, 'yb' is an exclusive motion.
 	// Since editor.Copy is inclusive of both ends, we need to adjust
 	// the larger of the two positions back by one character.
 	var selStart, selEnd Position
@@ -71,8 +67,7 @@ func yankWords(editor Editor, buffer Buffer, count int, forward bool) *EditorErr
 	if selStart != selEnd {
 		// Make the yank range exclusive by moving the end of the range back by one character.
 		// MoveLeftOrUp correctly handles the case where the motion spanned multiple lines
-		// and we want to exclude the character at the start of the next line (and potentially
-		// the newline of the current line if it's an exclusive motion like 'yw' at EOL).
+		// and we want to exclude the character at the start of the next line.
 		endCursor := Cursor{Position: selEnd}
 		_ = endCursor.MoveLeftOrUp(buffer, 1)
 		selEnd = endCursor.Position
