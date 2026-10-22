@@ -906,11 +906,11 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		if target, ok := findMatchingBracket(buffer, cursor.Position); ok {
 			cursor.Position = target
 		}
-	case key.Rune == '0':
+	case key.Rune == '0' || key.Key == KeyHome:
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
 		moveErr = cursor.moveToLineEnd(buffer, count, false)
-	case key.Rune == '^' || key.Key == KeyHome:
+	case key.Rune == '^':
 		cursor.MoveToFirstNonBlank(buffer)
 	case key.Rune == 'g':
 		m.cmd.prefix.start('g')
