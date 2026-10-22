@@ -107,9 +107,10 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 }
 
 // setsColumn reports whether key, typed with no command pending, changes the
-// text, yanks or enters insert mode, after which Vim sets curswant.
+// text or enters insert mode, after which Vim sets curswant. Operators (d, c,
+// y) are caught when their motion completes them, not here.
 func setsColumn(key KeyEvent) bool {
-	return editsText(key) || key.Modifiers&ModCtrl == 0 && (key.Rune == 'y' || key.Rune == 'Y' || key.Rune == '.')
+	return editsText(key) || key.Modifiers&ModCtrl == 0 && key.Rune == '.'
 }
 
 func (m *normalMode) handleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {

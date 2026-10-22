@@ -261,7 +261,7 @@ func (e *editor) selectSpan(span visualSpan) bool {
 	row := max(0, min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1))
 	if span.mode == VisualMode && span.cols == maxCol {
 		cursor.Position.Row = row
-		_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break
+		_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break; a count of 1 never fails
 		e.buffer.SetCursor(cursor)
 		return true
 	}
