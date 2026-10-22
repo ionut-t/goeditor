@@ -223,9 +223,10 @@ type Model struct {
 
 	disableVimMode bool
 
-	fullVisualLayoutHeight  int // Total number of visual lines in the entire buffer
-	cursorAbsoluteVisualRow int // Cursor's current row index in the full visual layout
-	currentVisualTopLine    int // Top line of the current visual slice
+	fullVisualLayoutHeight  int  // Total number of visual lines in the entire buffer
+	cursorAbsoluteVisualRow int  // Cursor's current row index in the full visual layout
+	cursorPastFullRow       bool // Cursor after the end of a line whose last row is full: drawn at the start of the next row
+	currentVisualTopLine    int  // Top line of the current visual slice
 
 	visualLayoutCache               []VisualLineInfo                    // Cache of visual line information
 	visualLayoutCacheStartRow       int                                 // First logical line in cache (for lazy mode)
