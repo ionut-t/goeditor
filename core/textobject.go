@@ -145,6 +145,11 @@ func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune,
 
 	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, editor.IsWordChar)
 	if !found {
+		// iw on an empty line is the empty range there. aw and counts would
+		// take in the next line (not supported yet).
+		if modifier == 'i' && count <= 1 && buffer.LineRuneCount(cursor.Position.Row) == 0 {
+			return applyOperatorToEmptyObject(editor, buffer, Position{Row: cursor.Position.Row}, op)
+		}
 		return nil
 	}
 
@@ -665,11 +670,36 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 	return nil
 }
 
+// applyOperatorToEmptyObject applies op to an inner text object with nothing
+// in it (di"" or ci() between the quotes or brackets, ciw on an empty line).
+// As Vim, the operator still runs, on the empty range at pos: the cursor goes
+// there and applyOperatorToEmptyRange does the rest.
+func applyOperatorToEmptyObject(editor Editor, buffer Buffer, pos Position, op string) *EditorError {
+	cursor := buffer.GetCursor()
+	cursor.Position = pos
+	buffer.SetCursor(cursor)
+	return applyOperatorToEmptyRange(editor, op)
+}
+
+// applyOperatorToEmptyQuotes applies op to i" (or i', i`) when the quote
+// pair found by a" (openCol, closeCol) has nothing between it, and does
+// nothing otherwise.
+func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, openCol, closeCol int, op string) *EditorError {
+	if modifier != 'i' || closeCol != openCol+1 {
+		return nil
+	}
+	row := buffer.GetCursor().Position.Row
+	return applyOperatorToEmptyObject(editor, buffer, Position{Row: row, Col: closeCol}, op)
+}
+
 // applyQuoteOp applies op (yank/delete/change) to the i/a quote text object for the given quote char.
 func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op string) *EditorError {
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote)
 	if !found {
+		if openCol, closeCol, ok := quoteTextObjectRange(buffer, cursor.Position, 'a', quote); ok {
+			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
+		}
 		return nil
 	}
 	return applyCharRangeOp(editor, buffer,
@@ -683,6 +713,9 @@ func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *Ed
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
 	if !found {
+		if openCol, closeCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, 'a'); ok {
+			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
+		}
 		return nil
 	}
 	return applyCharRangeOp(editor, buffer,
@@ -704,7 +737,14 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 
 	innerStart, innerEnd, found := bracketInnerRange(buffer, openPos, closePos)
 	if !found {
-		return nil
+		// Nothing between the brackets: the empty range just after the open
+		// bracket, which is the close bracket or, with the open bracket at
+		// the end of its line, the start of the next line.
+		after := Position{Row: openPos.Row, Col: openPos.Col + 1}
+		if after.Col >= buffer.LineRuneCount(openPos.Row) {
+			after = Position{Row: openPos.Row + 1, Col: 0}
+		}
+		return applyOperatorToEmptyObject(editor, buffer, after, op)
 	}
 	return bracketApplyRange(editor, buffer, innerStart, innerEnd, closePos, op)
 }
