@@ -1,9 +1,15 @@
 package core
 
+import "math"
+
+// maxCol is Preferred after $: j and k then go to the end of every line, as
+// with Vim's curswant MAXCOL, until a command sets the column again.
+const maxCol = math.MaxInt
+
 // Cursor represents the current position for editing operations
 type Cursor struct {
 	Position  Position // Current position (row, column)
-	Preferred int      // Column j/k go back to (Vim's curswant), as a rune index, not a screen column
+	Preferred int      // Column j/k go back to (Vim's curswant), as a rune index, not a screen column; math.MaxInt after $ (the end of every line)
 }
 
 // --- Cursor Movement ---
@@ -25,9 +31,13 @@ func (c *Cursor) clampCol(buffer Buffer) {
 
 // MoveLeft moves the cursor left by count characters, staying on the line. It
 // moves as far as it can and returns ErrStartOfLine if count goes past column 0.
+// At column 0 it doesn't move and leaves Preferred as it is, as Vim's h.
 func (c *Cursor) MoveLeft(buffer Buffer, count int) error {
 	var err error
 	count = max(count, 0)
+	if c.Position.Col <= 0 && count > 0 {
+		return ErrStartOfLine
+	}
 	if count > c.Position.Col {
 		count = max(c.Position.Col, 0)
 		err = ErrStartOfLine
@@ -187,9 +197,14 @@ func lastCol(buffer Buffer, row int, pastEnd bool) int {
 // moveRightToLastChar moves the cursor right by count characters, stopping on
 // the last character of the line, as Vim's l in normal and visual mode. It
 // moves as far as it can and returns ErrEndOfLine if it reaches that character.
+// On the last character it doesn't move and leaves Preferred as it is, as Vim's
+// l; after it, on the line break in visual mode, Preferred becomes the column.
 func (c *Cursor) moveRightToLastChar(buffer Buffer, count int) error {
 	var err error
 	last := lastCol(buffer, c.Position.Row, false)
+	if c.Position.Col == last && count > 0 {
+		return ErrEndOfLine
+	}
 	if c.Position.Col+count > last {
 		count = max(last-c.Position.Col, 0)
 		err = ErrEndOfLine
@@ -205,16 +220,29 @@ func (c *Cursor) MoveToLineStart() {
 	c.Preferred = 0
 }
 
-// MoveToLineEnd moves the cursor to the *last character* of the current line
+// MoveToLineEnd moves the cursor to the last character of the current line,
+// as Vim's $. Preferred becomes math.MaxInt, so j and k go on to the end of
+// every line.
 func (c *Cursor) MoveToLineEnd(buffer Buffer) {
-	lineLen := buffer.LineRuneCount(c.Position.Row)
-	if lineLen > 0 {
-		c.Position.Col = lineLen - 1 // Position is on the last char
-	} else {
-		c.Position.Col = 0 // Empty line, stay at col 0
+	_ = c.moveToLineEnd(buffer, 1, false) // a count of 1 never fails
+}
+
+// moveToLineEnd is [count]$: count-1 lines down, then to the last character,
+// or with pastEnd, as in visual mode, onto the line break. A count past the
+// last line stops there; on the last line a count above 1 returns
+// ErrEndOfBuffer without moving. Either way j and k now go to the end of every
+// line, as Vim sets curswant before it moves.
+func (c *Cursor) moveToLineEnd(buffer Buffer, count int, pastEnd bool) error {
+	c.Preferred = maxCol
+	if count > 1 {
+		lastRow := buffer.LineCount() - 1
+		if c.Position.Row >= lastRow {
+			return ErrEndOfBuffer
+		}
+		c.Position.Row = min(c.Position.Row+count-1, lastRow)
 	}
-	// Preferred is the column of the last character
-	c.Preferred = c.Position.Col
+	c.Position.Col = lastCol(buffer, c.Position.Row, pastEnd)
+	return nil
 }
 
 // MoveToAfterLineEnd moves the cursor *after* the last character of the current line
