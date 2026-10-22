@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.11.3](https://github.com/ionut-t/goeditor/compare/v0.11.2...v0.11.3) (2026-10-22)
+
+
+### Bug Fixes
+
+* **clipboard:** wrap clipboard write error and use VisualLineMode constant ([#67](https://github.com/ionut-t/goeditor/issues/67)) ([0d6750a](https://github.com/ionut-t/goeditor/commit/0d6750a499d0a9e00a684dd0241ebe79669daf32))
+* **core:** ensure setting empty content creates a single empty line ([#68](https://github.com/ionut-t/goeditor/issues/68)) ([7ed5f18](https://github.com/ionut-t/goeditor/commit/7ed5f18f07dee16be2c5cd2c35c7c0a103505507))
+* **core:** make $ stick to the end of the line, as Vim's curswant MAXCOL ([#73](https://github.com/ionut-t/goeditor/issues/73)) ([bee0e69](https://github.com/ionut-t/goeditor/commit/bee0e696b9a4539d354139bc178529e07f6b0c60))
+* **core:** make normal-mode &lt;Home&gt; go to column 0 ([#74](https://github.com/ionut-t/goeditor/issues/74)) ([84b31ec](https://github.com/ionut-t/goeditor/commit/84b31ecb7b0209c04cec00b6ab3c567030dc0572))
+* **cursor:** align 'first non-blank' motion with Vim on blank lines ([#69](https://github.com/ionut-t/goeditor/issues/69)) ([ecc539b](https://github.com/ionut-t/goeditor/commit/ecc539b57923344c04edbd1c9ca6c984b5f03807))
+* **render/motion:** improve tab rendering and backward word motion ([#70](https://github.com/ionut-t/goeditor/issues/70)) ([7498a06](https://github.com/ionut-t/goeditor/commit/7498a069bb6d934c32c6f8b8388d3d9291deee54))
+* **render:** draw the cursor after a full last row at the start of the next row ([#72](https://github.com/ionut-t/goeditor/issues/72)) ([f3173e9](https://github.com/ionut-t/goeditor/commit/f3173e9d2a27e91535df2db0227803eb81796157))
+* **render:** keep blanks at wrap points so every cursor column has a cell ([#71](https://github.com/ionut-t/goeditor/issues/71)) ([019fe5d](https://github.com/ionut-t/goeditor/commit/019fe5dd8f6ff85b2ff87ef422aba90849c94f1e))
+* **search:** treat titlecase characters as uppercase in smartcase ([#63](https://github.com/ionut-t/goeditor/issues/63)) ([c97d0d2](https://github.com/ionut-t/goeditor/commit/c97d0d2e1f035592b4e26a4e25abf9e3a2960be9))
+* **search:** use unicode case-folding for case-insensitive matching ([#65](https://github.com/ionut-t/goeditor/issues/65)) ([005953d](https://github.com/ionut-t/goeditor/commit/005953d215d80f226a619b36ca771abf5816aeeb))
+* **search:** wrap inside Find for both directions ([#66](https://github.com/ionut-t/goeditor/issues/66)) ([9057112](https://github.com/ionut-t/goeditor/commit/9057112ca1a0a965700f35271fb9c1972e607a47))
+
 ## [0.11.2](https://github.com/ionut-t/goeditor/compare/v0.11.1...v0.11.2) (2026-10-20)
 
 
