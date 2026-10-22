@@ -14,6 +14,7 @@ type dollarCase struct {
 	want    Position
 	text    string // buffer after the keys; empty to skip the check
 	yanked  string // clipboard after the keys; empty to skip the check
+	empty   bool   // the buffer is empty after the keys
 }
 
 func runDollarCases(t *testing.T, tests []dollarCase) {
@@ -25,7 +26,7 @@ func runDollarCases(t *testing.T, tests []dollarCase) {
 				_ = e.HandleKey(k)
 			}
 			assert.Equal(t, tt.want, cursorPos(e))
-			if tt.text != "" {
+			if tt.text != "" || tt.empty {
 				assert.Equal(t, tt.text, content(e))
 			}
 			if tt.yanked != "" {

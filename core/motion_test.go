@@ -661,6 +661,25 @@ func TestMoveWordForward(t *testing.T) {
 		keys(e, 'w')
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
 	})
+
+	// Vim 9.2: w stops on empty lines but not on lines of only blanks, and at
+	// the end of the buffer on the last character (in visual mode after it).
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "skips a line of only blanks", content: "abc\n   \ndef", keys: seq("w"), want: Position{2, 0}},
+		{name: "W skips a line of only blanks", content: "abc\n   \ndef", keys: seq("W"), want: Position{2, 0}},
+		{name: "2w over two lines of only blanks", content: "abc\n   \n  \ndef gh", keys: seq("2w"), want: Position{3, 4}},
+		{name: "stops on an empty line after a blank one", content: "abc\n   \n\ndef", keys: seq("w"), want: Position{2, 0}},
+		{name: "onto a blank last line", content: "abc\n   ", keys: seq("w"), want: Position{1, 2}},
+		{name: "onto a blank last line then k", content: "abc\n   ", keys: seq("wk"), want: Position{0, 2}},
+		{name: "last word of the buffer", content: "abc def", keys: seq("ww"), want: Position{0, 6}},
+		{name: "count past the end", content: "abc def\nx", keys: seq("3w"), want: Position{1, 0}},
+		{name: "visual w at the end goes onto the line break", content: "abc def", keys: seq("wvw"), want: Position{0, 7}},
+		{name: "visual w at the end then d", content: "abc def", keys: seq("wvwd"), want: Position{0, 3}, text: "abc "},
+		{name: "visual w over a blank line", content: "abc\n   \ndef", keys: seq("vwd"), want: Position{0, 0}, text: "ef"},
+		{name: "visual w onto a blank last line", content: "abc\n   ", keys: seq("vw"), want: Position{1, 3}},
+		{name: "visual w onto a blank last line then d", content: "abc\n   ", keys: seq("vwd"), want: Position{0, 0}, empty: true},
+	})
 }
 
 // TestMoveWordBackward tests 'b' — move to start of current or previous word.
@@ -702,6 +721,15 @@ func TestMoveWordToEnd(t *testing.T) {
 		e := newTestEditor("one two three")
 		keys(e, '2', 'e')
 		assert.Equal(t, Position{0, 6}, cursorPos(e))
+	})
+
+	// Vim 9.2: past the last word e goes to the last character of the buffer.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "past the last word", content: "foobar\n   ", keys: seq("$e"), want: Position{1, 2}},
+		{name: "onto an empty last line", content: "foobar\n\n", keys: seq("$e"), want: Position{1, 0}},
+		{name: "count past the end", content: "ab cd\n  ", keys: seq("l3e"), want: Position{1, 1}},
+		{name: "visual e past the last word then d", content: "foobar\n   ", keys: seq("$ved"), want: Position{0, 4}, text: "fooba"},
 	})
 }
 

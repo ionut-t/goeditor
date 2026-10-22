@@ -90,6 +90,15 @@ func TestChangeWord(t *testing.T) {
 		{name: "empty line", content: "abc\n\ndef", keys: seq("jcwX", esc), want: Position{1, 0}, text: "abc\nX\ndef"},
 		{name: "cW on the last WORD of a line", content: "abc d.f\nab", keys: seq("wcWX", esc), want: Position{0, 4}, text: "abc X\nab"},
 		{name: "cW on blanks", content: "abc   d.f", keys: seq("3lcWX", esc), want: Position{0, 3}, text: "abcXd.f"},
+		{name: "2cw past the last word", content: "foobar\n         ", keys: seq("$c2wX", esc), want: Position{0, 5}, text: "foobaX"},
+		{name: "2cw onto an empty last line", content: "foobar\n\n", keys: seq("$c2wX", esc), want: Position{0, 5}, text: "foobaX"},
+
+		// Other motions: e goes to the end of the buffer; an end in column 0
+		// ends at the end of the line above, linewise from the indent.
+		{name: "ce past the last word", content: "foobar\n   ", keys: seq("$ceX", esc), want: Position{0, 5}, text: "foobaX"},
+		{name: "2ce from the indent stays charwise", content: "  a\nbc", keys: seq("w2ceX", esc), want: Position{0, 2}, text: "  X"},
+		{name: "cb from column 0 is linewise", content: "abc\ndef", keys: seq("jcbX", esc), want: Position{0, 0}, text: "X\ndef"},
+		{name: "c} from the line start is linewise", content: "abc\ndef\n\nx", keys: seq("c}X", esc), want: Position{0, 0}, text: "X\n\nx"},
 	})
 }
 

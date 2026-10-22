@@ -20,8 +20,8 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func
 	} else if count > 1 {
 		_ = tempCursor.MoveWordToEnd(buffer, count-1, isWordChar)
 	}
-	end := Position{Row: tempCursor.Position.Row, Col: tempCursor.Position.Col + 1}
-	return applyOperatorToRange(editor, buffer, "change", start, end)
+	_ = tempCursor.MoveRight(buffer, 1) // the end is inclusive
+	return applyOperatorToRange(editor, buffer, "change", start, tempCursor.Position)
 }
 
 // wordClass is Vim's cls(): 0 for a blank, 2 for a word character and 1 for
@@ -35,51 +35,6 @@ func wordClass(r rune, isWordChar func(rune) bool) int {
 	default:
 		return 1
 	}
-}
-
-// changeWords implements ce: change to the end of the word.
-func changeWords(editor Editor, buffer Buffer, count int) *EditorError {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
-
-	// In 'cw', we delete INCLUDING the character at the end of the word.
-	// But deleteRange is exclusive of endPos, so we move one right.
-	_ = tempCursor.MoveRight(buffer, 1)
-	exclusiveEndPos := tempCursor.Position
-
-	if startPos != exclusiveEndPos {
-		err := deleteRange(buffer, startPos, exclusiveEndPos)
-		if err == nil {
-			buffer.SetCursor(cursor)
-			editor.SetInsertMode()
-		}
-		return err
-	}
-
-	return nil
-}
-
-func changeWordsBackward(editor Editor, buffer Buffer, count int) *EditorError {
-	cursor := buffer.GetCursor()
-	endPos := cursor.Position
-	tempCursor := cursor
-
-	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
-	startPos := tempCursor.Position
-
-	if startPos != endPos {
-		err := deleteRange(buffer, startPos, endPos)
-		if err == nil {
-			cursor.Position = startPos
-			buffer.SetCursor(cursor)
-			editor.SetInsertMode()
-		}
-		return err
-	}
-	return nil
 }
 
 func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
