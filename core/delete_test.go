@@ -1099,10 +1099,11 @@ func TestDeleteRepeatCharSearch(t *testing.T) {
 		e := newTestEditor("a,b,c")
 		keys(e, 'f', ',', ';') // cursor on second comma (col 3)
 		assert.Equal(t, Position{0, 3}, cursorPos(e))
-		// Reverses to F, — deletes back to the first comma, including the cursor
-		// char (this editor's dF behaviour includes the char under the cursor).
+		// Reverses to F, — deletes back to the first comma; F is exclusive, so
+		// the cursor char stays (Vim 9.2: "a,c", cursor (0,1)).
 		keys(e, 'd', ',')
-		assert.Equal(t, "ac", content(e))
+		assert.Equal(t, "a,c", content(e))
+		assert.Equal(t, Position{0, 1}, cursorPos(e))
 	})
 
 	t.Run("d; without previous search is a no-op", func(t *testing.T) {

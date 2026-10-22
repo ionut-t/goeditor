@@ -160,14 +160,9 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 		} else {
 			endCol++ // For 't', we stopped one before, so include up to that position
 		}
-	case 'F', 'T': // Backward search
+	case 'F', 'T': // Backward search: exclusive, so the cursor char stays
 		startCol = targetCol
-		endCol = startPos.Col + 1 // include the cursor char (matching Vim dF/dT behaviour)
-		if searchType == 'T' {
-			// findCharOnLine for 'T' already returns col+1 (one after the found char);
-			// no further adjustment needed.
-			endCol-- // 'T' excludes the cursor char itself
-		}
+		endCol = startPos.Col
 	}
 
 	// Ensure we don't go out of bounds
