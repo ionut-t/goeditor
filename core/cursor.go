@@ -50,10 +50,14 @@ func (c *Cursor) MoveLeft(buffer Buffer, count int) error {
 
 // MoveRight moves the cursor right by count characters, up to the position
 // after the last character. It moves as far as it can and returns ErrEndOfLine
-// if count goes past that position.
+// if count goes past that position. There it doesn't move and leaves Preferred
+// as it is, as Vim's insert-mode <Right>.
 func (c *Cursor) MoveRight(buffer Buffer, count int) error {
 	var err error
 	count = max(count, 0)
+	if c.Position.Col >= buffer.LineRuneCount(c.Position.Row) && count > 0 {
+		return ErrEndOfLine
+	}
 	if room := buffer.LineRuneCount(c.Position.Row) - c.Position.Col; count > room {
 		count = max(room, 0)
 		err = ErrEndOfLine
@@ -144,11 +148,15 @@ func (c *Cursor) MoveRightOrDown(buffer Buffer, count int) error {
 	return c.moveRightOrDown(buffer, count, false)
 }
 
-// moveLeftOrUp is MoveLeftOrUp. With pastEnd, as in insert mode, the cursor
-// can sit after the last character, so from the start of a line it goes after
-// the last character of the line above, as Vim's insert-mode <Left> with '['
-// in 'whichwrap'.
+// moveLeftOrUp is MoveLeftOrUp. With pastEnd, as in insert and visual mode,
+// the cursor can sit after the last character, so from the start of a line it
+// goes after the last character of the line above, as Vim's insert-mode <Left>
+// with '[' in 'whichwrap'. If it can't move at all, Preferred is left as it
+// is, as Vim's h and <BS>.
 func (c *Cursor) moveLeftOrUp(buffer Buffer, count int, pastEnd bool) error {
+	if count > 0 && c.Position.Row <= 0 && c.Position.Col <= 0 {
+		return ErrStartOfBuffer
+	}
 	var err error
 	for range count {
 		if c.Position.Col > 0 {

@@ -133,10 +133,11 @@ func takeCount(editor Editor) int {
 
 // moveLeft is h and <Left> in normal and visual mode. They stay on the line,
 // as with Vim's default 'whichwrap', unless the editor's MoveAcrossLines
-// option is on.
-func moveLeft(editor Editor, c *Cursor, buffer Buffer, count int) error {
+// option is on. Then from the start of a line they go to its last character,
+// or with pastEnd, as in visual mode, onto its line break.
+func moveLeft(editor Editor, c *Cursor, buffer Buffer, count int, pastEnd bool) error {
 	if editor.MoveAcrossLines() {
-		return c.MoveLeftOrUp(buffer, count)
+		return c.moveLeftOrUp(buffer, count, pastEnd)
 	}
 	return c.MoveLeft(buffer, count)
 }

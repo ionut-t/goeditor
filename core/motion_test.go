@@ -162,12 +162,38 @@ func TestWhichwrap(t *testing.T) {
 		{"visual vl on a one-character line", "a\nabc", seq("vl"), Position{0, 1}, ""},
 		{"visual vl on an empty line", "\nabc", seq("vl"), Position{0, 0}, ""},
 		{"visual jjv<BS>d", "abc\n\ndef\nghi", seq("jjv", bs, "d"), Position{1, 0}, "abc\nef\nghi"},
-		{"visual $v<Space>", "abc\ndef", seq("$v", space), Position{1, 0}, ""},
+		{"visual $v<Space> goes onto the line break", "abc\ndef", seq("$v", space), Position{0, 3}, ""},
+		{"visual $v<Space><Space>", "abc\ndef", seq("$v", space, space), Position{1, 0}, ""},
+		{"visual $v2<Space>", "abc\ndef", seq("$v2", space), Position{1, 0}, ""},
+		{"visual lv$<Space>", "abc\ndef", seq("lv$", space), Position{1, 0}, ""},
+		{"visual $v<Space>d deletes the line break", "abc\ndef", seq("$v", space, "d"), Position{0, 2}, "abdef"},
+		{"visual $v<Space>j keeps the column", "abc\ndef", seq("$v", space, "j"), Position{1, 3}, ""},
+		{"visual jv<BS> goes onto the line break", "abc\ndef", seq("jv", bs), Position{0, 3}, ""},
+		{"visual jjv2<BS>d crosses an empty line", "abc\n\ndef", seq("jjv2", bs, "d"), Position{0, 3}, "abcef"},
+		{"visual jjv3<BS>", "abc\n\ndef", seq("jjv3", bs), Position{0, 2}, ""},
+		{"visual lv9<Space> stops on the last line break", "abcdef\nabc", seq("lv9", space), Position{1, 3}, ""},
+		{"visual lv9<Space>k keeps the column", "abcdef\nabc", seq("lv9", space, "k"), Position{0, 3}, ""},
+		{"visual jlv9<BS>j", "abcdef\nabc", seq("jlv9", bs, "j"), Position{1, 0}, ""},
 		{"visual line jVh", "abc\ndef", seq("jVh"), Position{1, 0}, ""},
 		{"visual line $Vl", "abc\ndef", seq("$Vl"), Position{0, 3}, ""},
 		{"visual line jVll on a short line", t3, seq("jVll"), Position{1, 2}, ""},
-		{"visual line jV<BS>", "abc\ndef", seq("jV", bs), Position{0, 2}, ""},
-		{"visual line $V<Space>", "abc\ndef", seq("$V", space), Position{1, 0}, ""},
+		{"visual line V3l", t3, seq("V3l"), Position{0, 3}, ""},
+		{"visual line V5ll", t3, seq("V5ll"), Position{0, 6}, ""},
+		{"visual line lV3lljj", t3, seq("lV3lljj"), Position{2, 5}, ""},
+		{"visual line $V3hj", t3, seq("$V3hj"), Position{1, 2}, ""},
+		{"visual line jV<BS> goes onto the line break", "abc\ndef", seq("jV", bs), Position{0, 3}, ""},
+		{"visual line jlV4<BS>", "abc\ndef", seq("jlV4", bs), Position{0, 1}, ""},
+		{"visual line jlV9<BS>j", "abcdef\nabc", seq("jlV9", bs, "j"), Position{1, 0}, ""},
+		{"visual line $V<Space> goes onto the line break", "abc\ndef", seq("$V", space), Position{0, 3}, ""},
+		{"visual line $V2<Space>", "abc\ndef", seq("$V2", space), Position{1, 0}, ""},
+		{"visual line V5<Space>", "abc\ndef", seq("V5", space), Position{1, 1}, ""},
+		{"visual line lV9<Space>k keeps the column", "abcdef\nabc", seq("lV9", space, "k"), Position{0, 3}, ""},
+
+		// A count that reaches either end of the buffer partway moves as far
+		// as it can, and that sets the column.
+		{"normal jl5<Space>k", "abcdef\nabc", seq("jl5", space, "k"), Position{0, 2}, ""},
+		{"normal l9<Space>k", "abcdef\nabc", seq("l9", space, "k"), Position{0, 2}, ""},
+		{"normal jl9<BS>j", "abcdef\nabc", seq("jl9", bs, "j"), Position{1, 0}, ""},
 	}
 	runWhichwrapCases(t, tests, nil)
 
@@ -365,6 +391,7 @@ func TestShorterLine(t *testing.T) {
 // ':set whichwrap=b,s,<,>,[,],h,l'. Expected positions are from Vim 9.2.
 func TestMoveAcrossLines(t *testing.T) {
 	left, right, space, bs, esc := whichwrapKeys()
+	up, down := KeyEvent{Key: KeyUp}, KeyEvent{Key: KeyDown}
 	seq := keySeq
 	const text = "abc\n\ndef"
 
@@ -391,6 +418,18 @@ func TestMoveAcrossLines(t *testing.T) {
 		{"visual Glv$l at end of buffer keeps the column", "abcdefghijkl\nab\nabcdef", seq("Glv$lkk"), Position{0, 12}, ""},
 		{"normal G$l at end of buffer keeps the column", "abcdefghijkl\nab\nabcdef", seq("G$lkk"), Position{0, 11}, ""},
 		{"visual line jjVhd", text, seq("jjVhd"), Position{0, 0}, "abc"},
+		{"visual jvh goes onto the line break", "abc\ndef", seq("jvh"), Position{0, 3}, ""},
+		{"visual jv<Left>", "abc\ndef", seq("jv", left), Position{0, 3}, ""},
+		{"visual jvhd deletes the line break", "abc\ndef", seq("jvhd"), Position{0, 3}, "abcef"},
+		{"visual jv2h", "abc\ndef", seq("jv2h"), Position{0, 2}, ""},
+		{"visual jjv2h crosses an empty line", text, seq("jjv2h"), Position{0, 3}, ""},
+		{"visual line jVh goes onto the line break", "abc\ndef", seq("jVh"), Position{0, 3}, ""},
+		{"normal jh stays on the last character", "abc\ndef", seq("jh"), Position{0, 2}, ""},
+		{"normal jl5lk", "abcdef\nabc", seq("jl5lk"), Position{0, 2}, ""},
+		{"normal jl9hk", "abcdef\nabc", seq("jl9hk"), Position{0, 0}, ""},
+		{"visual jlv9hj", "abcdef\nabc", seq("jlv9hj"), Position{1, 0}, ""},
+		{"visual lv9lk", "abcdef\nabc", seq("lv9lk"), Position{0, 3}, ""},
+		{"insert <Left> that can't move keeps the column", "\nabcdef", seq("jA", up, left, down), Position{1, 6}, ""},
 	}, func(e Editor) { e.SetMoveAcrossLines(true) })
 
 	t.Run("off by default", func(t *testing.T) {
