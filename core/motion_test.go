@@ -411,6 +411,40 @@ func TestMoveToLineStart(t *testing.T) {
 	})
 }
 
+// TestHomeIsLineStart checks that <Home> goes to column 0, as Vim's 0, in
+// normal and visual mode: not to the first non-blank, whatever the count, and
+// j/k afterwards keep column 0. Expected positions are from Vim 9.2.
+func TestHomeIsLineStart(t *testing.T) {
+	seq := keySeq
+	home := KeyEvent{Key: KeyHome}
+	const text = "    hello world\n  second line\n      \nthird"
+
+	runDollarCases(t, []dollarCase{
+		// Normal mode
+		{name: "<Home> on an indented line", content: text, keys: seq("$", home), want: Position{0, 0}},
+		{name: "<Home>j keeps column 0", content: text, keys: seq("$", home, "j"), want: Position{1, 0}},
+		{name: "<Home> on a line of only blanks", content: text, keys: seq("jj$", home), want: Position{2, 0}},
+		{name: "<Home>k from a line of only blanks", content: text, keys: seq("jj$", home, "k"), want: Position{1, 0}},
+		{name: "count is ignored", content: text, keys: seq("$3", home), want: Position{0, 0}},
+		{name: "count is ignored, then j", content: text, keys: seq("$3", home, "j"), want: Position{1, 0}},
+		{
+			name: "<Home>x", content: text, keys: seq("$", home, "x"), want: Position{0, 0},
+			text: "   hello world\n  second line\n      \nthird",
+		},
+		{name: "^ still goes to the first non-blank", content: text, keys: seq("$^"), want: Position{0, 4}},
+
+		// Visual mode
+		{name: "v<Home>", content: text, keys: seq("12lv", home), want: Position{0, 0}},
+		{name: "v<Home>j", content: text, keys: seq("12lv", home, "j"), want: Position{1, 0}},
+		{
+			name: "v<Home>d", content: text, keys: seq("12lv", home, "d"), want: Position{0, 0},
+			text: "ld\n  second line\n      \nthird",
+		},
+		{name: "v<Home> on a line of only blanks", content: text, keys: seq("jj$v", home), want: Position{2, 0}},
+		{name: "V<Home>", content: text, keys: seq("12lV", home), want: Position{0, 0}},
+	})
+}
+
 // TestMoveToLineEnd tests '$' — move to last character of line.
 func TestMoveToLineEnd(t *testing.T) {
 	t.Run("moves to last char", func(t *testing.T) {
