@@ -145,6 +145,12 @@ func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune,
 
 	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, editor.IsWordChar)
 	if !found {
+		// iw on an empty line is the empty range there. aw and counts would
+		// take in the next line (not supported yet).
+		if modifier == 'i' && count <= 1 && buffer.LineRuneCount(cursor.Position.Row) == 0 {
+			empty := Position{Row: cursor.Position.Row}
+			return applyOperatorToRange(editor, buffer, op, empty, empty)
+		}
 		return nil
 	}
 
@@ -585,16 +591,11 @@ func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar
 	}
 
 	// modifier == 'i': content between the brackets.
-	innerStart := Position{openPos.Row, openPos.Col + 1}
-	innerEnd := Position{closePos.Row, closePos.Col - 1}
-
-	// Open bracket at end of line → content starts at the next line.
-	if innerStart.Col >= buffer.LineRuneCount(openPos.Row) {
-		if openPos.Row+1 >= buffer.LineCount() {
-			return Position{}, Position{}, false
-		}
-		innerStart = Position{openPos.Row + 1, 0}
+	innerStart, ok := afterOpenBracket(buffer, openPos)
+	if !ok {
+		return Position{}, Position{}, false
 	}
+	innerEnd := Position{closePos.Row, closePos.Col - 1}
 
 	// Close bracket at start of line → content ends at end of previous line.
 	if closePos.Col == 0 {
@@ -665,11 +666,26 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 	return nil
 }
 
+// applyOperatorToEmptyQuotes applies op to i" (or i', i`) when the quote
+// pair found by a" (openCol, closeCol) has nothing between it, and does
+// nothing otherwise. As Vim, the operator still runs, on the empty range at
+// the closing quote.
+func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, openCol, closeCol int, op string) *EditorError {
+	if modifier != 'i' || closeCol != openCol+1 {
+		return nil
+	}
+	empty := Position{Row: buffer.GetCursor().Position.Row, Col: closeCol}
+	return applyOperatorToRange(editor, buffer, op, empty, empty)
+}
+
 // applyQuoteOp applies op (yank/delete/change) to the i/a quote text object for the given quote char.
 func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op string) *EditorError {
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote)
 	if !found {
+		if openCol, closeCol, ok := quoteTextObjectRange(buffer, cursor.Position, 'a', quote); ok {
+			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
+		}
 		return nil
 	}
 	return applyCharRangeOp(editor, buffer,
@@ -683,6 +699,9 @@ func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *Ed
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
 	if !found {
+		if openCol, closeCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, 'a'); ok {
+			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
+		}
 		return nil
 	}
 	return applyCharRangeOp(editor, buffer,
@@ -704,7 +723,11 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 
 	innerStart, innerEnd, found := bracketInnerRange(buffer, openPos, closePos)
 	if !found {
-		return nil
+		// Nothing between the brackets: as Vim, the operator still runs, on
+		// the empty range just after the open bracket. A close bracket
+		// follows it, so there is always such a position.
+		empty, _ := afterOpenBracket(buffer, openPos)
+		return applyOperatorToRange(editor, buffer, op, empty, empty)
 	}
 	return bracketApplyRange(editor, buffer, innerStart, innerEnd, closePos, op)
 }
@@ -765,18 +788,28 @@ func bracketApplyRange(editor Editor, buffer Buffer, startPos, yankEnd, exclusiv
 	return nil
 }
 
+// afterOpenBracket returns the position just after the open bracket at
+// openPos, where the inner text object starts: the next character, or the
+// start of the next line when the bracket ends its line. It reports false
+// when the bracket ends the last line.
+func afterOpenBracket(buffer Buffer, openPos Position) (Position, bool) {
+	if openPos.Col+1 < buffer.LineRuneCount(openPos.Row) {
+		return Position{Row: openPos.Row, Col: openPos.Col + 1}, true
+	}
+	if openPos.Row+1 >= buffer.LineCount() {
+		return Position{}, false
+	}
+	return Position{Row: openPos.Row + 1, Col: 0}, true
+}
+
 // bracketInnerRange computes the inclusive [innerStart, innerEnd] of the content between
 // openPos and closePos. It is a shared helper for applyAnyBracketOp and visual mode.
 func bracketInnerRange(buffer Buffer, openPos, closePos Position) (innerStart, innerEnd Position, found bool) {
-	innerStart = Position{openPos.Row, openPos.Col + 1}
-	innerEnd = Position{closePos.Row, closePos.Col - 1}
-
-	if innerStart.Col >= buffer.LineRuneCount(openPos.Row) {
-		if openPos.Row+1 >= buffer.LineCount() {
-			return Position{}, Position{}, false
-		}
-		innerStart = Position{openPos.Row + 1, 0}
+	innerStart, ok := afterOpenBracket(buffer, openPos)
+	if !ok {
+		return Position{}, Position{}, false
 	}
+	innerEnd = Position{closePos.Row, closePos.Col - 1}
 	if closePos.Col == 0 {
 		if closePos.Row == 0 {
 			return Position{}, Position{}, false
