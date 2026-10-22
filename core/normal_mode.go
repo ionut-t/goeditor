@@ -735,16 +735,16 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		err = applyOperatorToRange(editor, buffer, op, tempCursor.Position, cursor.Position)
 		actionTaken = true
 
-	case '{': // d{, y{, c{ — back to previous paragraph boundary
-		tempCursor := cursor
-		_ = tempCursor.MoveBlockBackward(buffer, count)
-		err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
-		actionTaken = true
-
-	case '}': // d}, y}, c} — forward to next paragraph boundary
-		tempCursor := cursor
-		_ = tempCursor.MoveBlockForward(buffer, count)
-		err = applyOperatorToMotion(editor, buffer, op, cursor.Position, tempCursor.Position)
+	case '{', '}': // d{, y}, c{, ... — to the previous/next paragraph boundary
+		// A { or } that fails runs nothing, but unlike other failed motions
+		// it still sets the column (Vim's nv_findpar), so motionFailed stays
+		// false. A } that ends on the last character of the buffer includes it.
+		if end, inclusive, ok := findParagraph(buffer, cursor.Position.Row, count, key.Rune == '}'); ok {
+			if inclusive {
+				end.Col++
+			}
+			err = applyOperatorToMotion(editor, buffer, op, cursor.Position, end)
+		}
 		actionTaken = true
 
 	case 'W': // dW, yW, cW — WORD forward (cW changes to end of WORD, like cE)

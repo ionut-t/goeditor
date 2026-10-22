@@ -629,70 +629,72 @@ func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, isWordChar func
 	return nil
 }
 
+// MoveBlockBackward moves the cursor back count paragraphs (Vim's {). It
+// returns ErrStartOfBuffer, without moving, if the start of the buffer comes
+// before the count is used up. Either way it sets Preferred, as Vim.
 func (c *Cursor) MoveBlockBackward(buffer Buffer, count int) error {
-	if c.Position.Row <= 0 {
-		return ErrStartOfBuffer
-	}
-
-	for range count {
-		if c.Position.Row <= 0 {
-			break
-		}
-
-		// If on a blank line, skip past it first (backward)
-		for c.Position.Row > 0 {
-			line := buffer.GetLineRunes(c.Position.Row)
-			if len(line) != 0 {
-				break
-			}
-			c.Position.Row--
-		}
-
-		// Skip non-blank lines backward until we hit a blank line or the start of buffer
-		for c.Position.Row > 0 {
-			line := buffer.GetLineRunes(c.Position.Row)
-			if len(line) == 0 {
-				break
-			}
-			c.Position.Row--
-		}
-	}
-
-	c.Position.Col = 0
-
-	return nil
+	return c.moveParagraph(buffer, count, false)
 }
 
+// MoveBlockForward moves the cursor forward count paragraphs (Vim's }). It
+// returns ErrEndOfBuffer, without moving, if the end of the buffer comes
+// before the count is used up. Either way it sets Preferred, as Vim.
 func (c *Cursor) MoveBlockForward(buffer Buffer, count int) error {
-	if c.Position.Row >= buffer.LineCount()-1 {
-		return ErrEndOfBuffer
-	}
+	return c.moveParagraph(buffer, count, true)
+}
 
-	for range count {
-		if c.Position.Row >= buffer.LineCount()-1 {
+func (c *Cursor) moveParagraph(buffer Buffer, count int, forward bool) error {
+	pos, _, ok := findParagraph(buffer, c.Position.Row, count, forward)
+	if ok {
+		c.Position = pos
+	}
+	// Vim sets curswant even when the motion fails. Visual mode can leave the
+	// cursor on the line break, which isn't a column j and k go back to.
+	c.Preferred = min(c.Position.Col, lastCol(buffer, c.Position.Row, false))
+	switch {
+	case ok:
+		return nil
+	case forward:
+		return ErrEndOfBuffer
+	default:
+		return ErrStartOfBuffer
+	}
+}
+
+// findParagraph is Vim's findpar for { and } from row: count times, it moves
+// past at least one non-empty line and stops on the next empty one. If it
+// reaches the edge of the buffer with the count used up, it stops there: on
+// column 0 of the first line, or on the last character of the last line,
+// where the motion is inclusive. With count left over it fails (ok false).
+func findParagraph(buffer Buffer, row, count int, forward bool) (pos Position, inclusive, ok bool) {
+	dir := -1
+	if forward {
+		dir = 1
+	}
+	lastRow := buffer.LineCount() - 1
+	for count = max(count, 1); count > 0; {
+		count--
+		movedOverText := false
+		for first := true; ; first = false {
+			empty := buffer.LineRuneCount(row) == 0
+			if !empty {
+				movedOverText = true
+			}
+			if !first && movedOverText && empty {
+				break
+			}
+			if next := row + dir; next >= 0 && next <= lastRow {
+				row = next
+				continue
+			}
+			if count > 0 {
+				return Position{}, false, false
+			}
 			break
 		}
-
-		// If on a blank line, skip past it first
-		for c.Position.Row < buffer.LineCount()-1 {
-			line := buffer.GetLineRunes(c.Position.Row)
-			if len(line) != 0 {
-				break
-			}
-			c.Position.Row++
-		}
-
-		// Skip non-blank lines forward until we hit a blank line or the end of buffer
-		for c.Position.Row < buffer.LineCount()-1 {
-			line := buffer.GetLineRunes(c.Position.Row)
-			if len(line) == 0 {
-				break
-			}
-			c.Position.Row++
-		}
 	}
-
-	c.Position.Col = 0
-
-	return nil
+	if forward && row == lastRow && buffer.LineRuneCount(row) > 0 {
+		return Position{Row: row, Col: lastCol(buffer, row, false)}, true, true
+	}
+	return Position{Row: row}, false, true
 }
