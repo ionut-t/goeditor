@@ -5,7 +5,7 @@ package core
 // positions may be given in either order. For inclusive motions (e.g. ge), the
 // caller moves the end position one character right before calling. Exclusive
 // motions that can end on a later line go through applyOperatorToMotion.
-// An empty range goes to applyOperatorToEmptyRange.
+// An empty range moves the cursor to it and goes to applyOperatorToEmptyRange.
 //
 // As Vim's op_delete, a delete over several lines that starts in the indent
 // and leaves only blanks after its end deletes the lines instead.
@@ -15,6 +15,11 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		start, end = end, start
 	}
 	if start == end {
+		// After a motion the cursor is already there; an empty text object
+		// (di"" or ciw on an empty line) puts it on the empty range.
+		cursor := buffer.GetCursor()
+		cursor.Position = start
+		buffer.SetCursor(cursor)
 		return applyOperatorToEmptyRange(editor, op)
 	}
 	if op == "delete" && end.Row > start.Row && inIndent(buffer, start) && onlyBlanksFrom(buffer, end) {
