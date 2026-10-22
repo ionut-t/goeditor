@@ -91,6 +91,28 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 
 // HandleKey dispatches each incoming key to the appropriate handler.
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	// Vim sets curswant after an operator or a change, so j and k go back to
+	// the column the cursor ends on, not to the one before (the line end after
+	// $). Keys that cancel a pending command, and commands that fail, keep it.
+	cancels := key.Key == KeyEscape || (key.Modifiers&ModCtrl != 0 && !m.Idle())
+	sets := !cancels && (m.cmd.hasOperator() || m.cmd.hasCaseOp() || m.cmd.literal == literalReplace ||
+		(m.Idle() && setsColumn(key)))
+	err := m.handleKey(editor, buffer, key)
+	if sets && err == nil && m.Idle() {
+		cursor := buffer.GetCursor()
+		cursor.Preferred = cursor.Position.Col
+		buffer.SetCursor(cursor)
+	}
+	return err
+}
+
+// setsColumn reports whether key, typed with no command pending, changes the
+// text, yanks or enters insert mode, after which Vim sets curswant.
+func setsColumn(key KeyEvent) bool {
+	return editsText(key) || key.Modifiers&ModCtrl == 0 && (key.Rune == 'y' || key.Rune == 'Y' || key.Rune == '.')
+}
+
+func (m *normalMode) handleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	switch m.cmd.literal {
 	case literalCharSearch:
 		return m.handleCharSearchKey(editor, buffer, key)
@@ -886,7 +908,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == '0':
 		cursor.MoveToLineStart()
 	case key.Rune == '$' || key.Key == KeyEnd:
-		cursor.MoveToLineEnd(buffer) // Move to last char
+		moveErr = cursor.moveToLineEnd(buffer, count, false)
 	case key.Rune == '^' || key.Key == KeyHome:
 		cursor.MoveToFirstNonBlank(buffer)
 	case key.Rune == 'g':
@@ -1023,6 +1045,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		var deletedContent string
 		deletedContent, err = deleteToEndOfLine(editor, buffer)
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
+		skipCursorUpdate = true
 
 	case key.Rune == 'r': // Replace character under cursor
 		m.cmd.literal = literalReplace

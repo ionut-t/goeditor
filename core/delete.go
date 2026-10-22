@@ -256,6 +256,11 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 
 		deleteCount := lineLen - cursor.Position.Col
 		err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, deleteCount)
+		if err == nil {
+			// Back onto the last character left, as normal mode needs.
+			cursor.Position.Col = lastCol(buffer, cursor.Position.Row, false)
+			buffer.SetCursor(cursor)
+		}
 	}
 
 	return deletedContent, err

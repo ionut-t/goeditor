@@ -139,8 +139,8 @@ func TestDeleteToEndOfLine(t *testing.T) {
 		_ = e.HandleKey(KeyEvent{Rune: 'd'})
 		_ = e.HandleKey(KeyEvent{Rune: '$'})
 		assert.Equal(t, "hello ", content(e))
-		// Cursor stays at the column where deletion started
-		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		// Cursor goes back onto the last character left (Vim 9.2)
+		assert.Equal(t, Position{0, 5}, cursorPos(e))
 	})
 }
 
@@ -341,7 +341,7 @@ func TestDeleteToEndOfLineShortcut(t *testing.T) {
 		e := newTestEditor("hello world")
 		keys(e, 'w', 'D') // cursor at col 6; D deletes "world"
 		assert.Equal(t, "hello ", content(e))
-		assert.Equal(t, Position{0, 6}, cursorPos(e))
+		assert.Equal(t, Position{0, 5}, cursorPos(e)) // onto the last character left (Vim 9.2)
 	})
 
 	t.Run("on empty line does nothing", func(t *testing.T) {

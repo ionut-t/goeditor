@@ -81,8 +81,8 @@ func applyVisualMotion(
 	case key.Rune == '0' || key.Key == KeyHome:
 		cursor.MoveToLineStart()
 		movementAttempted = true
-	case key.Rune == '$' || key.Key == KeyEnd:
-		cursor.MoveToLineEnd(buffer)
+	case key.Rune == '$' || key.Key == KeyEnd: // onto the line break, so it is selected
+		moveErr = cursor.moveToLineEnd(buffer, count, true)
 		movementAttempted = true
 	case key.Rune == '^':
 		cursor.MoveToFirstNonBlank(buffer)

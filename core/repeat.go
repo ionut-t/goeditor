@@ -40,7 +40,7 @@ type repeatRecord struct {
 type visualSpan struct {
 	mode  Mode // VisualMode or VisualLineMode
 	lines int  // 0 if the change wasn't made from visual mode
-	cols  int  // characterwise: characters if one line, else last line's end column
+	cols  int  // characterwise: characters if one line, else last line's end column; maxCol after $
 }
 
 // commandRecording collects the keys of the command in progress.
@@ -237,6 +237,11 @@ func (e *editor) idleVisualSpan() (visualSpan, bool) {
 	if span.lines == 1 {
 		span.cols = end.Col - start.Col + 1
 	}
+	if e.buffer.GetCursor().Preferred == maxCol {
+		// $ extended the selection: '.' goes to the end of the line, as in
+		// Vim, whichever end the cursor is at.
+		span.cols = maxCol
+	}
 	return span, true
 }
 
@@ -254,6 +259,12 @@ func (e *editor) selectSpan(span visualSpan) bool {
 	}
 
 	row := max(0, min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1))
+	if span.mode == VisualMode && span.cols == maxCol {
+		cursor.Position.Row = row
+		_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break
+		e.buffer.SetCursor(cursor)
+		return true
+	}
 	col := cursor.Position.Col
 	if span.mode == VisualMode {
 		col = span.cols

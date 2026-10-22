@@ -193,6 +193,12 @@ func (e *editor) Copy(op copyType) error {
 		}
 	}
 
+	// A characterwise selection ending on a line break ($, or j onto a
+	// shorter line) includes it, except on the last line, which has none.
+	if isVisual && !isLineWise && end.Col >= buffer.LineRuneCount(end.Row) && end.Row < buffer.LineCount()-1 {
+		contentBuilder.WriteRune('\n')
+	}
+
 	// Add trailing newline for line-wise single-line operations.
 	// This also handles blank-line yanks where content is "" but must become "\n".
 	content := contentBuilder.String()
