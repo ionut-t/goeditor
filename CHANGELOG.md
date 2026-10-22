@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.4](https://github.com/ionut-t/goeditor/compare/v0.11.3...v0.11.4) (2026-10-22)
+
+
+### Bug Fixes
+
+* **charsearch:** make backward search motions (F/T) exclusive ([#79](https://github.com/ionut-t/goeditor/issues/79)) ([f1696de](https://github.com/ionut-t/goeditor/commit/f1696deb1767107fbf3df7c6e3af3081f3dca1b9))
+* **core:** align horizontal motion and preferred column with vim ([#77](https://github.com/ionut-t/goeditor/issues/77)) ([6d7b0f4](https://github.com/ionut-t/goeditor/commit/6d7b0f4c3af233bca54281c26a680145e2bbe7fc))
+* **core:** align visual mode 'l' motion with Vim behaviour ([#75](https://github.com/ionut-t/goeditor/issues/75)) ([29390c4](https://github.com/ionut-t/goeditor/commit/29390c49487fcbdb1e6666cb9a469c08668e8842))
+* **core:** apply Vim's w, e and exclusive-motion rules to operators ([#78](https://github.com/ionut-t/goeditor/issues/78)) ([d348c27](https://github.com/ionut-t/goeditor/commit/d348c27185e61393d740f9dd5f7f98d084a4d93f))
+* **motion:** align paragraph motion ({ and }) with Vim behaviour ([#81](https://github.com/ionut-t/goeditor/issues/81)) ([d20bcc8](https://github.com/ionut-t/goeditor/commit/d20bcc853a46b5edb5c23163a9f66168a7c42f30))
+* **operator:** correctly handle motions over an empty range ([#80](https://github.com/ionut-t/goeditor/issues/80)) ([8c7628d](https://github.com/ionut-t/goeditor/commit/8c7628d954d450981f9b60121a30327cc2a017f8))
+* **textobject:** correctly apply operators to empty inner objects ([#82](https://github.com/ionut-t/goeditor/issues/82)) ([21aba17](https://github.com/ionut-t/goeditor/commit/21aba172da417be48592368a5eca31f8d32e4639))
+
 ## [0.11.3](https://github.com/ionut-t/goeditor/compare/v0.11.2...v0.11.3) (2026-10-22)
 
 
