@@ -875,7 +875,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	// Movement keys
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = moveLeft(editor, &cursor, buffer, count)
+		moveErr = moveLeft(editor, &cursor, buffer, count, false)
 	case key.Key == KeyBackspace:
 		moveErr = cursor.MoveLeftOrUp(buffer, count)
 	case key.Rune == 'j' || key.Key == KeyDown:

@@ -39,9 +39,9 @@ func runDollarCases(t *testing.T, tests []dollarCase) {
 // of the line through j and k, as Vim's curswant MAXCOL does, until a command
 // sets the column again. Expected positions are from Vim 9.2.
 func TestDollarSticksToLineEnd(t *testing.T) {
-	_, _, space, bs, esc := whichwrapKeys()
+	_, right, space, bs, esc := whichwrapKeys()
 	seq := keySeq
-	down, end := KeyEvent{Key: KeyDown}, KeyEvent{Key: KeyEnd}
+	up, down, end := KeyEvent{Key: KeyUp}, KeyEvent{Key: KeyDown}, KeyEvent{Key: KeyEnd}
 	const t1 = "abcdefghijkl\nab\nabcdefghijkl\nhello world"
 	const t3 = "abcdef\nab\nabcdefghij"
 	const abc = "abc\ndef\nghi"
@@ -59,6 +59,15 @@ func TestDollarSticksToLineEnd(t *testing.T) {
 		{name: "count past the first line", content: t3, keys: seq("$jj9k"), want: Position{0, 5}},
 		{name: "l that can't move keeps it", content: t3, keys: seq("$jlj"), want: Position{2, 9}},
 		{name: "<Space> that can't move keeps it", content: "abcdef\nab", keys: seq("j$", space, "k"), want: Position{0, 5}},
+		{name: "<BS> that can't move keeps it", content: "a\nabcdef", keys: seq("$", bs, "j"), want: Position{1, 5}},
+		{name: "<BS> that can't move on an empty line keeps it", content: "\nabc", keys: seq("$", bs, "j"), want: Position{1, 2}},
+		{name: "visual <BS> that can't move keeps it", content: "a\nabcdef", keys: seq("$v", bs, "j"), want: Position{1, 6}},
+		{name: "visual <BS> that can't move on an empty line keeps it", content: "\nabcdef", keys: seq("$v", bs, "j"), want: Position{1, 6}},
+		{name: "visual line <BS> that can't move keeps it", content: "a\nabcdef", keys: seq("$V", bs, "j"), want: Position{1, 6}},
+		{name: "visual <Space> on the last line break keeps it", content: "abcdefghij\nabc", keys: seq("Gv$", space, "k"), want: Position{0, 10}},
+		{name: "visual line <Space> on the last line break keeps it", content: "abcdefghij\nabc", keys: seq("GV$", space, "k"), want: Position{0, 10}},
+		{name: "visual count <Space> to the last line break sets it", content: "abcdefghij\nabc", keys: seq("Glv5", space, "k"), want: Position{0, 3}},
+		{name: "insert <Right> that can't move keeps it", content: "abcdef\nab", keys: seq("A", down, right, up), want: Position{0, 6}},
 		{name: "failed % keeps it", content: t3, keys: seq("$%jj"), want: Position{2, 9}},
 		{name: "failed f keeps it", content: t3, keys: seq("$jfaj"), want: Position{2, 9}},
 		{name: "zz keeps it", content: t3, keys: seq("$zzjj"), want: Position{2, 9}},

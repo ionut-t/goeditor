@@ -368,13 +368,13 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 
 	switch {
 	case key.Rune == 'h' || key.Key == KeyLeft:
-		moveErr = moveLeft(editor, &cursor, buffer, max(count, 1))
+		moveErr = moveLeft(editor, &cursor, buffer, max(count, 1), true)
 	case key.Rune == 'l' || key.Key == KeyRight:
 		moveErr = moveRight(editor, &cursor, buffer, max(count, 1), true)
 	case key.Key == KeyBackspace:
-		moveErr = cursor.MoveLeftOrUp(buffer, max(count, 1))
+		moveErr = cursor.moveLeftOrUp(buffer, max(count, 1), true)
 	case key.Key == KeySpace:
-		moveErr = cursor.MoveRightOrDown(buffer, max(count, 1))
+		moveErr = cursor.moveRightOrDown(buffer, max(count, 1), true)
 	default:
 		var earlyReturn bool
 		_, earlyReturn, moveErr = applyVisualMotion(&m.charSearch, editor, buffer, &cursor, key, count)
