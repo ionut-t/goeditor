@@ -468,6 +468,12 @@ func (e *editor) noRepeat() {
 	e.recording.repeatable = false
 }
 
+// countChange makes the command in progress the change '.' repeats, though
+// it changed no text, as Vim does for a delete or change over an empty range.
+func (e *editor) countChange() {
+	e.editCount++
+}
+
 // repeatChange replays the last change. A count other than 0 replaces the
 // recorded one, for this and later repeats, as in Vim; a change made from
 // visual mode ignores it. The replay is one undo step. If a key fails, or the command ends before its last key (a motion

@@ -106,6 +106,18 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	return content, nil
 }
 
+// yankNothing empties the clipboard, as Vim's yank over an empty range
+// (y0 in column 0) empties the register.
+func (e *editor) yankNothing() error {
+	if e.clipboard == nil {
+		return errors.New("clipboard handler not set")
+	}
+	if err := e.clipboard.Write(""); err != nil {
+		return fmt.Errorf("failed to copy to clipboard: %w", err)
+	}
+	return nil
+}
+
 // Copy extracts text based on visual selection or current line and writes to clipboard.
 func (e *editor) Copy(op copyType) error {
 	if e.clipboard == nil {
