@@ -189,22 +189,18 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
-	var deletedContent string
-	var err *EditorError
-
-	if cursor.Position.Col < lineLen { // Only delete if not already at/past end
-		lineRunes := buffer.GetLineRunes(cursor.Position.Row)
-		deletedContent = string(lineRunes[cursor.Position.Col:])
-
-		deleteCount := lineLen - cursor.Position.Col
-		err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, deleteCount)
-		if err == nil {
-			// Back onto the last character left, as normal mode needs.
-			cursor.Position.Col = lastCol(buffer, cursor.Position.Row, false)
-			buffer.SetCursor(cursor)
-		}
+	if cursor.Position.Col >= lineLen { // an empty line
+		return "", applyOperatorToEmptyRange(editor, "delete")
 	}
 
+	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+	deletedContent := string(lineRunes[cursor.Position.Col:])
+	err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, lineLen-cursor.Position.Col)
+	if err == nil {
+		// Back onto the last character left, as normal mode needs.
+		cursor.Position.Col = lastCol(buffer, cursor.Position.Row, false)
+		buffer.SetCursor(cursor)
+	}
 	return deletedContent, err
 }
 

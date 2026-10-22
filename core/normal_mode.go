@@ -8,6 +8,10 @@ import (
 type normalMode struct {
 	cmd        pendingCmd      // The partly typed command, if any
 	charSearch charSearchState // Character search state (f/F/t/T)
+
+	// The motion after an operator failed without an error (% with no
+	// bracket, j on the last line), so the operator did nothing.
+	motionFailed bool
 }
 
 // pendingCmd is the normal-mode command typed so far, before the key that
@@ -97,8 +101,9 @@ func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 	cancels := key.Key == KeyEscape || (key.Modifiers&ModCtrl != 0 && !m.Idle())
 	sets := !cancels && (m.cmd.hasOperator() || m.cmd.hasCaseOp() || m.cmd.literal == literalReplace ||
 		(m.Idle() && setsColumn(key)))
+	m.motionFailed = false
 	err := m.handleKey(editor, buffer, key)
-	if sets && err == nil && m.Idle() {
+	if sets && err == nil && !m.motionFailed && m.Idle() {
 		cursor := buffer.GetCursor()
 		// A delete up to the end of the line (dw, de, dl, diw, ...) leaves the
 		// cursor past it; Vim puts it back on the last character.
@@ -265,6 +270,9 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 
 		tempCursor := cursor
 		_ = tempCursor.MoveWordToEndBackward(buffer, geCount, isWordChar)
+		if tempCursor.Position == cursor.Position {
+			return nil // at the start of the buffer, where Vim's ge fails
+		}
 
 		// ge is inclusive: the character under the cursor is part of the range,
 		// so move the exclusive end one character right.
@@ -656,7 +664,9 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
 		tempCursor := cursor
 		_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
-		err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
+		if tempCursor.Position != cursor.Position { // b fails at the start of the buffer
+			err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
+		}
 		actionTaken = true
 	case 'e': // de = delete to word end, ye = yank to word end, ce = change to word end (inclusive)
 		tempCursor := cursor
@@ -689,6 +699,8 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		if cursor.Position.Row < buffer.LineCount()-1 {
 			endRow := min(cursor.Position.Row+count, buffer.LineCount()-1)
 			err = applyOperatorToLineRange(editor, buffer, op, cursor.Position.Row, endRow)
+		} else {
+			m.motionFailed = true
 		}
 		actionTaken = true
 
@@ -696,6 +708,8 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		if cursor.Position.Row > 0 {
 			startRow := max(cursor.Position.Row-count, 0)
 			err = applyOperatorToLineRange(editor, buffer, op, startRow, cursor.Position.Row)
+		} else {
+			m.motionFailed = true
 		}
 		actionTaken = true
 
@@ -751,13 +765,17 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'B': // dB, yB, cB — WORD backward
 		tempCursor := cursor
 		_ = tempCursor.MoveWordBackward(buffer, count, isBigWordChar)
-		err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
+		if tempCursor.Position != cursor.Position { // B fails at the start of the buffer
+			err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
+		}
 		actionTaken = true
 
 	case '%': // d%, y%, c% — through the matching bracket (inclusive both ends)
 		if target, ok := findMatchingBracket(buffer, cursor.Position); ok {
 			start, end := NormalizeSelection(cursor.Position, target)
 			err = applyOperatorToRange(editor, buffer, op, start, Position{Row: end.Row, Col: end.Col + 1})
+		} else {
+			m.motionFailed = true
 		}
 		actionTaken = true
 

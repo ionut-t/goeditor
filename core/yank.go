@@ -45,9 +45,8 @@ func yankToEndOfLine(editor Editor, buffer Buffer) *EditorError {
 	originalPos := cursor.Position
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)
 
-	if cursor.Position.Col >= lineLen {
-		// Already at or past end of line, nothing to yank
-		return nil
+	if cursor.Position.Col >= lineLen { // an empty line
+		return applyOperatorToEmptyRange(editor, "yank")
 	}
 
 	// Set up character-wise selection for yank highlight (stay in normal mode)

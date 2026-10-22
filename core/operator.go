@@ -5,6 +5,7 @@ package core
 // positions may be given in either order. For inclusive motions (e.g. ge), the
 // caller moves the end position one character right before calling. Exclusive
 // motions that can end on a later line go through applyOperatorToMotion.
+// An empty range goes to applyOperatorToEmptyRange.
 //
 // As Vim's op_delete, a delete over several lines that starts in the indent
 // and leaves only blanks after its end deletes the lines instead.
@@ -14,7 +15,7 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		start, end = end, start
 	}
 	if start == end {
-		return nil
+		return applyOperatorToEmptyRange(editor, op)
 	}
 	if op == "delete" && end.Row > start.Row && inIndent(buffer, start) && onlyBlanksFrom(buffer, end) {
 		return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
@@ -47,6 +48,42 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		return yankRange(editor, buffer, start, last)
 	}
 
+	return nil
+}
+
+// emptyRangeOperator is implemented by the editor so that an operator over an
+// empty range can act as in Vim, without it being part of the public Editor
+// interface.
+type emptyRangeOperator interface {
+	countChange()
+	yankNothing() error
+}
+
+// applyOperatorToEmptyRange applies an operator whose motion succeeded
+// without moving: d0 in column 0, dl on an empty line, $dTx with x just
+// before the cursor. Vim still runs it: a delete or a change becomes the
+// change '.' repeats, a change starts insert mode, and a yank empties the
+// register. A motion that fails (b at the start of the buffer, % with no
+// bracket) must not get here: Vim does nothing then.
+func applyOperatorToEmptyRange(editor Editor, op string) *EditorError {
+	o, ok := editor.(emptyRangeOperator)
+	switch op {
+	case "delete", "change":
+		if ok {
+			o.countChange()
+		}
+		if op == "change" {
+			editor.SetInsertMode()
+		}
+
+	case "yank":
+		if !ok {
+			return nil
+		}
+		if err := o.yankNothing(); err != nil {
+			return &EditorError{id: ErrFailedToYankId, err: err}
+		}
+	}
 	return nil
 }
 

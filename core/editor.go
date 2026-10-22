@@ -204,8 +204,9 @@ type editor struct {
 	// so ; and , still repeat it after a mode switch, as in Vim.
 	charSearch lastCharSearch
 
-	// Repeat ('.', see repeat.go). editCount counts recorded edits, so a
-	// command can tell whether it changed the text.
+	// Repeat ('.', see repeat.go). editCount counts recorded edits, and
+	// operators over an empty range, so a command can tell whether it is a
+	// change.
 	repeat    repeatRecord
 	recording commandRecording
 	replaying bool
