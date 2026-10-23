@@ -249,7 +249,7 @@ func TestBracketTextObjectRange(t *testing.T) {
 		s, e, ok := bracketTextObjectRange(b, Position{1, 2}, 'i', '(', ')')
 		assert.True(t, ok)
 		assert.Equal(t, Position{1, 0}, s) // first char of line after '('
-		assert.Equal(t, Position{2, 4}, e) // last char of line before ')'
+		assert.Equal(t, Position{2, 5}, e) // line break before ')' (Vim's vi( selects it)
 	})
 
 	t.Run("multi-line – around", func(t *testing.T) {

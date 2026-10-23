@@ -17,6 +17,7 @@ type emptyRangeCase struct {
 	text    string
 	want    Position
 	insert  bool // in insert mode after the keys
+	visual  bool // in visual mode after the keys
 	reg     string
 }
 
@@ -35,6 +36,7 @@ func runEmptyRangeCases(t *testing.T, tests []emptyRangeCase) {
 			assert.Equal(t, tt.text, content(e), "text")
 			assert.Equal(t, tt.want, cursorPos(e), "cursor")
 			assert.Equal(t, tt.insert, e.IsInsertMode(), "insert mode")
+			assert.Equal(t, tt.visual, e.IsVisualMode(), "visual mode")
 			if tt.reg != anyReg {
 				assert.Equal(t, tt.reg, cb.content, "register")
 			}

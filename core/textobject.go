@@ -581,7 +581,7 @@ findClose:
 // modifier 'i' → content between the brackets (exclusive of the bracket chars).
 // modifier 'a' → the bracket chars themselves.
 func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar, closeChar rune) (startPos, endPos Position, found bool) {
-	openPos, closePos, ok := findBracketBounds(buffer, pos, openChar, closeChar)
+	openPos, closePos, ok := findBracketBounds(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
 	if !ok {
 		return Position{}, Position{}, false
 	}
@@ -589,29 +589,17 @@ func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar
 	if modifier == 'a' {
 		return openPos, closePos, true
 	}
+	return bracketInnerRange(buffer, openPos, closePos)
+}
 
-	// modifier == 'i': content between the brackets.
-	innerStart, ok := afterOpenBracket(buffer, openPos)
-	if !ok {
-		return Position{}, Position{}, false
+// blockSearchStart returns where to look for the block around pos. As Vim,
+// for a { block a cursor in the indent first moves past it, so that on the
+// indent before a { the block is the one it opens.
+func blockSearchStart(buffer Buffer, pos Position, openChar rune) Position {
+	if openChar == '{' {
+		pos.Col = max(pos.Col, firstNonBlankCol(buffer.GetLineRunes(pos.Row)))
 	}
-	innerEnd := Position{closePos.Row, closePos.Col - 1}
-
-	// Close bracket at start of line → content ends at end of previous line.
-	if closePos.Col == 0 {
-		if closePos.Row == 0 {
-			return Position{}, Position{}, false
-		}
-		prevLen := buffer.LineRuneCount(closePos.Row - 1)
-		innerEnd = Position{closePos.Row - 1, max(prevLen-1, 0)}
-	}
-
-	// Empty brackets: no content.
-	if innerStart.Row > innerEnd.Row || (innerStart.Row == innerEnd.Row && innerStart.Col > innerEnd.Col) {
-		return Position{}, Position{}, false
-	}
-
-	return innerStart, innerEnd, true
+	return pos
 }
 
 // applyCharRangeOp performs a yank, delete, or change on the inclusive character range
@@ -711,81 +699,35 @@ func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *Ed
 }
 
 // applyBracketRange is the shared implementation for bracket text object operations.
-// It computes the yank/delete/change range from already-found openPos/closePos.
+// It applies op to the i or a block of the already-found openPos/closePos.
 func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, closePos Position, op string) *EditorError {
 	if modifier == 'a' {
-		exclusiveEnd := Position{closePos.Row, closePos.Col + 1}
-		if exclusiveEnd.Col > buffer.LineRuneCount(closePos.Row) {
-			exclusiveEnd = Position{closePos.Row, buffer.LineRuneCount(closePos.Row)}
-		}
-		return bracketApplyRange(editor, buffer, openPos, closePos, exclusiveEnd, op)
+		return applyOperatorToRange(editor, buffer, op, openPos, Position{Row: closePos.Row, Col: closePos.Col + 1})
 	}
-
-	innerStart, innerEnd, found := bracketInnerRange(buffer, openPos, closePos)
-	if !found {
-		// Nothing between the brackets: as Vim, the operator still runs, on
-		// the empty range just after the open bracket. A close bracket
-		// follows it, so there is always such a position.
-		empty, _ := afterOpenBracket(buffer, openPos)
-		return applyOperatorToRange(editor, buffer, op, empty, empty)
+	// An empty block (nothing between the brackets, or only blanks before a
+	// close bracket that starts its line) still runs the operator, on the
+	// empty range just after the open bracket.
+	start, end, lineBreak := innerBlock(buffer, openPos, closePos)
+	if !lineBreak {
+		return applyOperatorToRange(editor, buffer, op, start, end)
 	}
-	return bracketApplyRange(editor, buffer, innerStart, innerEnd, closePos, op)
+	// The block ends at the start of a line, so it is linewise when it
+	// starts in the indent. As Vim, the cursor goes to its start first,
+	// where a linewise y leaves it.
+	cursor := buffer.GetCursor()
+	cursor.Position = start
+	buffer.SetCursor(cursor)
+	return applyOperatorToMotion(editor, buffer, op, start, end)
 }
 
 // applyBracketOp applies op to the i/a bracket text object for the given open/close chars.
 func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op string) *EditorError {
-	cursor := buffer.GetCursor()
-	openPos, closePos, found := findBracketBounds(buffer, cursor.Position, openChar, closeChar)
+	pos := blockSearchStart(buffer, buffer.GetCursor().Position, openChar)
+	openPos, closePos, found := findBracketBounds(buffer, pos, openChar, closeChar)
 	if !found {
 		return nil
 	}
 	return applyBracketRange(editor, buffer, modifier, openPos, closePos, op)
-}
-
-// bracketApplyRange performs the actual yank/delete/change for bracket text objects.
-// yankEnd is the inclusive end used for the yank highlight; exclusiveDeleteEnd is the
-// exclusive end passed to deleteRange for delete/change operations.
-func bracketApplyRange(editor Editor, buffer Buffer, startPos, yankEnd, exclusiveDeleteEnd Position, op string) *EditorError {
-	switch op {
-	case "yank":
-		state := editor.GetState()
-		state.VisualStart = yankEnd
-		state.YankSelection = SelectionCharacter
-		editor.SetState(state)
-
-		cursor := buffer.GetCursor()
-		cursor.Position = startPos
-		buffer.SetCursor(cursor)
-
-		if err := editor.Copy(yankType); err != nil {
-			state.VisualStart = Position{-1, -1}
-			state.YankSelection = SelectionNone
-			editor.SetState(state)
-			return &EditorError{id: ErrFailedToYankId, err: err}
-		}
-
-	case "delete", "change":
-		if err := deleteRange(buffer, startPos, exclusiveDeleteEnd); err != nil {
-			return err
-		}
-
-		cursor := buffer.GetCursor()
-		cursor.Position = startPos
-		lineCount := buffer.LineCount()
-		if cursor.Position.Row >= lineCount {
-			cursor.Position.Row = lineCount - 1
-		}
-		lineLen := buffer.LineRuneCount(cursor.Position.Row)
-		if cursor.Position.Col >= lineLen && lineLen > 0 {
-			cursor.Position.Col = lineLen - 1
-		}
-		buffer.SetCursor(cursor)
-
-		if op == "change" {
-			editor.SetInsertMode()
-		}
-	}
-	return nil
 }
 
 // afterOpenBracket returns the position just after the open bracket at
@@ -802,25 +744,57 @@ func afterOpenBracket(buffer Buffer, openPos Position) (Position, bool) {
 	return Position{Row: openPos.Row + 1, Col: 0}, true
 }
 
-// bracketInnerRange computes the inclusive [innerStart, innerEnd] of the content between
-// openPos and closePos. It is a shared helper for applyAnyBracketOp and visual mode.
+// bracketInnerRange returns the inner block of the brackets at openPos and
+// closePos (see innerBlock) as the inclusive range visual mode selects: a
+// block that ends with a line break ends on it. It reports false for an
+// empty block. It is a shared helper for visual mode and the case operators.
 func bracketInnerRange(buffer Buffer, openPos, closePos Position) (innerStart, innerEnd Position, found bool) {
-	innerStart, ok := afterOpenBracket(buffer, openPos)
-	if !ok {
+	start, end, lineBreak := innerBlock(buffer, openPos, closePos)
+	if start == end {
 		return Position{}, Position{}, false
 	}
-	innerEnd = Position{closePos.Row, closePos.Col - 1}
-	if closePos.Col == 0 {
-		if closePos.Row == 0 {
-			return Position{}, Position{}, false
-		}
-		prevLen := buffer.LineRuneCount(closePos.Row - 1)
-		innerEnd = Position{closePos.Row - 1, max(prevLen-1, 0)}
+	if lineBreak {
+		return start, Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}, true
 	}
-	if innerStart.Row > innerEnd.Row || (innerStart.Row == innerEnd.Row && innerStart.Col > innerEnd.Col) {
-		return Position{}, Position{}, false
+	return start, Position{Row: end.Row, Col: end.Col - 1}, true
+}
+
+// innerBlock returns the inner block of the brackets at openPos and
+// closePos as [start, end), empty when end == start. As Vim's
+// current_block, blanks before a close bracket that starts its line aren't
+// part of it: the block then ends at the start of the line after its last
+// character, and lineBreak is true.
+func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position, lineBreak bool) {
+	// A close bracket follows the open one, so there is always a position after it.
+	start, _ = afterOpenBracket(buffer, openPos)
+	lineBreak = closePos.Col == 0
+	last, ok := charBefore(buffer, closePos)
+	for ok && last.Col < firstNonBlankCol(buffer.GetLineRunes(last.Row)) {
+		lineBreak = true
+		last, ok = charBefore(buffer, last)
 	}
-	return innerStart, innerEnd, true
+	// last is the open bracket when the block is empty.
+	switch {
+	case lineBreak:
+		return start, Position{Row: last.Row + 1, Col: 0}, true
+	case last.Row < start.Row || (last.Row == start.Row && last.Col < start.Col):
+		return start, start, false
+	}
+	return start, Position{Row: last.Row, Col: last.Col + 1}, false
+}
+
+// charBefore returns the character before pos, from column 0 the last one
+// on the line above (Vim's decl). It reports false when there is none, and
+// when it stops on an empty line.
+func charBefore(buffer Buffer, pos Position) (Position, bool) {
+	switch {
+	case pos.Col > 0:
+		return Position{Row: pos.Row, Col: pos.Col - 1}, true
+	case pos.Row == 0:
+		return pos, false
+	}
+	n := buffer.LineRuneCount(pos.Row - 1)
+	return Position{Row: pos.Row - 1, Col: max(n-1, 0)}, n > 0
 }
 
 // findNearestBracketBounds finds the innermost bracket pair of any standard type — (), [], {} —
