@@ -122,13 +122,10 @@ func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 		return cursor
 	}
 
-	// 'i' selects the inner word (without surrounding whitespace).
-	startCol, endCol, found := wordTextObjectRange(e.buffer, pos, 'i', 1, e.IsWordChar)
-	if !found {
-		return cursor
-	}
-
-	word := string(lineRunes[startCol : endCol+1])
+	// iw selects the word without the blanks around it; on a word character
+	// it stays on the line.
+	start, end, _, _ := currentWord(e.buffer, pos, pos, false, 1, false, e.IsWordChar)
+	word := string(lineRunes[start.Col : end.Col+1])
 
 	e.ExecuteSearch(word, SearchOptions{
 		Backwards:  backwards,
