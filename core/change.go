@@ -24,16 +24,23 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func
 	return applyOperatorToRange(editor, buffer, "change", start, tempCursor.Position)
 }
 
-// wordClass is Vim's cls(): 0 for a blank, 2 for a word character and 1 for
-// any other character.
+// The classes wordClass returns, with Vim's values.
+const (
+	blankClass    = 0
+	punctClass    = 1 // any other character
+	wordCharClass = 2
+)
+
+// wordClass is Vim's cls(): blankClass for a blank, wordCharClass for a word
+// character and punctClass for any other character.
 func wordClass(r rune, isWordChar func(rune) bool) int {
 	switch {
 	case isWhiteSpace(r):
-		return 0
+		return blankClass
 	case isWordChar(r):
-		return 2
+		return wordCharClass
 	default:
-		return 1
+		return punctClass
 	}
 }
 

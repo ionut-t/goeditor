@@ -339,7 +339,7 @@ func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos,
 
 // applyCaseToTextObject applies a case transform to the text object at the cursor.
 // modifier is 'i' (inner) or 'a' (around); objectKey selects the object type
-// (w, ", ', `, q, (, ), b, [, ], {, }, B, <, >).
+// (w, W, ", ', `, q, (, ), b, [, ], {, }, B, <, >).
 // The cursor is moved to the start of the affected range, matching Vim behaviour.
 func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey rune) *EditorError {
 	cursor := buffer.GetCursor()
@@ -347,8 +347,12 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 	found := false
 
 	switch objectKey {
-	case 'w':
-		startCol, endCol, ok := wordTextObjectRange(buffer, cursor.Position, modifier, 1, editor.IsWordChar)
+	case 'w', 'W':
+		isWordChar := editor.IsWordChar
+		if objectKey == 'W' {
+			isWordChar = isBigWordChar
+		}
+		startCol, endCol, ok := wordTextObjectRange(buffer, cursor.Position, modifier, 1, isWordChar)
 		if !ok {
 			return nil
 		}
