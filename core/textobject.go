@@ -706,17 +706,9 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 	}
 	// An empty block (nothing between the brackets, or only blanks before a
 	// close bracket that starts its line) still runs the operator, on the
-	// empty range just after the open bracket.
-	start, end, lineBreak := innerBlock(buffer, openPos, closePos)
-	if !lineBreak {
-		return applyOperatorToRange(editor, buffer, op, start, end)
-	}
-	// The block ends at the start of a line, so it is linewise when it
-	// starts in the indent. As Vim, the cursor goes to its start first,
-	// where a linewise y leaves it.
-	cursor := buffer.GetCursor()
-	cursor.Position = start
-	buffer.SetCursor(cursor)
+	// empty range just after the open bracket. A block that ends at the
+	// start of a line is linewise when it starts in the indent.
+	start, end := innerBlock(buffer, openPos, closePos)
 	return applyOperatorToMotion(editor, buffer, op, start, end)
 }
 
@@ -746,14 +738,15 @@ func afterOpenBracket(buffer Buffer, openPos Position) (Position, bool) {
 
 // bracketInnerRange returns the inner block of the brackets at openPos and
 // closePos (see innerBlock) as the inclusive range visual mode selects: a
-// block that ends with a line break ends on it. It reports false for an
-// empty block. It is a shared helper for visual mode and the case operators.
+// block that ends at the start of a line ends on the line break before it.
+// It reports false for an empty block. It is a shared helper for visual
+// mode and the case operators.
 func bracketInnerRange(buffer Buffer, openPos, closePos Position) (innerStart, innerEnd Position, found bool) {
-	start, end, lineBreak := innerBlock(buffer, openPos, closePos)
+	start, end := innerBlock(buffer, openPos, closePos)
 	if start == end {
 		return Position{}, Position{}, false
 	}
-	if lineBreak {
+	if end.Col == 0 {
 		return start, Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}, true
 	}
 	return start, Position{Row: end.Row, Col: end.Col - 1}, true
@@ -761,40 +754,22 @@ func bracketInnerRange(buffer Buffer, openPos, closePos Position) (innerStart, i
 
 // innerBlock returns the inner block of the brackets at openPos and
 // closePos as [start, end), empty when end == start. As Vim's
-// current_block, blanks before a close bracket that starts its line aren't
-// part of it: the block then ends at the start of the line after its last
-// character, and lineBreak is true.
-func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position, lineBreak bool) {
+// current_block, when only blanks come before the close bracket on its
+// line, neither they nor the lines of only blanks above it are part of the
+// block: it then ends at the start of the line after its last character
+// (or after an empty line), so end.Col is 0. Otherwise end is closePos.
+func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position) {
 	// A close bracket follows the open one, so there is always a position after it.
 	start, _ = afterOpenBracket(buffer, openPos)
-	lineBreak = closePos.Col == 0
-	last, ok := charBefore(buffer, closePos)
-	for ok && last.Col < firstNonBlankCol(buffer.GetLineRunes(last.Row)) {
-		lineBreak = true
-		last, ok = charBefore(buffer, last)
+	if closePos.Col > firstNonBlankCol(buffer.GetLineRunes(closePos.Row)) {
+		return start, closePos
 	}
-	// last is the open bracket when the block is empty.
-	switch {
-	case lineBreak:
-		return start, Position{Row: last.Row + 1, Col: 0}, true
-	case last.Row < start.Row || (last.Row == start.Row && last.Col < start.Col):
-		return start, start, false
+	// The open bracket's line isn't blank, so this stops there at the latest.
+	row := closePos.Row - 1
+	for buffer.LineRuneCount(row) > 0 && onlyBlanksFrom(buffer, Position{Row: row}) {
+		row--
 	}
-	return start, Position{Row: last.Row, Col: last.Col + 1}, false
-}
-
-// charBefore returns the character before pos, from column 0 the last one
-// on the line above (Vim's decl). It reports false when there is none, and
-// when it stops on an empty line.
-func charBefore(buffer Buffer, pos Position) (Position, bool) {
-	switch {
-	case pos.Col > 0:
-		return Position{Row: pos.Row, Col: pos.Col - 1}, true
-	case pos.Row == 0:
-		return pos, false
-	}
-	n := buffer.LineRuneCount(pos.Row - 1)
-	return Position{Row: pos.Row - 1, Col: max(n-1, 0)}, n > 0
+	return start, Position{Row: row + 1, Col: 0}
 }
 
 // findNearestBracketBounds finds the innermost bracket pair of any standard type — (), [], {} —
