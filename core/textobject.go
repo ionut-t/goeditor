@@ -43,13 +43,13 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, 
 
 	if modifier == 'a' {
 		switch {
-		case class(col) == 0 && endCol < last:
+		case class(col) == blankClass && endCol < last:
 			endCol = runEnd(endCol + 1)
-		case class(col) == 0 && startCol > 0:
+		case class(col) == blankClass && startCol > 0:
 			startCol = runStart(startCol - 1)
-		case endCol < last && class(endCol+1) == 0:
+		case endCol < last && class(endCol+1) == blankClass:
 			endCol = runEnd(endCol + 1)
-		case startCol > 0 && class(startCol-1) == 0:
+		case startCol > 0 && class(startCol-1) == blankClass:
 			if blanks := runStart(startCol - 1); blanks > 0 {
 				startCol = blanks
 			}
@@ -61,7 +61,7 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, 
 		next := endCol + 1
 		if modifier == 'a' {
 			// Another word plus the blanks around it.
-			if class(next) == 0 {
+			if class(next) == blankClass {
 				next = runEnd(next)
 				if next == last {
 					endCol = next
@@ -70,7 +70,7 @@ func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, 
 				next++
 			}
 			next = runEnd(next)
-			if next < last && class(next+1) == 0 {
+			if next < last && class(next+1) == blankClass {
 				next = runEnd(next + 1)
 			}
 		} else {
