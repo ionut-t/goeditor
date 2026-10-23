@@ -414,6 +414,14 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 		return e.dispatchKey(key)
 	}
 
+	// An unmapped CTRL-H acts as <BS>, in every mode, as in Vim. Terminals
+	// that send ^H for Backspace arrive here as CTRL-H too. Mappings have
+	// already seen it as <C-h>, so they still tell the two apart; the
+	// argument of r/f/t is a literal and is left alone.
+	if key.IsCtrl('h') && !e.currentMode.AwaitingLiteral() {
+		key = KeyEvent{Key: KeyBackspace}
+	}
+
 	e.noticeCursorMove()
 	e.openUndoStep()
 	pendingCount := e.recordKeyStart()
