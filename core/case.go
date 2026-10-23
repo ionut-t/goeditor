@@ -339,9 +339,10 @@ func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos,
 
 // applyCaseToTextObject applies a case transform to the text object at the cursor.
 // modifier is 'i' (inner) or 'a' (around); objectKey selects the object type
-// (w, W, ", ', `, q, (, ), b, [, ], {, }, B, <, >).
+// (w, W, ", ', `, q, (, ), b, [, ], {, }, B, <, >). count extends word
+// objects over additional words (gU2aw); other objects ignore it.
 // The cursor is moved to the start of the affected range, matching Vim behaviour.
-func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey rune) *EditorError {
+func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	var startPos, endPos Position // inclusive [start, end]
 	found := false
@@ -352,13 +353,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 		if objectKey == 'W' {
 			isWordChar = isBigWordChar
 		}
-		startCol, endCol, ok := wordTextObjectRange(buffer, cursor.Position, modifier, 1, isWordChar)
-		if !ok {
-			return nil
-		}
-		startPos = Position{Row: cursor.Position.Row, Col: startCol}
-		endPos = Position{Row: cursor.Position.Row, Col: endCol}
-		found = true
+		return applyCaseToWordObject(editor, buffer, op, modifier == 'a', count, isWordChar)
 
 	case '"', '\'', '`':
 		startCol, endCol, ok := quoteTextObjectRange(buffer, cursor.Position, modifier, objectKey)
@@ -413,6 +408,33 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 
 	// Move cursor to the start of the transformed range (matches Vim).
 	cursor.Position = startPos
+	buffer.SetCursor(cursor)
+	return nil
+}
+
+// applyCaseToWordObject applies a case transform to the iw/aw text object at
+// the cursor (iW/aW when isWordChar is isBigWordChar), count times, and moves
+// the cursor to its start. As with the other operators, an object that runs
+// out at the end of the buffer changes nothing, and the cursor stays where the
+// search ended.
+func applyCaseToWordObject(editor Editor, buffer Buffer, op rune, include bool, count int, isWordChar func(rune) bool) *EditorError {
+	cursor := buffer.GetCursor()
+	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, include, isWordChar)
+	if !ok {
+		cursor.Position = Position{Row: end.Row, Col: min(end.Col, lastCol(buffer, end.Row, false))}
+		buffer.SetCursor(cursor)
+		return nil
+	}
+	if inclusive {
+		end = afterWordObject(buffer, end)
+	} else if end.Col == 0 && end.Row > start.Row {
+		// The end is column 0 of the next line: stop at the line break before it.
+		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
+	}
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
+		return err
+	}
+	cursor.Position = start
 	buffer.SetCursor(cursor)
 	return nil
 }

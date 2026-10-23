@@ -376,8 +376,7 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 			editor.ResetPendingCount()
 			return nil
 		}
-		editor.ResetPendingCount()
-		return applyCaseToTextObject(editor, buffer, op, modifier, key.Rune)
+		return applyCaseToTextObject(editor, buffer, op, modifier, key.Rune, takeCount(editor))
 	}
 
 	// ── Step 1: waiting for the motion or i/a modifier ──

@@ -96,8 +96,12 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	// The key after i/a is the text object, even when it is g or z.
 	if m.pendingModifier != 0 {
-		editor.ResetPendingCount()
-		return m.handleTextObject(editor, buffer, key, buffer.GetCursor())
+		return m.handleTextObject(editor, buffer, key, buffer.GetCursor(), takeCount(editor))
+	}
+
+	if (key.Rune == 'i' || key.Rune == 'a') && key.Modifiers&ModCtrl == 0 {
+		m.pendingModifier = key.Rune // the count stays pending for the text object
+		return nil
 	}
 
 	if isPrefixKey(key) {
@@ -121,7 +125,8 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 }
 
 // handleTextObject applies a text object (viw, vaw, vip, vap, vi"/va", vi(/va(, …) after an 'i'/'a' modifier.
-func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor) *EditorError {
+// count extends word objects over additional words (v2aw); other objects ignore it.
+func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor, count int) *EditorError {
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
 	switch key.Rune {
@@ -130,16 +135,16 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		if key.Rune == 'W' {
 			isWordChar = isBigWordChar
 		}
-		startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, 1, isWordChar)
-		if found {
-			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position.Col = endCol
-			cursor.Preferred = endCol
-			buffer.SetCursor(cursor)
-		}
+		// As in Vim, a count that runs out still moves the selection as far
+		// as the search went.
+		start, end, _, _ := currentWord(buffer, cursor.Position, m.startPos, true, count, modifier == 'a', isWordChar)
+		m.startPos = start
+		state := editor.GetState()
+		state.VisualStart = m.startPos
+		editor.SetState(state)
+		cursor.Position = end
+		cursor.Preferred = end.Col
+		buffer.SetCursor(cursor)
 	case 'p': // vip / vap — expand to paragraph and switch to visual line mode
 		startRow, endRow, found := paragraphRows(buffer, cursor.Position, modifier)
 		if found {
@@ -349,10 +354,6 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		}
 		editor.ResetPendingCount()
 		return true, err
-
-	case 'i', 'a': // Text object modifier — wait for the object key (w, p, …)
-		m.pendingModifier = key.Rune
-		return true, nil
 
 	case 'v':
 		editor.SetNormalMode()

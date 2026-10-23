@@ -1,108 +1,355 @@
 package core
 
-// wordTextObjectRange returns the start and end column (inclusive) of the
-// iw/aw text object at pos, or iW/aW when isWordChar is isBigWordChar. It is
-// Vim's current_word on one line: a word is a run of one class (blanks,
-// word characters, other characters; see wordClass), so a WORD is a run of
-// non-blanks.
+// wordWalker steps through the buffer as Vim's inc() and dec() do, for the
+// word text objects. The line break of each line is a position of its own
+// (column = line length), and reads as a blank, so a word ends at the end of
+// its line and an empty line is one blank.
+type wordWalker struct {
+	buffer     Buffer
+	pos        Position
+	line       []rune
+	isWordChar func(rune) bool
+}
+
+func newWordWalker(buffer Buffer, pos Position, isWordChar func(rune) bool) *wordWalker {
+	w := &wordWalker{buffer: buffer, isWordChar: isWordChar}
+	w.moveTo(pos)
+	return w
+}
+
+func (w *wordWalker) moveTo(pos Position) {
+	w.pos = pos
+	w.line = w.buffer.GetLineRunes(pos.Row)
+	w.pos.Col = min(pos.Col, len(w.line))
+}
+
+// cls is Vim's cls(): the class of the character under the walker.
+func (w *wordWalker) cls() int {
+	if w.pos.Col >= len(w.line) {
+		return blankClass
+	}
+	return wordClass(w.line[w.pos.Col], w.isWordChar)
+}
+
+func (w *wordWalker) onEmptyLine() bool { return len(w.line) == 0 }
+
+// inc moves one position forward: it returns 0 within the line, 2 onto the
+// line break, 1 onto the next line and -1 at the end of the buffer.
+func (w *wordWalker) inc() int {
+	if w.pos.Col < len(w.line) {
+		w.pos.Col++
+		if w.pos.Col < len(w.line) {
+			return 0
+		}
+		return 2
+	}
+	if w.pos.Row < w.buffer.LineCount()-1 {
+		w.moveTo(Position{Row: w.pos.Row + 1})
+		return 1
+	}
+	return -1
+}
+
+// dec moves one position back: it returns 0 within the line, 1 onto the line
+// break of the line above and -1 at the start of the buffer.
+func (w *wordWalker) dec() int {
+	if w.pos.Col > 0 {
+		w.pos.Col--
+		return 0
+	}
+	if w.pos.Row > 0 {
+		w.moveTo(Position{Row: w.pos.Row - 1, Col: maxCol})
+		return 1
+	}
+	return -1
+}
+
+// incl is inc that skips the line break of a non-empty line.
+func (w *wordWalker) incl() int {
+	r := w.inc()
+	if r >= 1 && w.pos.Col > 0 {
+		r = w.inc()
+	}
+	return r
+}
+
+// decl is dec that skips the line break of a non-empty line.
+func (w *wordWalker) decl() int {
+	r := w.dec()
+	if r == 1 && w.pos.Col > 0 {
+		r = w.dec()
+	}
+	return r
+}
+
+// oneLeft moves one character left on the line; false in column 0.
+func (w *wordWalker) oneLeft() bool {
+	if w.pos.Col == 0 {
+		return false
+	}
+	w.pos.Col--
+	return true
+}
+
+// backInLine goes back to the start of the run under the walker, on its line.
+func (w *wordWalker) backInLine() {
+	class := w.cls()
+	for w.pos.Col > 0 {
+		w.dec()
+		if w.cls() != class {
+			w.inc()
+			return
+		}
+	}
+}
+
+// skipRun moves over the run of class, forward or back; false at the end of
+// the buffer.
+func (w *wordWalker) skipRun(class int, forward bool) bool {
+	for w.cls() == class {
+		if forward && w.inc() == -1 || !forward && w.dec() == -1 {
+			return false
+		}
+	}
+	return true
+}
+
+// fwdWord is Vim's fwd_word(1, bigword, TRUE): to the start of the next word,
+// but not past the end of the line. It fails on the end of the last line.
+func (w *wordWalker) fwdWord() bool {
+	class := w.cls()
+	lastLine := w.pos.Row == w.buffer.LineCount()-1
+	i := w.inc()
+	if i == -1 || i >= 1 && lastLine {
+		return false
+	}
+	if i >= 1 {
+		return true
+	}
+	if class != blankClass {
+		for w.cls() == class {
+			if i := w.inc(); i == -1 || i >= 1 {
+				return true
+			}
+		}
+	}
+	for w.cls() == blankClass {
+		if w.pos.Col == 0 && w.onEmptyLine() {
+			break
+		}
+		if i := w.inc(); i == -1 || i >= 1 {
+			return true
+		}
+	}
+	return true
+}
+
+// endWord is Vim's end_word(1, bigword, TRUE, TRUE): to the end of the word,
+// or of the next one from its last character or from blanks, stopping on an
+// empty line.
+func (w *wordWalker) endWord() bool {
+	class := w.cls()
+	if w.inc() == -1 {
+		return false
+	}
+	if w.cls() == class && class != blankClass {
+		if !w.skipRun(class, true) {
+			return false
+		}
+	} else if class == blankClass {
+		for w.cls() == blankClass {
+			if w.pos.Col == 0 && w.onEmptyLine() {
+				return true
+			}
+			if w.inc() == -1 {
+				return false
+			}
+		}
+		if !w.skipRun(w.cls(), true) {
+			return false
+		}
+	}
+	w.dec()
+	return true
+}
+
+// bckWord is Vim's bck_word(1, bigword, TRUE): to the start of the word, or
+// of the one before from its first character or from blanks.
+func (w *wordWalker) bckWord() bool {
+	class := w.cls()
+	if w.dec() == -1 {
+		return false
+	}
+	if class == w.cls() || class == blankClass {
+		for w.cls() == blankClass {
+			if w.pos.Col == 0 && w.onEmptyLine() {
+				return true
+			}
+			if w.dec() == -1 {
+				return true
+			}
+		}
+		if !w.skipRun(w.cls(), false) {
+			return true
+		}
+	}
+	w.inc()
+	return true
+}
+
+// bckendWord is Vim's bckend_word(1, bigword, TRUE): back to the end of the
+// word before, but not onto the line above.
+func (w *wordWalker) bckendWord() bool {
+	class := w.cls()
+	i := w.dec()
+	if i == -1 {
+		return false
+	}
+	if i == 1 {
+		return true
+	}
+	if class != blankClass {
+		for w.cls() == class {
+			if i := w.dec(); i == -1 || i == 1 {
+				return true
+			}
+		}
+	}
+	for w.cls() == blankClass {
+		if w.pos.Col == 0 && w.onEmptyLine() {
+			break
+		}
+		if i := w.dec(); i == -1 || i == 1 {
+			return true
+		}
+	}
+	return true
+}
+
+// currentWord is Vim's current_word: the iw/aw text object at cursor (iW/aW
+// when isWordChar is isBigWordChar), count times, with include for aw. A word
+// is a run of one class (blanks, word characters, other characters; see
+// wordClass), so a WORD is a run of non-blanks, and a line break is a blank.
 //
-//   - 'i': the run under the cursor.
-//   - 'a' on blanks: the blanks and the run after them (before them when the
-//     blanks end the line).
-//   - 'a' on a word: the word and the blanks after it; when none follow, the
+//   - i: the run under the cursor; a count adds the runs after it.
+//   - a on blanks: the blanks and the word after them.
+//   - a on a word: the word and the blanks after it; when none follow, the
 //     blanks before it, unless they are the indent.
 //
-// A count > 1 extends the range over additional objects (e.g. d2aw). Vim's
-// aw and counts can cross lines; this range stays on the line.
-func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, isWordChar func(rune) bool) (startCol int, endCol int, found bool) {
-	lineRunes := buffer.GetLineRunes(pos.Row)
-	if len(lineRunes) == 0 {
-		return 0, 0, false
-	}
-	last := len(lineRunes) - 1
-	class := func(col int) int { return wordClass(lineRunes[col], isWordChar) }
-	// runEnd returns the last column of the run that starts at col.
-	runEnd := func(col int) int {
-		c := class(col)
-		for col < last && class(col+1) == c {
-			col++
-		}
-		return col
-	}
-	// runStart returns the first column of the run that ends at col.
-	runStart := func(col int) int {
-		c := class(col)
-		for col > 0 && class(col-1) == c {
-			col--
-		}
-		return col
-	}
+// Objects after the first can cross lines; an empty line is a run of its own.
+// end is the last position, inclusive, or with inclusive false, the position
+// after the object (column 0 of the next line). The end can be a line break
+// (column = line length). In visual mode (visual true), a selection of more
+// than one character is extended from the cursor, away from visualStart.
+//
+// On failure (a count that runs out at the end of the buffer), end is where
+// Vim leaves the cursor, and in visual mode, start where it leaves the start.
+func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count int, include bool, isWordChar func(rune) bool) (start, end Position, inclusive, ok bool) {
+	w := newWordWalker(buffer, cursor, isWordChar)
+	start = visualStart
+	inclusive = true
+	includeWhite := false
+	count = max(count, 1)
 
-	col := min(pos.Col, last)
-	startCol, endCol = runStart(col), runEnd(col)
-
-	if modifier == 'a' {
-		switch {
-		case class(col) == blankClass && endCol < last:
-			endCol = runEnd(endCol + 1)
-		case class(col) == blankClass && startCol > 0:
-			startCol = runStart(startCol - 1)
-		case endCol < last && class(endCol+1) == blankClass:
-			endCol = runEnd(endCol + 1)
-		case startCol > 0 && class(startCol-1) == blankClass:
-			if blanks := runStart(startCol - 1); blanks > 0 {
-				startCol = blanks
-			}
-		}
-	}
-
-	// Extend the range over count-1 additional objects (e.g. d2aw, 3yiw).
-	for n := 1; n < count && endCol < last; n++ {
-		next := endCol + 1
-		if modifier == 'a' {
-			// Another word plus the blanks around it.
-			if class(next) == blankClass {
-				next = runEnd(next)
-				if next == last {
-					endCol = next
-					break
-				}
-				next++
-			}
-			next = runEnd(next)
-			if next < last && class(next+1) == blankClass {
-				next = runEnd(next + 1)
+	if !visual || cursor == visualStart {
+		w.backInLine()
+		start = w.pos
+		if (w.cls() == blankClass) == include {
+			if !w.endWord() {
+				return visualStart, w.pos, inclusive, false
 			}
 		} else {
-			// 'i': one run of the same class.
-			next = runEnd(next)
+			// The blanks before the next word, or the word before the blanks.
+			switch {
+			case !w.fwdWord() && w.pos == start && w.onEmptyLine():
+				// An empty last line. Vim's decl reaches into the line above
+				// (Gdiw on abc\n deletes c); this keeps the empty range.
+			case w.pos.Col == 0:
+				w.decl()
+			default:
+				w.oneLeft()
+			}
+			includeWhite = include
 		}
-		endCol = next
+		count--
 	}
 
-	return startCol, endCol, true
+	for ; count > 0; count-- {
+		inclusive = true
+		if visual && (w.pos.Row < start.Row || w.pos.Row == start.Row && w.pos.Col < start.Col) {
+			// Selecting backwards: extend the start of the selection.
+			if w.decl() == -1 {
+				return start, w.pos, inclusive, false
+			}
+			if include != (w.cls() != blankClass) {
+				if !w.bckWord() {
+					return start, w.pos, inclusive, false
+				}
+			} else {
+				if !w.bckendWord() {
+					return start, w.pos, inclusive, false
+				}
+				w.incl()
+			}
+			continue
+		}
+		if w.incl() == -1 {
+			return start, w.pos, inclusive, false
+		}
+		if include != (w.cls() == blankClass) {
+			if !w.fwdWord() && count > 1 {
+				return start, w.pos, inclusive, false
+			}
+			// An end just past a line break stays before it.
+			if !w.oneLeft() {
+				inclusive = false
+			}
+		} else if !w.endWord() {
+			return start, w.pos, inclusive, false
+		}
+	}
+
+	// With no blanks after the word, aw takes the blanks before it instead,
+	// unless they are the indent.
+	if includeWhite && (w.cls() != blankClass || w.pos.Col == 0 && !inclusive) {
+		b := newWordWalker(buffer, start, isWordChar)
+		if b.oneLeft() {
+			b.backInLine()
+			if b.cls() == blankClass && b.pos.Col > 0 {
+				start = b.pos
+			}
+		}
+	}
+	return start, w.pos, inclusive, true
 }
 
 // applyWordTextObject applies a delete/yank/change operator to the iw/aw text
 // object under the cursor (diw, y2aw, caw, ...), or iW/aW when isWordChar is
-// isBigWordChar.
+// isBigWordChar. When the object runs out at the end of the buffer (d5aw on
+// four words, daw on an empty last line), nothing changes, and as in Vim the
+// cursor stays where the search ended.
 func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int, isWordChar func(rune) bool) *EditorError {
 	cursor := buffer.GetCursor()
-
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, isWordChar)
-	if !found {
-		// iw (iW) on an empty line is the empty range there. aw and counts would
-		// take in the next line (not supported yet).
-		if modifier == 'i' && count <= 1 && buffer.LineRuneCount(cursor.Position.Row) == 0 {
-			empty := Position{Row: cursor.Position.Row}
-			return applyOperatorToRange(editor, buffer, op, empty, empty)
-		}
+	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, modifier == 'a', isWordChar)
+	if !ok {
+		cursor.Position = Position{Row: end.Row, Col: min(end.Col, lastCol(buffer, end.Row, false))}
+		buffer.SetCursor(cursor)
 		return nil
 	}
+	if !inclusive {
+		return applyOperatorToMotion(editor, buffer, op, start, end)
+	}
+	return applyOperatorToRange(editor, buffer, op, start, afterWordObject(buffer, end))
+}
 
-	return applyOperatorToRange(editor, buffer, op,
-		Position{Row: cursor.Position.Row, Col: startCol},
-		Position{Row: cursor.Position.Row, Col: endCol + 1})
+// afterWordObject returns the position after end, the inclusive end of a word
+// object. When end is a line break, it isn't included: Vim's operators stop
+// before it.
+func afterWordObject(buffer Buffer, end Position) Position {
+	if end.Col < buffer.LineRuneCount(end.Row) {
+		end.Col++
+	}
+	return end
 }
 
 // paragraphRows returns the inclusive [startRow, endRow] of the paragraph block under pos.
