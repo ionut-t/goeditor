@@ -107,7 +107,7 @@ m.WithTheme(theme)
 - **Document movement**: `gg` (first line), `G` (last line), `{` / `}` (paragraph), `%` (matching bracket)
 - **Scrolling**: `Ctrl+D` / `Ctrl+U` (half a page; a count sets the amount), `zz` / `zt` / `zb` (cursor line to middle / top / bottom), `z.` / `z<CR>` / `z-` (same, cursor to first non-blank)
 - **Character search**: `f`, `F`, `t`, `T`, repeated with `;` / `,`
-- **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `ip`, `i(`, `i"`, …)
+- **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `iW`, `aW`, `ip`, `i(`, `i"`, …)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
 - **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
 - **Undo/Redo**: `u` (undo), `Ctrl+R` (redo), `U` (undo all recent changes on the last-changed line)

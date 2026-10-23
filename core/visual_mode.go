@@ -125,14 +125,19 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
 	switch key.Rune {
-	case 'w': // viw / vaw — adjust selection to cover the word
-		startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, 1, editor.IsWordChar)
+	case 'w', 'W': // viw / vaw, viW / vaW — adjust selection to cover the word or WORD
+		isWordChar := editor.IsWordChar
+		if key.Rune == 'W' {
+			isWordChar = isBigWordChar
+		}
+		startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, 1, isWordChar)
 		if found {
 			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
 			state := editor.GetState()
 			state.VisualStart = m.startPos
 			editor.SetState(state)
 			cursor.Position.Col = endCol
+			cursor.Preferred = endCol
 			buffer.SetCursor(cursor)
 		}
 	case 'p': // vip / vap — expand to paragraph and switch to visual line mode

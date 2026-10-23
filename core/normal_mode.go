@@ -570,7 +570,10 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 	// Handle text objects after modifier
 	switch key.Rune {
 	case 'w': // iw or aw = inside/around word
-		err = applyWordTextObject(editor, buffer, op, modifier, count)
+		err = applyWordTextObject(editor, buffer, op, modifier, count, editor.IsWordChar)
+		actionTaken = true
+	case 'W': // iW or aW = inside/around WORD
+		err = applyWordTextObject(editor, buffer, op, modifier, count, isBigWordChar)
 		actionTaken = true
 	case 'p': // ip or ap = inside/around paragraph
 		switch op {

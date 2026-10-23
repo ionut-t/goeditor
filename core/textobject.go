@@ -1,151 +1,97 @@
 package core
 
-// wordTextObjectRange handles text object yanks like 'yiw' (yank inside word) and 'yaw' (yank around word).
+// wordTextObjectRange returns the start and end column (inclusive) of the
+// iw/aw text object at pos, or iW/aW when isWordChar is isBigWordChar. It is
+// Vim's current_word on one line: a word is a run of one class (blanks,
+// word characters, other characters; see wordClass), so a WORD is a run of
+// non-blanks.
 //
-// Text objects in Vim have two forms:
-// - 'i' (inner): Selects just the object itself (e.g., 'iw' = just the word)
-// - 'a' (around): Selects the object plus surrounding whitespace (e.g., 'aw' = word + space)
+//   - 'i': the run under the cursor.
+//   - 'a' on blanks: the blanks and the run after them (before them when the
+//     blanks end the line).
+//   - 'a' on a word: the word and the blanks after it; when none follow, the
+//     blanks before it, unless they are the indent.
 //
-// Vim's text object behavior depends on what character the cursor is on:
-// 1. On a word character:
-//   - 'iw': Selects the entire word under cursor
-//   - 'aw': Selects the word plus trailing whitespace (or leading if no trailing)
-//
-// 2. On whitespace:
-//   - 'iw': Selects the whitespace itself
-//   - 'aw': Selects the whitespace plus adjacent word (prioritizes trailing word)
-//
-// 3. On punctuation/other:
-//   - 'iw': Selects just the character
-//   - 'aw': Selects the character plus surrounding whitespace
-//
-// wordTextObjectRange returns the start and end column (inclusive) for a word text
-// object. A count > 1 extends the range over additional objects (e.g. d2aw).
+// A count > 1 extends the range over additional objects (e.g. d2aw). Vim's
+// aw and counts can cross lines; this range stays on the line.
 func wordTextObjectRange(buffer Buffer, pos Position, modifier rune, count int, isWordChar func(rune) bool) (startCol int, endCol int, found bool) {
 	lineRunes := buffer.GetLineRunes(pos.Row)
 	if len(lineRunes) == 0 {
 		return 0, 0, false
 	}
-
-	col := pos.Col
-	if col >= len(lineRunes) {
-		col = len(lineRunes) - 1
+	last := len(lineRunes) - 1
+	class := func(col int) int { return wordClass(lineRunes[col], isWordChar) }
+	// runEnd returns the last column of the run that starts at col.
+	runEnd := func(col int) int {
+		c := class(col)
+		for col < last && class(col+1) == c {
+			col++
+		}
+		return col
+	}
+	// runStart returns the first column of the run that ends at col.
+	runStart := func(col int) int {
+		c := class(col)
+		for col > 0 && class(col-1) == c {
+			col--
+		}
+		return col
 	}
 
-	startCol = col
-	endCol = col
+	col := min(pos.Col, last)
+	startCol, endCol = runStart(col), runEnd(col)
 
-	cursorChar := lineRunes[col]
-	onWord := isWordChar(cursorChar)
-
-	if onWord {
-		// Case 1: Cursor is on a word character
-		for startCol > 0 && isWordChar(lineRunes[startCol-1]) {
-			startCol--
-		}
-		for endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
-			endCol++
-		}
-
-		if modifier == 'a' {
-			origEndCol := endCol
-			for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
-				endCol++
-			}
-			if endCol == origEndCol {
-				for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
-					startCol--
-				}
-			}
-		}
-	} else if isWhiteSpace(cursorChar) {
-		// Case 2: Cursor is on whitespace
-		for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
-			startCol--
-		}
-		for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
-			endCol++
-		}
-
-		if modifier == 'a' {
-			if endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
-				for endCol < len(lineRunes)-1 && isWordChar(lineRunes[endCol+1]) {
-					endCol++
-				}
-			} else if startCol > 0 && isWordChar(lineRunes[startCol-1]) {
-				for startCol > 0 && isWordChar(lineRunes[startCol-1]) {
-					startCol--
-				}
-			}
-		}
-	} else {
-		// Case 3: Cursor is on punctuation or other non-word, non-whitespace character
-		if modifier == 'a' {
-			for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
-				startCol--
-			}
-			for endCol < len(lineRunes)-1 && isWhiteSpace(lineRunes[endCol+1]) {
-				endCol++
+	if modifier == 'a' {
+		switch {
+		case class(col) == 0 && endCol < last:
+			endCol = runEnd(endCol + 1)
+		case class(col) == 0 && startCol > 0:
+			startCol = runStart(startCol - 1)
+		case endCol < last && class(endCol+1) == 0:
+			endCol = runEnd(endCol + 1)
+		case startCol > 0 && class(startCol-1) == 0:
+			if blanks := runStart(startCol - 1); blanks > 0 {
+				startCol = blanks
 			}
 		}
 	}
 
 	// Extend the range over count-1 additional objects (e.g. d2aw, 3yiw).
-	for n := 1; n < count; n++ {
+	for n := 1; n < count && endCol < last; n++ {
 		next := endCol + 1
-		if next >= len(lineRunes) {
-			break
-		}
 		if modifier == 'a' {
-			// Another word (or punctuation run) plus its surrounding whitespace.
-			for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
-				next++
-			}
-			if next < len(lineRunes) {
-				if isWordChar(lineRunes[next]) {
-					for next < len(lineRunes) && isWordChar(lineRunes[next]) {
-						next++
-					}
-				} else {
-					for next < len(lineRunes) && !isWordChar(lineRunes[next]) && !isWhiteSpace(lineRunes[next]) {
-						next++
-					}
+			// Another word plus the blanks around it.
+			if class(next) == 0 {
+				next = runEnd(next)
+				if next == last {
+					endCol = next
+					break
 				}
-			}
-			for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
 				next++
+			}
+			next = runEnd(next)
+			if next < last && class(next+1) == 0 {
+				next = runEnd(next + 1)
 			}
 		} else {
-			// 'i': one chunk of the same character class (word, whitespace, or punctuation).
-			switch r := lineRunes[next]; {
-			case isWhiteSpace(r):
-				for next < len(lineRunes) && isWhiteSpace(lineRunes[next]) {
-					next++
-				}
-			case isWordChar(r):
-				for next < len(lineRunes) && isWordChar(lineRunes[next]) {
-					next++
-				}
-			default:
-				for next < len(lineRunes) && !isWordChar(lineRunes[next]) && !isWhiteSpace(lineRunes[next]) {
-					next++
-				}
-			}
+			// 'i': one run of the same class.
+			next = runEnd(next)
 		}
-		endCol = next - 1
+		endCol = next
 	}
 
 	return startCol, endCol, true
 }
 
 // applyWordTextObject applies a delete/yank/change operator to the iw/aw text
-// object under the cursor (diw, y2aw, caw, ...).
-func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int) *EditorError {
+// object under the cursor (diw, y2aw, caw, ...), or iW/aW when isWordChar is
+// isBigWordChar.
+func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int, isWordChar func(rune) bool) *EditorError {
 	cursor := buffer.GetCursor()
 
-	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, editor.IsWordChar)
+	startCol, endCol, found := wordTextObjectRange(buffer, cursor.Position, modifier, count, isWordChar)
 	if !found {
-		// iw on an empty line is the empty range there. aw and counts would
+		// iw (iW) on an empty line is the empty range there. aw and counts would
 		// take in the next line (not supported yet).
 		if modifier == 'i' && count <= 1 && buffer.LineRuneCount(cursor.Position.Row) == 0 {
 			empty := Position{Row: cursor.Position.Row}
