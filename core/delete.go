@@ -116,6 +116,20 @@ func deleteLineRange(editor Editor, buffer Buffer, startRow, endRow int) (string
 	return deletedContent.String(), firstErr
 }
 
+// lineChangeStart returns where a linewise operator from pos to the first
+// non-blank of row (where dd, cc, S, gg and G go) starts its change, for
+// undo: the earlier of the two.
+func lineChangeStart(buffer Buffer, pos Position, row int) Position {
+	start, _ := NormalizeSelection(pos, Position{Row: row, Col: firstNonBlankCol(buffer.GetLineRunes(row))})
+	return start
+}
+
+// linesChangeStart is lineChangeStart for dd, cc and S over count lines from
+// pos.
+func linesChangeStart(buffer Buffer, pos Position, count int) Position {
+	return lineChangeStart(buffer, pos, min(pos.Row+count-1, buffer.LineCount()-1))
+}
+
 // deleteLines deletes `count` lines starting from the cursor row.
 func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError) {
 	cursor := buffer.GetCursor()
@@ -206,11 +220,12 @@ func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
 
 // deleteVisualSelection deletes the text covered by a charwise visual selection.
 // Returns the deleted content, the cursor position after deletion, and any error.
-func deleteVisualSelection(buffer Buffer, startPos, endPos Position) (string, Position, *EditorError) {
+func deleteVisualSelection(editor Editor, buffer Buffer, startPos, endPos Position) (string, Position, *EditorError) {
 	var err *EditorError
 
 	var deletedContent string
 	startSel, endSel := NormalizeSelection(startPos, endPos)
+	markChangeStart(editor, startSel)
 	finalCursorPos := startSel // Default final position is the start of selection
 
 	// Simple case: Single line selection

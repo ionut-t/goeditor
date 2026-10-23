@@ -4,10 +4,11 @@ import "unicode"
 
 // applyCaseInRange applies a rune transform to [start, end) (exclusive end),
 // processing each line segment independently using delete + insert.
-func applyCaseInRange(buffer Buffer, start, end Position, transform func(rune) rune) *EditorError {
+func applyCaseInRange(editor Editor, buffer Buffer, start, end Position, transform func(rune) rune) *EditorError {
 	if start.Row > end.Row || (start.Row == end.Row && start.Col >= end.Col) {
 		return nil
 	}
+	markChangeStart(editor, start)
 
 	for row := start.Row; row <= end.Row; row++ {
 		lineRunes := buffer.GetLineRunes(row)
@@ -79,7 +80,7 @@ func toggleCaseChar(editor Editor, buffer Buffer, count int) *EditorError {
 	start := Position{Row: row, Col: cursor.Position.Col}
 	end := Position{Row: row, Col: endCol} // exclusive
 
-	if err := applyCaseInRange(buffer, start, end, caseTransformForOp('~')); err != nil {
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp('~')); err != nil {
 		return err
 	}
 
@@ -107,7 +108,7 @@ func applyCaseWord(editor Editor, buffer Buffer, op rune, count int) *EditorErro
 		return nil
 	}
 
-	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -129,7 +130,7 @@ func applyCaseWordEnd(editor Editor, buffer Buffer, op rune, count int) *EditorE
 		return nil
 	}
 
-	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -149,7 +150,7 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 		return nil
 	}
 
-	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
 
@@ -173,7 +174,7 @@ func applyCaseToEndOfLine(editor Editor, buffer Buffer, op rune) *EditorError {
 	start := cursor.Position
 	end := Position{Row: row, Col: lineLen} // exclusive
 
-	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -197,7 +198,7 @@ func applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorE
 		}
 		start := Position{Row: r, Col: 0}
 		end := Position{Row: r, Col: lineLen} // exclusive
-		if err := applyCaseInRange(buffer, start, end, transform); err != nil {
+		if err := applyCaseInRange(editor, buffer, start, end, transform); err != nil {
 			return err
 		}
 	}
@@ -213,7 +214,7 @@ func applyCaseToBufferEnd(editor Editor, buffer Buffer, op rune) *EditorError {
 	lastRow := buffer.LineCount() - 1
 	endPos := Position{Row: lastRow, Col: buffer.LineRuneCount(lastRow)} // exclusive
 
-	if err := applyCaseInRange(buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -232,7 +233,7 @@ func applyCaseToLineStart(editor Editor, buffer Buffer, op rune) *EditorError {
 	start := Position{Row: row, Col: 0}
 	end := Position{Row: row, Col: cursor.Position.Col} // exclusive
 
-	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 
@@ -262,7 +263,7 @@ func applyCaseToFirstNonBlank(editor Editor, buffer Buffer, op rune) *EditorErro
 	start := Position{Row: cursor.Position.Row, Col: startCol}
 	end := Position{Row: cursor.Position.Row, Col: endCol}
 
-	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 
@@ -281,7 +282,7 @@ func applyCaseToBufferStart(editor Editor, buffer Buffer, op rune) *EditorError 
 	start := Position{Row: 0, Col: 0}
 	end := Position{Row: endRow, Col: endCol}
 
-	if err := applyCaseInRange(buffer, start, end, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 
@@ -312,7 +313,7 @@ func applyCaseToTargetLine(editor Editor, buffer Buffer, op rune, targetRow int)
 		}
 		start := Position{Row: r, Col: 0}
 		end := Position{Row: r, Col: lineLen}
-		if err := applyCaseInRange(buffer, start, end, transform); err != nil {
+		if err := applyCaseInRange(editor, buffer, start, end, transform); err != nil {
 			return err
 		}
 	}
@@ -330,7 +331,7 @@ func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos,
 	// Visual selection end is inclusive; convert to exclusive.
 	exclusiveEnd := Position{Row: endSel.Row, Col: endSel.Col + 1}
 
-	if err := applyCaseInRange(buffer, startSel, exclusiveEnd, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startSel, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -402,7 +403,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 
 	// endPos is inclusive; convert to exclusive for applyCaseInRange.
 	exclusiveEnd := Position{Row: endPos.Row, Col: endPos.Col + 1}
-	if err := applyCaseInRange(buffer, startPos, exclusiveEnd, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startPos, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
 	}
 
@@ -427,7 +428,7 @@ func applyCaseToVisualLineSelection(editor Editor, buffer Buffer, op rune, start
 		}
 		start := Position{Row: r, Col: 0}
 		end := Position{Row: r, Col: lineLen} // exclusive
-		if err := applyCaseInRange(buffer, start, end, transform); err != nil {
+		if err := applyCaseInRange(editor, buffer, start, end, transform); err != nil {
 			return err
 		}
 	}

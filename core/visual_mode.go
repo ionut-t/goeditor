@@ -254,7 +254,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		}
 		var finalPos Position
 		var contentDeleted string
-		contentDeleted, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		contentDeleted, finalPos, err = deleteVisualSelection(editor, buffer, m.startPos, cursor.Position)
 		if err == nil {
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
@@ -292,7 +292,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			return true, nil
 		}
 		var finalPos Position
-		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		_, finalPos, err = deleteVisualSelection(editor, buffer, m.startPos, cursor.Position)
 		if err == nil {
 			// Normal mode first: entering it pulls the cursor onto the last
 			// char, but the paste goes where the selection was, which can be
@@ -321,7 +321,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		}
 		_ = editor.Copy(cutType)
 		var finalPos Position
-		_, finalPos, err = deleteVisualSelection(buffer, m.startPos, cursor.Position)
+		_, finalPos, err = deleteVisualSelection(editor, buffer, m.startPos, cursor.Position)
 		if err == nil {
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)

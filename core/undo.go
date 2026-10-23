@@ -32,9 +32,15 @@ type edit struct {
 // undoStep is what one 'u' undoes.
 type undoStep struct {
 	edits        []edit // in the order applied
-	cursorBefore Cursor // restored by undo
-	cursorAfter  Cursor // restored by redo
+	cursorBefore Cursor // where the command started, for 'U'
+	cursorAfter  Cursor // where the command ended, for 'U'
 	host         bool   // opened by an edit made outside a key
+
+	// cursor is where the change began, which undo and redo go back to, as
+	// Vim's uh_cursor: the start an operator set with markChangeStart, or
+	// else where the cursor was at the first edit.
+	cursor Position
+	marked bool // cursor was set by markChangeStart
 
 	// While the step is open, typing grows the last edit's insertion here
 	// rather than by string concatenation, which would copy it on every key.
@@ -207,6 +213,9 @@ func (e *editor) recordEdit(cursor Cursor, ed edit) {
 	// key.
 	step := e.openStep
 	n := len(step.edits)
+	if n == 0 && !step.marked {
+		step.cursor = cursor.Position
+	}
 	if n > 0 && ed.removed == "" && step.edits[n-1].removed == "" && ed.at == step.typedEnd {
 		if step.typed == nil {
 			step.typed = []byte(step.edits[n-1].inserted)
@@ -220,6 +229,34 @@ func (e *editor) recordEdit(cursor Cursor, ed edit) {
 	step.edits = append(step.edits, ed)
 	if ed.removed == "" {
 		step.typedEnd = insertEnd(ed.at, ed.inserted)
+	}
+}
+
+// changeStarter is implemented by the editor so that a command can say where
+// its change starts, without it being part of the public Editor interface.
+type changeStarter interface {
+	markChangeStart(pos Position)
+}
+
+// markChangeStart tells editor that the change about to be made starts at
+// pos, which undo and redo go back to. Commands that edit away from the
+// cursor call it: an operator with the start of its text (Vim's oap->start:
+// the earlier of the cursor and where the motion goes), X with the first
+// character it deletes, o and O with the cursor before they move it.
+func markChangeStart(editor Editor, pos Position) {
+	if s, ok := editor.(changeStarter); ok {
+		s.markChangeStart(pos)
+	}
+}
+
+// markChangeStart records pos as where the open step's change starts, unless
+// the step has already made an edit or recorded a start: the first command to
+// say where its change starts is the outermost (V before the case operator
+// it runs, say).
+func (e *editor) markChangeStart(pos Position) {
+	if s := e.openStep; s != nil && len(s.edits) == 0 && !s.marked {
+		s.cursor = pos
+		s.marked = true
 	}
 }
 
@@ -348,8 +385,7 @@ func (e *editor) Undo() ([]TextEdit, error) {
 		return edits, e.undoCorrupt(err)
 	}
 
-	// Return to where the change started, clamped to the restored content.
-	e.buffer.SetCursor(e.clampCursor(step.cursorBefore))
+	e.buffer.SetCursor(e.undoCursor(step, edits))
 
 	e.ScrollViewport()
 
@@ -372,11 +408,52 @@ func (e *editor) Redo() ([]TextEdit, error) {
 	if err != nil {
 		return edits, e.undoCorrupt(err)
 	}
-	e.buffer.SetCursor(step.cursorAfter)
+	e.buffer.SetCursor(e.undoCursor(step, edits))
 
 	e.ScrollViewport()
 
 	return edits, nil
+}
+
+// undoCursor returns where undo and redo of step, which applied edits, leave
+// the cursor. As Vim's u_undoredo, both go back to where the change began
+// (step.cursor) when that is on or next to the changed lines, and otherwise
+// to the first changed line. On any other row than step.cursor's, which the
+// change may have removed, the cursor goes to the first non-blank. In normal
+// mode the column stays on a character.
+func (e *editor) undoCursor(step *undoStep, edits []TextEdit) Cursor {
+	at := step.cursor
+	if first, last, ok := changedRows(edits); ok && (at.Row < first-1 || at.Row > last+1) {
+		at.Row = first
+	}
+
+	cursor := e.buffer.GetCursor()
+	cursor.Position.Row = max(0, min(at.Row, e.buffer.LineCount()-1))
+	if cursor.Position.Row == step.cursor.Row {
+		cursor.Position.Col = min(at.Col, lastCol(e.buffer, cursor.Position.Row, !e.IsNormalMode()))
+		cursor.Preferred = cursor.Position.Col
+	} else {
+		cursor.MoveToFirstNonBlank(e.buffer)
+	}
+	return cursor
+}
+
+// changedRows returns the first and last rows that edits, applied in order,
+// changed in the text they leave. ok is false when there are no edits.
+func changedRows(edits []TextEdit) (first, last int, ok bool) {
+	for i, ed := range edits {
+		end := insertEnd(ed.Start, ed.Text).Row
+		if i == 0 {
+			first, last = ed.Start.Row, end
+			continue
+		}
+		// Rows below the edit move by the lines it added or removed.
+		if last >= ed.End.Row {
+			last += end - ed.End.Row
+		}
+		first, last = min(first, ed.Start.Row), max(last, end)
+	}
+	return first, last, len(edits) > 0
 }
 
 // UndoLine implements Vim's 'U': undo all the latest changes made to a single
