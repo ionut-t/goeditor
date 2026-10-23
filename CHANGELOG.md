@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0](https://github.com/ionut-t/goeditor/compare/v0.11.5...v0.12.0) (2026-10-23)
+
+
+### Features
+
+* **core:** implement WORD text objects (iW and aW) ([#86](https://github.com/ionut-t/goeditor/issues/86)) ([033c2bc](https://github.com/ionut-t/goeditor/commit/033c2bcc6fb48a6cbaf737e3185ca680f0500d69))
+* **core:** treat unmapped CTRL-H as backspace ([#89](https://github.com/ionut-t/goeditor/issues/89)) ([888178a](https://github.com/ionut-t/goeditor/commit/888178a87c62c57a1fc109c005b12e4c8e5de278))
+* **visual:** add 'o'/'O' to swap visual selection ends ([#90](https://github.com/ionut-t/goeditor/issues/90)) ([7b63d8f](https://github.com/ionut-t/goeditor/commit/7b63d8f5048be6675c17f22ba015264499a2e0af))
+
+
+### Bug Fixes
+
+* **textobject:** correctly implement word text objects with counts and cross-line support ([#88](https://github.com/ionut-t/goeditor/issues/88)) ([24a45d1](https://github.com/ionut-t/goeditor/commit/24a45d10b5ce4e827ee1c3e6ab88d8a02f2f129a))
+
 ## [0.11.5](https://github.com/ionut-t/goeditor/compare/v0.11.4...v0.11.5) (2026-10-23)
 
 
