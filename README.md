@@ -131,6 +131,7 @@ m.WithTheme(theme)
 - Select text character by character
 - `d` or `x` to delete selection
 - `y` to copy selection
+- `o` or `O` to move to the other end of the selection
 - `Esc` to cancel selection
 
 ### Command Mode
