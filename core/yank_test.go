@@ -320,7 +320,8 @@ func TestYankInsideBrackets(t *testing.T) {
 		e, cb := newTestEditorWithClipboard("(\n  hello\n)")
 		keys(e, 'j', 'l', 'l')
 		keys(e, 'y', 'i', '(')
-		assert.Equal(t, "  hello", cb.content)
+		// As Vim, the block ends at the start of the ')' line, so it's linewise.
+		assert.Equal(t, "  hello\n", cb.content)
 	})
 }
 

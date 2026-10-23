@@ -110,6 +110,10 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op string, start, end P
 			if op != "yank" {
 				markChangeStart(editor, start)
 			}
+			// As Vim, the cursor goes to the start, where a linewise y leaves it.
+			cursor := buffer.GetCursor()
+			cursor.Position = start
+			buffer.SetCursor(cursor)
 			return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
 		}
 	}
