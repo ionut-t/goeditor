@@ -11,8 +11,9 @@ type wordWalker struct {
 	isWordChar func(rune) bool
 }
 
-func newWordWalker(buffer Buffer, pos Position, isWordChar func(rune) bool) *wordWalker {
-	w := &wordWalker{buffer: buffer, isWordChar: isWordChar}
+// newWordWalker returns the walker by value, so that it stays on the stack.
+func newWordWalker(buffer Buffer, pos Position, isWordChar func(rune) bool) wordWalker {
+	w := wordWalker{buffer: buffer, isWordChar: isWordChar}
 	w.moveTo(pos)
 	return w
 }
