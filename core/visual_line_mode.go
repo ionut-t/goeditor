@@ -125,6 +125,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			_ = editor.Copy(cutType)
 		}
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
+		markChangeStart(editor, m.changeStart(cursor.Position))
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
@@ -217,6 +218,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		}
 		_ = editor.Copy(cutType)
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
+		markChangeStart(editor, m.changeStart(cursor.Position))
 		err = changeLineRange(editor, buffer, startRow, endRow)
 		editor.ResetPendingCount()
 		return true, err
@@ -226,6 +228,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			return true, nil
 		}
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
+		markChangeStart(editor, m.changeStart(cursor.Position))
 		err = applyCaseToVisualLineSelection(editor, buffer, key.Rune, startRow, endRow)
 		if err == nil {
 			// As after y: the cursor stays where it is when it is above the
@@ -258,6 +261,14 @@ func (m *visualLineMode) selectionRows(cursorRow int) (startRow, endRow int) {
 		startRow, endRow = endRow, startRow
 	}
 	return
+}
+
+// changeStart returns where an operator on the selection starts its change,
+// for undo: as Vim, the earlier of column 0 of the anchor's line and the
+// cursor.
+func (m *visualLineMode) changeStart(cursor Position) Position {
+	start, _ := NormalizeSelection(Position{Row: m.startPos.Row}, cursor)
+	return start
 }
 
 // handleMovement handles motion keys that extend the line selection. count

@@ -457,6 +457,9 @@ func (m *normalMode) handleOperatorGG(editor Editor, buffer Buffer, cursor Curso
 	m.cmd.op = 0
 	editor.ResetPendingCount()
 
+	if op != 'y' {
+		markChangeStart(editor, lineChangeStart(buffer, cursor.Position, 0))
+	}
 	originalRow := cursor.Position.Row
 	cursor.MoveToBufferStart()
 	buffer.SetCursor(cursor)
@@ -637,6 +640,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	switch key.Rune {
 	case 'd': // dd = delete line
 		if op == "delete" {
+			markChangeStart(editor, linesChangeStart(buffer, cursor.Position, count))
 			var deletedContent string
 			deletedContent, err = deleteLines(editor, buffer, count)
 			editor.DispatchSignal(DeleteSignal{content: deletedContent})
@@ -649,6 +653,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		}
 	case 'c': // cc = change line
 		if op == "change" {
+			markChangeStart(editor, linesChangeStart(buffer, cursor.Position, count))
 			err = changeLines(editor, buffer, count)
 			actionTaken = true
 		}
@@ -692,12 +697,18 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		targetRow := gotoLineRow(buffer, lineCount)
 		startRow := min(cursor.Position.Row, targetRow)
 		endRow := max(cursor.Position.Row, targetRow)
+		if op != "yank" {
+			markChangeStart(editor, lineChangeStart(buffer, cursor.Position, targetRow))
+		}
 		err = applyOperatorToLineRange(editor, buffer, op, startRow, endRow)
 		actionTaken = true
 
 	case 'j': // dj, yj, cj — current line and count lines below (line-wise)
 		if cursor.Position.Row < buffer.LineCount()-1 {
 			endRow := min(cursor.Position.Row+count, buffer.LineCount()-1)
+			if op != "yank" {
+				markChangeStart(editor, cursor.Position)
+			}
 			err = applyOperatorToLineRange(editor, buffer, op, cursor.Position.Row, endRow)
 		} else {
 			m.motionFailed = true
@@ -707,6 +718,12 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'k': // dk, yk, ck — current line and count lines above (line-wise)
 		if cursor.Position.Row > 0 {
 			startRow := max(cursor.Position.Row-count, 0)
+			if op != "yank" {
+				// The change starts where k goes.
+				target := cursor
+				_ = target.MoveUp(buffer, count)
+				markChangeStart(editor, target.Position)
+			}
 			err = applyOperatorToLineRange(editor, buffer, op, startRow, cursor.Position.Row)
 		} else {
 			m.motionFailed = true
@@ -955,6 +972,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		startInsert(editor, count, false)
 
 	case key.Rune == 'o': // Open line below
+		markChangeStart(editor, cursor.Position)
 		cursor.MoveToAfterLineEnd(buffer) // Go to end of current line
 		buffer.SetCursor(cursor)
 		_ = buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, []rune("\n")) // Insert newline
@@ -964,6 +982,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		startInsert(editor, count, true)
 
 	case key.Rune == 'O': // Open line above
+		markChangeStart(editor, cursor.Position)
 		cursor.MoveToLineStart()                                       // Go to start of current line
 		_ = buffer.InsertRunesAt(cursor.Position.Row, 0, []rune("\n")) // Insert newline (pushes current line down)
 		// Cursor stays on original line index, which is now the new blank line
@@ -1036,6 +1055,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 	case key.Rune == 'X': // Delete character before cursor
 		if cursor.Position.Col > 0 {
+			markChangeStart(editor, Position{Row: cursor.Position.Row, Col: max(cursor.Position.Col-count, 0)})
 			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
 			if err == nil {
 				_ = cursor.MoveLeft(buffer, count) // Move cursor back
@@ -1073,6 +1093,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'S': // Substitute line(s) — like 'cc'
+		markChangeStart(editor, linesChangeStart(buffer, cursor.Position, count))
 		err = changeLines(editor, buffer, count)
 		skipCursorUpdate = true
 

@@ -42,7 +42,8 @@ func TestUndoBasic(t *testing.T) {
 	})
 }
 
-// TestUndoCursorPosition tests that undo restores the cursor to its pre-change position.
+// TestUndoCursorPosition tests that undo puts the cursor where the change
+// began. More cases, checked in Vim, are in undo_cursor_test.go.
 func TestUndoCursorPosition(t *testing.T) {
 	t.Run("undo dd from second line restores cursor to that row", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
@@ -108,12 +109,12 @@ func TestRedoBasic(t *testing.T) {
 		assert.Equal(t, "", content(e))
 	})
 
-	t.Run("redo restores cursor to post-change position", func(t *testing.T) {
+	t.Run("redo of a deleted last line goes to the line above", func(t *testing.T) {
 		e := newTestEditor("first\nsecond")
 		keys(e, 'j', 'd', 'd') // delete "second", cursor goes to row 0
 		keys(e, 'u')           // undo: "second" restored, cursor at row 1
 		assert.Equal(t, Position{1, 0}, cursorPos(e))
-		ctrlKey(e, 'r') // redo: "second" deleted again, cursor at row 0
+		ctrlKey(e, 'r') // redo: "second" deleted again; its row is gone, so row 0
 		assert.Equal(t, "first", content(e))
 		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})

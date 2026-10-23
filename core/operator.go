@@ -14,6 +14,9 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
 		start, end = end, start
 	}
+	if op != "yank" {
+		markChangeStart(editor, start)
+	}
 	if start == end {
 		// After a motion the cursor is already there; an empty text object
 		// (di"" or ciw on an empty line) puts it on the empty range.
@@ -104,6 +107,9 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op string, start, end P
 	if end.Row > start.Row && end.Col == 0 {
 		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
 		if inIndent(buffer, start) {
+			if op != "yank" {
+				markChangeStart(editor, start)
+			}
 			return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
 		}
 	}
