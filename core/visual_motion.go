@@ -140,6 +140,22 @@ func exitVisualToNormal(editor Editor, buffer Buffer) {
 	endVisualOperator(buffer)
 }
 
+// swapVisualEnds moves the cursor to anchor and returns the new anchor, the
+// old cursor position, as Vim's o and O (O only differs in blockwise mode).
+// Both ends keep their columns, also in visual line mode, and j and k go
+// back to the column the cursor lands on.
+func swapVisualEnds(editor Editor, buffer Buffer, anchor Position) Position {
+	cursor := buffer.GetCursor()
+	old := cursor.Position
+	cursor.Position = anchor
+	cursor.Preferred = anchor.Col
+	buffer.SetCursor(cursor)
+	state := editor.GetState()
+	state.VisualStart = old
+	editor.SetState(state)
+	return old
+}
+
 // endVisualOperator runs after a visual operator has placed the cursor in
 // normal mode. The cursor goes onto the last character if it is after the end
 // of the line (a deletion or a failed paste can leave it there), and j and k

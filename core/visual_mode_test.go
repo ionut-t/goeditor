@@ -128,6 +128,13 @@ func TestVisualYankEndsVisual(t *testing.T) {
 		{"jjllVky", Position{1, 2}},
 		{"jlllVkhy", Position{0, 2}},
 		{"jjlllVkkly", Position{0, 4}},
+		// After o the cursor and the anchor have swapped.
+		{"Vjoky", Position{0, 0}},
+		{"lllVjoy", Position{0, 3}},
+		{"jlllVkoy", Position{0, 0}},
+		{"jjlllVkoky", Position{1, 0}},
+		{"lllvjhhoy", Position{0, 3}},
+		{"jlllvkhhoy", Position{0, 1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {
@@ -244,6 +251,13 @@ func TestVisualOperatorResetsColumn(t *testing.T) {
 		{indent, "yyjjlllVp", Position{2, 0}, "hello world\n  second line\nhello world"},
 		{indent, "yyjjlllVpk", Position{1, 0}, ""},
 		{indent, "yyjlllVpj", Position{2, 0}, "hello world\nhello world\nthird line"},
+		// After o the cursor and the anchor have swapped.
+		{six, "VjokU", Position{0, 0}, "ABCDEF\nABCDEF\nabcdef"},
+		{indent, "jlllVjokU", Position{0, 3}, "HELLO WORLD\n  SECOND LINE\nTHIRD LINE"},
+		{indent, "jlllVjoU", Position{1, 3}, "hello world\n  SECOND LINE\nTHIRD LINE"},
+		{indent, "jlllVjoUj", Position{2, 3}, ""},
+		{indent, "jjlllVkoU", Position{1, 0}, "hello world\n  SECOND LINE\nTHIRD LINE"},
+		{six, "lllvjhhoUj", Position{1, 3}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {

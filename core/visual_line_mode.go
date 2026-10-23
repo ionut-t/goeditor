@@ -242,6 +242,10 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		}
 		return true, err
 
+	case 'o', 'O': // Go to the other end of the selection
+		m.startPos = swapVisualEnds(editor, buffer, m.startPos)
+		return true, nil
+
 	case 'v': // Switch to character-wise visual mode
 		editor.SetVisualMode()
 		return true, nil

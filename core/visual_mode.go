@@ -355,6 +355,10 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		editor.ResetPendingCount()
 		return true, err
 
+	case 'o', 'O': // Go to the other end of the selection
+		m.startPos = swapVisualEnds(editor, buffer, m.startPos)
+		return true, nil
+
 	case 'v':
 		editor.SetNormalMode()
 		return true, nil
