@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.5](https://github.com/ionut-t/goeditor/compare/v0.11.4...v0.11.5) (2026-10-23)
+
+
+### Bug Fixes
+
+* **textobject:** skip the indent before a closing bracket in inner block objects ([#85](https://github.com/ionut-t/goeditor/issues/85)) ([4abd2c0](https://github.com/ionut-t/goeditor/commit/4abd2c0f5adbc52fb62451c1b64ae69f6cd4a597))
+* **undo:** return the cursor to where the change began on undo and redo ([#83](https://github.com/ionut-t/goeditor/issues/83)) ([f4c5b60](https://github.com/ionut-t/goeditor/commit/f4c5b60da71d6404de0ee2d6e8d54c157954d6a9))
+
 ## [0.11.4](https://github.com/ionut-t/goeditor/compare/v0.11.3...v0.11.4) (2026-10-22)
 
 
