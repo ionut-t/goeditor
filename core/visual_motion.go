@@ -14,7 +14,7 @@ func handleVisualPrefix(prefix rune, editor Editor, buffer Buffer, key KeyEvent)
 }
 
 // handleVisualGKey handles the second key of a 'g' prefix in any visual mode
-// (gg / ge). [count]gg goes to line count, as in normal mode.
+// (gg / ge / gx). [count]gg goes to line count, as in normal mode.
 func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 	count := takeCount(editor)
 	editor.UpdateCommand("")
@@ -30,6 +30,10 @@ func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.IsWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
+		}
+	case 'x': // gx — open the selected text; the selection stays
+		if target := visualSelectionText(editor, buffer); target != "" {
+			editor.DispatchSignal(OpenSignal{target: target})
 		}
 	}
 }

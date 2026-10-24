@@ -83,6 +83,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Quit
 
+	case editor.OpenMsg:
+		if err := editor.OpenWithSystem(msg.Target); err != nil {
+			return m, m.editor.DispatchError(err, messageDuration)
+		}
+
 	case editor.QuitMsg:
 		return m, tea.Quit
 	}
@@ -126,6 +131,7 @@ func main() {
 		Wrap:       true,
 	})
 	textEditor.SetExtraWordChars('-')
+	textEditor.SetMoveAcrossLines(true)
 
 	if content, err := os.ReadFile(file); err == nil {
 		textEditor.SetBytes(content)

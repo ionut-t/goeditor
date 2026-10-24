@@ -230,8 +230,8 @@ func (m *normalMode) handlePrefix(prefix rune, editor Editor, buffer Buffer, key
 	return nil
 }
 
-// handleGKey handles the second key of a 'g' prefix sequence (gg, ge, dgg, ygg, cgg,
-// and the case-op prefixes gu, gU, g~).
+// handleGKey handles the second key of a 'g' prefix sequence (gg, ge, gx, dgg, ygg,
+// cgg, and the case-op prefixes gu, gU, g~).
 func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	state := editor.GetState()
 	pendingCount := state.PendingCount
@@ -320,6 +320,10 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, isBigWordChar)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
+		}
+	case 'x': // gx — open the URL or file name under the cursor
+		if target := openTargetUnderCursor(buffer); target != "" {
+			editor.DispatchSignal(OpenSignal{target: target})
 		}
 	}
 	return nil
