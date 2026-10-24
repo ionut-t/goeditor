@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/ionut-t/goeditor/compare/v0.12.0...v0.13.0) (2026-10-24)
+
+
+### Features
+
+* add gx command to open URLs and files ([#91](https://github.com/ionut-t/goeditor/issues/91)) ([370b687](https://github.com/ionut-t/goeditor/commit/370b68782f670c633cb49f575369e73447f07d1d))
+
 ## [0.12.0](https://github.com/ionut-t/goeditor/compare/v0.11.5...v0.12.0) (2026-10-23)
 
 
