@@ -90,6 +90,16 @@ func (s SaveSignal) Value() (path *string, content string) {
 
 type QuitSignal struct{}
 
+// OpenSignal asks the host to open a URL or file name (gx). The target is
+// the text as it appears in the buffer.
+type OpenSignal struct {
+	target string
+}
+
+func (o OpenSignal) Value() string {
+	return o.target
+}
+
 type ErrorSignal EditorError
 
 func (e ErrorSignal) Value() (id ErrorId, err error) {

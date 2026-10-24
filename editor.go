@@ -288,6 +288,13 @@ type SaveMsg struct {
 
 type QuitMsg struct{}
 
+// OpenMsg is sent by gx with the URL or file name to open, as written in the
+// buffer (a file name may be relative or start with ~). The editor opens
+// nothing itself; call OpenWithSystem to use the system's default handler.
+type OpenMsg struct {
+	Target string
+}
+
 type clearMsg struct{}
 
 type commandMsg struct{}
@@ -1447,6 +1454,9 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 
 		case core.QuitSignal:
 			return QuitMsg{}
+
+		case core.OpenSignal:
+			return OpenMsg{Target: signal.Value()}
 
 		case core.RenameSignal:
 			return RenameMsg{FileName: signal.Value()}

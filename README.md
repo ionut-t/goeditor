@@ -114,6 +114,7 @@ m.WithTheme(theme)
 - **Repeat**: `.` repeats the last change, including the text typed in its insert (a cursor key in insert mode starts a new change, as in Vim); a count replaces the change's count (`3.`). A change made from visual mode repeats on the same amount of text from the cursor. Changes made through command-line or search mode are not repeated yet
 - **Insert counts**: `3ix<Esc>`, and likewise `a`, `I`, `A`, `o`, `O`, insert the text three times. A count that would add more than 10 million characters is refused with `ErrTextTooLong`, since a key handler can't be interrupted the way Vim's Ctrl-C stops a long insert
 - **Copy/Paste**: `y` (yank), `p` / `P` (paste)
+- **Open**: `gx` sends an `OpenMsg` with the URL or file name under the cursor, picked as Vim does (see [Handling Editor Events](#handling-editor-events))
 
 ### Insert Mode
 
@@ -132,6 +133,7 @@ m.WithTheme(theme)
 - `d` or `x` to delete selection
 - `y` to copy selection
 - `o` or `O` to move to the other end of the selection
+- `gx` to open the selected text
 - `Esc` to cancel selection
 
 ### Command Mode
@@ -297,6 +299,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
     case goeditor.QuitMsg:
         return m, tea.Quit
+
+    case goeditor.OpenMsg:
+        // gx: the editor opens nothing itself. OpenWithSystem uses the
+        // system's default handler (open, xdg-open, …).
+        if err := goeditor.OpenWithSystem(msg.Target); err != nil {
+            return m, m.editor.DispatchError(err, 3*time.Second)
+        }
 
     case goeditor.YankMsg:
         return m, m.editor.DispatchMessage(fmt.Sprintf("%d bytes yanked", len(msg.Content)), 3*time.Second)
