@@ -291,6 +291,8 @@ type QuitMsg struct{}
 // OpenMsg is sent by gx with the URL or file name to open, as written in the
 // buffer (a file name may be relative or start with ~). The editor opens
 // nothing itself; call OpenWithSystem to use the system's default handler.
+// Target is buffer text, so it can name any URL scheme or local program:
+// check it first when the buffer may hold untrusted text.
 type OpenMsg struct {
 	Target string
 }

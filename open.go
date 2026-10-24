@@ -17,27 +17,40 @@ var ErrNothingToOpen = errors.New("nothing to open")
 //
 // The handler runs on the machine running the program, so for an editor
 // served over SSH it opens nothing on the user's machine.
+//
+// The handler does whatever the system does with target: it can start the
+// app registered for any URL scheme (zoommtg://, vscode://, …) and run a
+// local program or script (.app, .command, .exe, .bat). If the buffer may
+// hold untrusted text, check the target first, for example:
+//
+//	if u, err := url.Parse(msg.Target); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+//		err = goeditor.OpenWithSystem(msg.Target)
+//	}
 func OpenWithSystem(target string) error {
 	if target == "" {
 		return ErrNothingToOpen
 	}
-	// Keep a file name such as "-a" from being read as a flag.
-	if strings.HasPrefix(target, "-") {
-		target = "./" + target
-	}
-
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", target)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
-	default:
-		cmd = exec.Command("xdg-open", target)
-	}
+	cmd := openCommand(runtime.GOOS, target)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	go func() { _ = cmd.Wait() }() // reap the handler process
 	return nil
+}
+
+// openCommand returns the command that opens target on goos. target is
+// passed as a single argument, never through a shell.
+func openCommand(goos, target string) *exec.Cmd {
+	if goos == "windows" {
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+	}
+	// open and xdg-open read an argument starting with '-' as a flag, and
+	// xdg-open doesn't accept "--", so make such a file name a path.
+	if strings.HasPrefix(target, "-") {
+		target = "./" + target
+	}
+	if goos == "darwin" {
+		return exec.Command("open", target)
+	}
+	return exec.Command("xdg-open", target)
 }

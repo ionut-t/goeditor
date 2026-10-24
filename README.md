@@ -302,7 +302,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
     case goeditor.OpenMsg:
         // gx: the editor opens nothing itself. OpenWithSystem uses the
-        // system's default handler (open, xdg-open, …).
+        // system's default handler (open, xdg-open, …), which can also start
+        // other apps or local programs: check msg.Target first if the
+        // buffer may hold untrusted text.
         if err := goeditor.OpenWithSystem(msg.Target); err != nil {
             return m, m.editor.DispatchError(err, 3*time.Second)
         }
