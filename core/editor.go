@@ -306,6 +306,8 @@ func (e *editor) setMode(modeName Mode) {
 		return
 	}
 
+	anchor := e.state.VisualStart
+	_, fromVisual := e.currentMode.(visualAnchor)
 	if e.currentMode != nil {
 		e.currentMode.Exit(e, e.buffer) // Pass buffer to Exit
 	}
@@ -314,6 +316,9 @@ func (e *editor) setMode(modeName Mode) {
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter
+	if v, ok := newMode.(visualAnchor); ok && fromVisual {
+		v.setAnchor(e, anchor)
+	}
 	if modeName == InsertMode {
 		e.resetInsert()
 	}

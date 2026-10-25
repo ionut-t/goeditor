@@ -19,6 +19,7 @@ const (
 	swapLines  = "abc\ndef\nghi"
 	swapEmpty  = "abc\n\ndef"
 	swapLens   = "abcdefgh\nab\nabcdefgh"
+	swapPara   = "a\nb\n\nc\nd"
 )
 
 // swapCase is a key sequence and what Vim 9.2 leaves after it.
@@ -41,9 +42,9 @@ type swapCase struct {
 // operators after it act on the same selection from its other end: linewise
 // y, u, U and ~ leave the cursor where it is when it is above the anchor.
 // d and c don't write the clipboard in goeditor yet, so those rows don't
-// check it. Left out because of other bugs: o after switching between v and
-// V (the switch moves the anchor to the cursor), the register after visual
-// p, and the column after y from a line break.
+// check it. Left out because of other bugs: the register after visual p,
+// and the column after y from a line break. o after switching between v
+// and V is in TestVisualSwitchKeepsAnchor.
 func TestVisualSwapEnds(t *testing.T) {
 	tests := []swapCase{
 		{"row lvlo", swapRow, "lvlo", VisualMode, Position{0, 1}, Position{0, 2}, 1, "abcdef", "REG"},
@@ -270,6 +271,75 @@ func TestVisualSwapEnds(t *testing.T) {
 		{"six jlllVkO<Esc>", swapSix, "jlllVkO<Esc>", NormalMode, Position{1, 3}, Position{1, 3}, 3, "abcdef\nabcdef\nabcdef", "REG"},
 		{"six lllVjOy", swapSix, "lllVjOy", NormalMode, Position{0, 3}, Position{0, 3}, 3, "abcdef\nabcdef\nabcdef", "abcdef\nabcdef\n"},
 	}
+	runSwapCases(t, tests)
+}
+
+// TestVisualSwitchKeepsAnchor checks switching between v and V against Vim
+// 9.2: the anchor and the column for j and k stay where they were (Vim
+// keeps VIsual), so the selection only changes between charwise and
+// linewise, also after o, from a line break and after $. vip from v puts
+// the anchor on the paragraph's first line. Left out because of open bug 21
+// (the column after y from a line break): jV<BS>vy.
+func TestVisualSwitchKeepsAnchor(t *testing.T) {
+	tests := []swapCase{
+		{"six lvjlV", swapSix, "lvjlV", VisualLineMode, Position{1, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvjlVd", swapSix, "lvjlVd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abcdef", ""},
+		{"six lVjlv", swapSix, "lVjlv", VisualMode, Position{1, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lVjlvd", swapSix, "lVjlvd", NormalMode, Position{0, 1}, Position{0, 1}, 1, "adef\nabcdef", ""},
+		{"six jlllVkv", swapSix, "jlllVkv", VisualMode, Position{0, 3}, Position{1, 3}, 3, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six jlllVkvd", swapSix, "jlllVkvd", NormalMode, Position{0, 3}, Position{0, 3}, 3, "abcef\nabcdef", ""},
+		{"six lvlV", swapSix, "lvlV", VisualLineMode, Position{0, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvlVv", swapSix, "lvlVv", VisualMode, Position{0, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvloV", swapSix, "lvloV", VisualLineMode, Position{0, 1}, Position{0, 2}, 1, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvloVd", swapSix, "lvloVd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abcdef\nabcdef", ""},
+		{"six lvjlVo", swapSix, "lvjlVo", VisualLineMode, Position{0, 1}, Position{1, 2}, 1, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lVjlvo", swapSix, "lVjlvo", VisualMode, Position{0, 1}, Position{1, 2}, 1, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lVjlvohd", swapSix, "lVjlvohd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "def\nabcdef", ""},
+		{"six lvjlVo<Esc>", swapSix, "lvjlVo<Esc>", NormalMode, Position{0, 1}, Position{0, 1}, 1, "abcdef\nabcdef\nabcdef", ""},
+		{"six lvjlVv", swapSix, "lvjlVv", VisualMode, Position{1, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvjlVvd", swapSix, "lvjlVvd", NormalMode, Position{0, 1}, Position{0, 1}, 1, "adef\nabcdef", ""},
+		{"six lvjlVvo", swapSix, "lvjlVvo", VisualMode, Position{0, 1}, Position{1, 2}, 1, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lvjlVy", swapSix, "lvjlVy", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "abcdef\nabcdef\n"},
+		{"six lvjlV<Esc>", swapSix, "lvjlV<Esc>", NormalMode, Position{1, 2}, Position{1, 2}, 2, "abcdef\nabcdef\nabcdef", ""},
+		{"six lvjlVU", swapSix, "lvjlVU", NormalMode, Position{0, 0}, Position{0, 0}, 0, "ABCDEF\nABCDEF\nabcdef", "REG"},
+		{"six lvjlVjd", swapSix, "lvjlVjd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "", ""},
+		{"six lVjlvy", swapSix, "lVjlvy", NormalMode, Position{0, 1}, Position{0, 1}, 1, "abcdef\nabcdef\nabcdef", "bcdef\nabc"},
+		{"six lVjlv<Esc>", swapSix, "lVjlv<Esc>", NormalMode, Position{1, 2}, Position{1, 2}, 2, "abcdef\nabcdef\nabcdef", ""},
+		{"six lVjlvU", swapSix, "lVjlvU", NormalMode, Position{0, 1}, Position{0, 1}, 1, "aBCDEF\nABCdef\nabcdef", "REG"},
+		{"six lvjlVvv", swapSix, "lvjlVvv", NormalMode, Position{1, 2}, Position{1, 2}, 2, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lVvV", swapSix, "lVvV", VisualLineMode, Position{0, 1}, Position{0, 1}, 1, "abcdef\nabcdef\nabcdef", "REG"},
+		{"six lVvVd", swapSix, "lVvVd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abcdef\nabcdef", ""},
+		{"six lvjlVd.", swapSix, "lvjlVd.", NormalMode, Position{0, 0}, Position{0, 0}, 0, "", ""},
+		{"six lVjlvd.", swapSix, "lVjlvd.", NormalMode, Position{0, 1}, Position{0, 1}, 1, "adef", ""},
+		{"lines jv<BS>V", swapLines, "jv<BS>V", VisualLineMode, Position{0, 3}, Position{1, 0}, 3, "abc\ndef\nghi", "REG"},
+		{"lines jv<BS>Vd", swapLines, "jv<BS>Vd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "ghi", ""},
+		{"lines jV<BS>v", swapLines, "jV<BS>v", VisualMode, Position{0, 3}, Position{1, 0}, 3, "abc\ndef\nghi", "REG"},
+		{"lines jV<BS>vd", swapLines, "jV<BS>vd", NormalMode, Position{0, 3}, Position{0, 3}, 3, "abcef\nghi", ""},
+		{"lines jv<BS>Vo<Esc>", swapLines, "jv<BS>Vo<Esc>", NormalMode, Position{1, 0}, Position{1, 0}, 0, "abc\ndef\nghi", ""},
+		{"lines jv<BS>Voy", swapLines, "jv<BS>Voy", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abc\ndef\nghi", "abc\ndef\n"},
+		{"lines jV<BS>vo", swapLines, "jV<BS>vo", VisualMode, Position{1, 0}, Position{0, 3}, 0, "abc\ndef\nghi", "REG"},
+		{"lens $vjV", swapLens, "$vjV", VisualLineMode, Position{1, 2}, Position{0, 7}, -1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens $vjVk", swapLens, "$vjVk", VisualLineMode, Position{0, 8}, Position{0, 7}, -1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens $vjVvk", swapLens, "$vjVvk", VisualMode, Position{0, 8}, Position{0, 7}, -1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens $Vjv", swapLens, "$Vjv", VisualMode, Position{1, 2}, Position{0, 7}, -1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens $Vjvk", swapLens, "$Vjvk", VisualMode, Position{0, 8}, Position{0, 7}, -1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens $vjVo", swapLens, "$vjVo", VisualLineMode, Position{0, 7}, Position{1, 2}, 7, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens llvjhVk", swapLens, "llvjhVk", VisualLineMode, Position{0, 1}, Position{0, 2}, 1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"lens llVjhvk", swapLens, "llVjhvk", VisualMode, Position{0, 1}, Position{0, 2}, 1, "abcdefgh\nab\nabcdefgh", "REG"},
+		{"para vip", swapPara, "vip", VisualLineMode, Position{1, 0}, Position{0, 0}, 0, "a\nb\n\nc\nd", "REG"},
+		{"para vipd", swapPara, "vipd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "\nc\nd", ""},
+		{"para jvip", swapPara, "jvip", VisualLineMode, Position{1, 0}, Position{0, 0}, 0, "a\nb\n\nc\nd", "REG"},
+		{"para jvipd", swapPara, "jvipd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "\nc\nd", ""},
+		{"para Vvip", swapPara, "Vvip", VisualLineMode, Position{1, 0}, Position{0, 0}, 0, "a\nb\n\nc\nd", "REG"},
+		{"para Vvipd", swapPara, "Vvipd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "\nc\nd", ""},
+		{"para jvipo", swapPara, "jvipo", VisualLineMode, Position{0, 0}, Position{1, 0}, 0, "a\nb\n\nc\nd", "REG"},
+	}
+	runSwapCases(t, tests)
+}
+
+// runSwapCases types each case's keys and checks the result.
+func runSwapCases(t *testing.T, tests []swapCase) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e, cb := newTestEditorWithClipboard(tt.content)

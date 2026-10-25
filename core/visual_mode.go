@@ -150,8 +150,9 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		if found {
 			cursor.Position = Position{Row: startRow, Col: 0}
 			buffer.SetCursor(cursor)
+			// The switch keeps the anchor, so put it on startRow first.
+			m.setAnchor(editor, cursor.Position)
 			editor.SetVisualLineMode()
-			// SetVisualLineMode.Enter() records startPos from the buffer cursor (startRow).
 			// Now move cursor to endRow to define the selection end.
 			cursor = buffer.GetCursor()
 			cursor.Position.Row = endRow

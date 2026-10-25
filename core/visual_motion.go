@@ -160,6 +160,28 @@ func swapVisualEnds(editor Editor, buffer Buffer, anchor Position) Position {
 	return old
 }
 
+// visualAnchor is a visual mode, whose anchor carries over when switching
+// between v and V: Vim keeps VIsual (and curswant) through the switch.
+type visualAnchor interface {
+	setAnchor(editor Editor, anchor Position)
+}
+
+func (m *visualMode) setAnchor(editor Editor, anchor Position) {
+	m.startPos = anchor
+	setVisualStart(editor, anchor)
+}
+
+func (m *visualLineMode) setAnchor(editor Editor, anchor Position) {
+	m.startPos = anchor
+	setVisualStart(editor, anchor)
+}
+
+func setVisualStart(editor Editor, anchor Position) {
+	state := editor.GetState()
+	state.VisualStart = anchor
+	editor.SetState(state)
+}
+
 // endVisualOperator runs after a visual operator has placed the cursor in
 // normal mode. The cursor goes onto the last character if it is after the end
 // of the line (a deletion or a failed paste can leave it there), and j and k
