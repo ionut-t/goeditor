@@ -436,7 +436,11 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	case '^':
 		return applyCaseToFirstNonBlank(editor, buffer, op)
 	case '$':
-		return applyCaseToEndOfLine(editor, buffer, op)
+		end, ok := m.lineEndTarget(buffer, count)
+		if !ok {
+			return nil
+		}
+		return applyCaseInRange(editor, buffer, buffer.GetCursor().Position, end, caseTransformForOp(op))
 	case 'g': // gugg / gugu — wait for the second key
 		m.cmd.op = op
 		m.cmd.prefix.start('g')
@@ -686,20 +690,9 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		_ = tempCursor.MoveRight(buffer, 1)
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
-	case '$': // d$ = delete to end of line, y$ = yank to end of line, c$ = change to end of line
-		switch op {
-		case "delete":
-			var deletedContent string
-			deletedContent, err = deleteToEndOfLine(editor, buffer)
-			editor.DispatchSignal(DeleteSignal{content: deletedContent})
-			actionTaken = true
-		case "yank":
-			err = yankToEndOfLine(editor, buffer)
-			actionTaken = true
-		case "change":
-			err = changeToEndOfLine(editor, buffer)
-			actionTaken = true
-		}
+	case '$': // d$, y$, c$ — to the end of the line, count-1 lines down
+		err = m.applyOperatorToLineEnd(editor, buffer, op, count)
+		actionTaken = true
 	case 'G': // dG, yG, cG — cursor line to line count (last line if none), line-wise
 		targetRow := gotoLineRow(buffer, lineCount)
 		startRow := min(cursor.Position.Row, targetRow)
@@ -1076,9 +1069,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 	case key.Rune == 'D': // Delete to end of line (equivalent to d$)
-		var deletedContent string
-		deletedContent, err = deleteToEndOfLine(editor, buffer)
-		editor.DispatchSignal(DeleteSignal{content: deletedContent})
+		err = m.applyOperatorToLineEnd(editor, buffer, "delete", count)
 		skipCursorUpdate = true
 
 	case key.Rune == 'r': // Replace character under cursor
@@ -1109,7 +1100,8 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
-		err = changeToEndOfLine(editor, buffer)
+		err = m.applyOperatorToLineEnd(editor, buffer, "change", count)
+		skipCursorUpdate = true
 	case key.Rune == 'd': // Start 'delete' operation
 		m.cmd.op = key.Rune
 		m.startOperatorCount(editor)

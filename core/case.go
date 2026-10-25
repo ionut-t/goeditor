@@ -160,26 +160,6 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	return nil
 }
 
-// applyCaseToEndOfLine applies a case transform from the cursor to the end of
-// the current line (gu$ / gU$ / g~$).
-func applyCaseToEndOfLine(editor Editor, buffer Buffer, op rune) *EditorError {
-	cursor := buffer.GetCursor()
-	row := cursor.Position.Row
-	lineLen := buffer.LineRuneCount(row)
-
-	if cursor.Position.Col >= lineLen {
-		return nil
-	}
-
-	start := cursor.Position
-	end := Position{Row: row, Col: lineLen} // exclusive
-
-	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
-		return err
-	}
-	return nil
-}
-
 // applyCaseToLines applies a case transform to `count` lines starting from the
 // cursor row (guu / gUU / g~~).
 func applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorError {

@@ -200,24 +200,6 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 	return nil
 }
 
-func deleteToEndOfLine(editor Editor, buffer Buffer) (string, *EditorError) {
-	cursor := buffer.GetCursor()
-	lineLen := buffer.LineRuneCount(cursor.Position.Row)
-	if cursor.Position.Col >= lineLen { // an empty line
-		return "", applyOperatorToEmptyRange(editor, "delete")
-	}
-
-	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
-	deletedContent := string(lineRunes[cursor.Position.Col:])
-	err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, lineLen-cursor.Position.Col)
-	if err == nil {
-		// Back onto the last character left, as normal mode needs.
-		cursor.Position.Col = lastCol(buffer, cursor.Position.Row, false)
-		buffer.SetCursor(cursor)
-	}
-	return deletedContent, err
-}
-
 // deleteVisualSelection deletes the text covered by a charwise visual selection.
 // Returns the deleted content, the cursor position after deletion, and any error.
 func deleteVisualSelection(editor Editor, buffer Buffer, startPos, endPos Position) (string, Position, *EditorError) {
