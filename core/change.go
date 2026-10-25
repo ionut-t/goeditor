@@ -44,20 +44,6 @@ func wordClass(r rune, isWordChar func(rune) bool) int {
 	}
 }
 
-func changeToEndOfLine(editor Editor, buffer Buffer) *EditorError {
-	cursor := buffer.GetCursor()
-	lineLen := buffer.LineRuneCount(cursor.Position.Row)
-	if cursor.Position.Col < lineLen {
-		delCount := lineLen - cursor.Position.Col
-		if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, delCount); err != nil {
-			return err
-		}
-	}
-	buffer.SetCursor(cursor)
-	editor.SetInsertMode()
-	return nil
-}
-
 func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
 	lineLen := buffer.LineRuneCount(cursor.Position.Row)

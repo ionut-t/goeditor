@@ -1,5 +1,7 @@
 package core
 
+import "strings"
+
 // applyOperatorToRange applies a delete/yank/change operator to the character-wise
 // range [start, end) — end exclusive, matching Vim's exclusive motions. The two
 // positions may be given in either order. For inclusive motions (e.g. ge), the
@@ -25,7 +27,7 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		buffer.SetCursor(cursor)
 		return applyOperatorToEmptyRange(editor, op)
 	}
-	if op == "delete" && end.Row > start.Row && inIndent(buffer, start) && onlyBlanksFrom(buffer, end) {
+	if op == "delete" && deletesLines(buffer, start, end) {
 		return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
 	}
 
@@ -164,6 +166,69 @@ func onlyBlanksFrom(buffer Buffer, pos Position) bool {
 	line := buffer.GetLineRunes(pos.Row)
 	col := min(pos.Col, len(line))
 	return col+firstNonBlankCol(line[col:]) == len(line)
+}
+
+// deletesLines reports whether a delete of [start, end) over several lines
+// deletes the lines instead (Vim's op_delete): it starts in the indent and
+// leaves only blanks after its end.
+func deletesLines(buffer Buffer, start, end Position) bool {
+	return end.Row > start.Row && inIndent(buffer, start) && onlyBlanksFrom(buffer, end)
+}
+
+// lineEndTarget returns where [count]$ from the cursor ends, after the last
+// character of the line count-1 lines down (the last line if there are
+// fewer), for an operator's exclusive end. On the last line a count above 1
+// fails as $ does: the operator does nothing, and j and k go to the end of
+// every line.
+func (m *normalMode) lineEndTarget(buffer Buffer, count int) (Position, bool) {
+	cursor := buffer.GetCursor()
+	target := cursor
+	if target.moveToLineEnd(buffer, count, true) != nil {
+		cursor.Preferred = maxCol
+		buffer.SetCursor(cursor)
+		m.motionFailed = true
+		return Position{}, false
+	}
+	return target.Position, true
+}
+
+// applyOperatorToLineEnd applies a delete/yank/change operator to [count]$
+// (d$, y$, c$, D, C): charwise through the end of the line count-1 lines
+// down, or linewise for a delete from the indent over several lines.
+func (m *normalMode) applyOperatorToLineEnd(editor Editor, buffer Buffer, op string, count int) *EditorError {
+	end, ok := m.lineEndTarget(buffer, count)
+	if !ok {
+		return nil
+	}
+	start := buffer.GetCursor().Position
+	if op != "delete" || deletesLines(buffer, start, end) { // the line delete sends its own DeleteSignal
+		return applyOperatorToRange(editor, buffer, op, start, end)
+	}
+	deleted := rangeText(buffer, start, end)
+	err := applyOperatorToRange(editor, buffer, op, start, end)
+	editor.DispatchSignal(DeleteSignal{content: deleted})
+	return err
+}
+
+// rangeText returns the text of the character-wise range [start, end), with
+// a line break between lines.
+func rangeText(buffer Buffer, start, end Position) string {
+	var b strings.Builder
+	for row := start.Row; row <= end.Row; row++ {
+		line := buffer.GetLineRunes(row)
+		from, to := 0, len(line)
+		if row == start.Row {
+			from = min(start.Col, to)
+		}
+		if row == end.Row {
+			to = min(end.Col, to)
+		}
+		b.WriteString(string(line[from:max(from, to)]))
+		if row < end.Row {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // applyOperatorToLineRange applies a delete/yank/change operator line-wise to the
