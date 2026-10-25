@@ -1269,6 +1269,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.Context.RequestID != m.completionContext.RequestID {
 			break
 		}
+		// The next request only goes out when the debounce fires, so a
+		// response can still match after the user typed, moved or left insert
+		// mode. Drop it unless the cursor and its line are what it was built from.
+		if !m.completionContextCurrent() {
+			break
+		}
 		m.completions = msg.Completions
 		m.selectedCompletionIdx = 0
 		m.completionWindowStart = 0
@@ -1597,6 +1603,18 @@ func (m *Model) restartBlinkCycleCmd() tea.Cmd {
 	return tea.Tick(cursorActivityResetDelay, func(t time.Time) tea.Msg {
 		return resumeBlinkCycleMsg{}
 	})
+}
+
+// completionContextCurrent reports whether the editor is still in insert mode
+// with the cursor and its line as they were when m.completionContext was built.
+func (m Model) completionContextCurrent() bool {
+	if !m.editor.IsInsertMode() {
+		return false
+	}
+	buf := m.editor.GetBuffer()
+	pos := buf.GetCursor().Position
+	return pos == m.completionContext.Position &&
+		string(buf.GetLineRunes(pos.Row)) == m.completionContext.CurrentLine
 }
 
 // insertCompletion inserts the selected completion into the buffer
