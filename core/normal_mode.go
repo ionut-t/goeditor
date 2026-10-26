@@ -1059,7 +1059,8 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			markChangeStart(editor, start)
 			err = buffer.DeleteRunesAt(start.Row, start.Col, cursor.Position.Col-start.Col)
 			if err == nil {
-				_ = cursor.MoveLeft(buffer, count) // stops at column 0, as the delete
+				cursor.Position = start // on the first deleted character
+				cursor.Preferred = start.Col
 				buffer.SetCursor(cursor)
 			}
 		} else {
