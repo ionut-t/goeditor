@@ -1019,25 +1019,28 @@ func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Po
 		closePos Position
 		open     rune
 		close    rune
-		ahead    bool
 	}
 
-	var best *candidate
+	// The innermost enclosing pair, else the first pair after pos.
+	var enclosing, next *candidate
 	for _, pair := range [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}} {
 		op, cp, ahead, ok := findBlock(buffer, pos, pair[0], pair[1])
 		if !ok {
 			continue
 		}
-		// An enclosing pair beats one after pos; among enclosing pairs the
-		// innermost wins, among the others the first.
-		if best == nil ||
-			(best.ahead && !ahead) ||
-			(!best.ahead && !ahead && positionBefore(best.openPos, op)) ||
-			(best.ahead && ahead && positionBefore(op, best.openPos)) {
-			best = &candidate{op, cp, pair[0], pair[1], ahead}
+		c := &candidate{op, cp, pair[0], pair[1]}
+		switch {
+		case !ahead && (enclosing == nil || positionBefore(enclosing.openPos, op)):
+			enclosing = c
+		case ahead && (next == nil || positionBefore(op, next.openPos)):
+			next = c
 		}
 	}
 
+	best := enclosing
+	if best == nil {
+		best = next
+	}
 	if best == nil {
 		return Position{}, Position{}, 0, 0, false
 	}
