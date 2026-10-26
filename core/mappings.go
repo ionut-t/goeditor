@@ -422,6 +422,7 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 		key = KeyEvent{Key: KeyBackspace}
 	}
 
+	e.keepCursorOnChar()
 	e.noticeCursorMove()
 	e.openUndoStep()
 	pendingCount := e.recordKeyStart()

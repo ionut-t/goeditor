@@ -147,25 +147,43 @@ func TestInsertCompletionSavesHistory(t *testing.T) {
 	})
 }
 
-// TestInsertCompletionStaleCursor tests that a completion arriving after the
-// buffer changed under the cursor returns an error instead of panicking.
+// TestInsertCompletionStaleCursor tests that a completion with the cursor
+// out of range returns an error instead of panicking. Edits through
+// GetBuffer() clamp the cursor, so this takes a host Buffer that doesn't
+// clamp SetCursor either, as an async completion arriving after such a host
+// moved the cursor would see.
 func TestInsertCompletionStaleCursor(t *testing.T) {
-	t.Run("column past end of shortened line", func(t *testing.T) {
-		e := newTestEditor("hello")
-		keys(e, '$', 'a')                                    // col 5
-		require.Nil(t, e.GetBuffer().DeleteRunesAt(0, 2, 3)) // line is now "he"
+	newEditor := func(content string) Editor {
+		e := New(nil)
+		e.SetBuffer(&unclampedBuffer{Buffer: NewBufferFromBytes([]byte(content))})
+		return e
+	}
+
+	t.Run("column past end of line", func(t *testing.T) {
+		e := newEditor("he")
+		keys(e, 'a')
+		e.GetBuffer().SetCursor(Cursor{Position: Position{0, 5}})
 		err := e.InsertCompletion(Completion{Text: "select"})
 		assert.ErrorIs(t, err, ErrInvalidPosition)
 		assert.Equal(t, "he", content(e))
 	})
 
-	t.Run("row past end of shortened buffer", func(t *testing.T) {
-		e := newTestEditor("a\nhello")
-		keys(e, 'j', '$', 'a')                               // row 1, col 5
-		require.Nil(t, e.GetBuffer().DeleteRunesAt(0, 1, 6)) // buffer is now "a"
+	t.Run("row past end of buffer", func(t *testing.T) {
+		e := newEditor("a")
+		keys(e, 'a')
+		e.GetBuffer().SetCursor(Cursor{Position: Position{1, 5}})
 		err := e.InsertCompletion(Completion{Text: "select"})
 		assert.ErrorIs(t, err, ErrInvalidPosition)
 		assert.Equal(t, "a", content(e))
+	})
+
+	t.Run("host edit clamps the cursor instead", func(t *testing.T) {
+		e := newTestEditor("hello")
+		keys(e, '$', 'a', 's', 'e')                          // "hellose", col 7
+		require.Nil(t, e.GetBuffer().DeleteRunesAt(0, 2, 3)) // "hese", col 4
+		require.NoError(t, e.InsertCompletion(Completion{Text: "select"}))
+		assert.Equal(t, "select", content(e))
+		assert.Equal(t, Position{0, 6}, cursorPos(e))
 	})
 }
 

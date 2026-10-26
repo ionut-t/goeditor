@@ -9,7 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// Buffer represents the text content being edited (Using Runes)
+// Buffer represents the text content being edited (Using Runes).
+// Implementations needn't move the cursor when they edit: the editor clamps
+// it after edits made through Editor.GetBuffer().
 type Buffer interface {
 	// Content access
 	GetLines() []string              // Get lines as strings (for saving/display)
