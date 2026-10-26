@@ -653,12 +653,6 @@ func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune) (startC
 	return bestStart, bestEnd, true
 }
 
-// findBracketBounds locates the innermost bracket pair (openChar/closeChar) enclosing pos,
-// handling nesting and multi-line spans. Returns the positions of the open and close bracket chars.
-//
-// If the cursor sits on openChar it is used directly. If it sits on closeChar, the backward scan
-// starts from col-1 with depth 0 so the matching open is found correctly. Otherwise a backward
-// depth-counting scan finds the enclosing open, and a forward scan finds the close.
 // findMatchingBracket implements the '%' motion: find the first bracket on the
 // current line at or after pos and return the position of its matching pair.
 func findMatchingBracket(buffer Buffer, pos Position) (Position, bool) {
@@ -685,62 +679,97 @@ func findMatchingBracket(buffer Buffer, pos Position) (Position, bool) {
 	return Position{}, false
 }
 
+// findBracketBounds locates the innermost bracket pair (openChar/closeChar) enclosing pos,
+// handling nesting and multi-line spans. Returns the positions of the open and close bracket chars.
+//
+// If the cursor sits on openChar it is used directly. If it sits on closeChar, the backward scan
+// starts from col-1 with depth 0 so the matching open is found correctly. Otherwise a backward
+// depth-counting scan finds the enclosing open, and a forward scan finds the close.
 func findBracketBounds(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, found bool) {
-	lineRunes := buffer.GetLineRunes(pos.Row)
-	col := pos.Col
-
-	var op Position
-	openFound := false
-
-	if col < len(lineRunes) && lineRunes[col] == openChar {
-		op = pos
-		openFound = true
-	} else {
-		depth := 0
-		startC := col
-		// If cursor is ON the close bracket, scan backward from just before it (depth stays 0
-		// so we find its direct match, not an enclosing one).
-		if col < len(lineRunes) && lineRunes[col] == closeChar {
-			startC = col - 1
-		}
-
-	findOpen:
-		for r := pos.Row; r >= 0; r-- {
-			line := buffer.GetLineRunes(r)
-			endC := len(line) - 1
-			if r == pos.Row {
-				endC = startC
-			}
-			// Clamp to avoid OOB on empty lines or when startC < 0.
-			if endC >= len(line) {
-				endC = len(line) - 1
-			}
-			for c := endC; c >= 0; c-- {
-				switch line[c] {
-				case closeChar:
-					depth++
-				case openChar:
-					if depth == 0 {
-						op = Position{r, c}
-						openFound = true
-						break findOpen
-					}
-					depth--
-				}
-			}
-		}
-	}
-
-	if !openFound {
+	op, ok := findEnclosingOpen(buffer, pos, openChar, closeChar)
+	if !ok {
 		return Position{}, Position{}, false
 	}
+	cp, ok := findCloseBracket(buffer, op, openChar, closeChar)
+	if !ok {
+		return Position{}, Position{}, false
+	}
+	return op, cp, true
+}
 
-	// Scan forward from just past the opening bracket to find the matching close.
+// findEnclosingOpen returns the open bracket of the innermost pair around
+// pos (pos itself when it is on openChar). On closeChar it returns the
+// bracket that one closes. The open bracket doesn't need to be closed.
+func findEnclosingOpen(buffer Buffer, pos Position, openChar, closeChar rune) (Position, bool) {
+	lineRunes := buffer.GetLineRunes(pos.Row)
+	col := pos.Col
+	if col < len(lineRunes) && lineRunes[col] == openChar {
+		return pos, true
+	}
+
 	depth := 0
-	var cp Position
-	closeFound := false
+	startC := col
+	// If cursor is ON the close bracket, scan backward from just before it (depth stays 0
+	// so we find its direct match, not an enclosing one).
+	if col < len(lineRunes) && lineRunes[col] == closeChar {
+		startC = col - 1
+	}
+	for r := pos.Row; r >= 0; r-- {
+		line := buffer.GetLineRunes(r)
+		endC := len(line) - 1
+		if r == pos.Row {
+			endC = startC
+		}
+		// Clamp to avoid OOB on empty lines or when startC < 0.
+		if endC >= len(line) {
+			endC = len(line) - 1
+		}
+		for c := endC; c >= 0; c-- {
+			switch line[c] {
+			case closeChar:
+				depth++
+			case openChar:
+				if depth == 0 {
+					return Position{r, c}, true
+				}
+				depth--
+			}
+		}
+	}
+	return Position{}, false
+}
 
-findClose:
+// findNextOpen returns the first open bracket after pos that no close
+// bracket between them cancels, as Vim's forward search for a block when
+// none encloses the cursor: in "a ) (b)" from column 0 the ")" uses up the
+// "(", so there is none.
+func findNextOpen(buffer Buffer, pos Position, openChar, closeChar rune) (Position, bool) {
+	depth := 0
+	for r := pos.Row; r < buffer.LineCount(); r++ {
+		line := buffer.GetLineRunes(r)
+		startC := 0
+		if r == pos.Row {
+			startC = pos.Col + 1
+		}
+		for c := startC; c < len(line); c++ {
+			switch line[c] {
+			case closeChar:
+				depth++
+			case openChar:
+				if depth == 0 {
+					return Position{r, c}, true
+				}
+				depth--
+			}
+		}
+	}
+	return Position{}, false
+}
+
+// findCloseBracket scans forward from just past the open bracket at op for
+// its matching close bracket.
+func findCloseBracket(buffer Buffer, op Position, openChar, closeChar rune) (Position, bool) {
+	depth := 0
 	for r := op.Row; r < buffer.LineCount(); r++ {
 		line := buffer.GetLineRunes(r)
 		startC := 0
@@ -753,29 +782,43 @@ findClose:
 				depth++
 			case closeChar:
 				if depth == 0 {
-					cp = Position{r, c}
-					closeFound = true
-					break findClose
+					return Position{r, c}, true
 				}
 				depth--
 			}
 		}
 	}
-
-	if !closeFound {
-		return Position{}, Position{}, false
-	}
-
-	return op, cp, true
+	return Position{}, false
 }
 
-// bracketTextObjectRange wraps findBracketBounds and returns the text object range.
+// findBlock returns the bracket pair of a block text object (i(, a[, …)
+// at pos: the innermost pair around it or, as Vim when no open bracket
+// encloses pos, the first pair that opens after it, even on a later line.
+// ahead reports the second case. An enclosing open bracket that is never
+// closed is no block, and Vim doesn't search forward then.
+func findBlock(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, ahead, found bool) {
+	openPos, found = findEnclosingOpen(buffer, pos, openChar, closeChar)
+	if !found {
+		openPos, found = findNextOpen(buffer, pos, openChar, closeChar)
+		ahead = true
+	}
+	if !found {
+		return Position{}, Position{}, false, false
+	}
+	closePos, found = findCloseBracket(buffer, openPos, openChar, closeChar)
+	if !found {
+		return Position{}, Position{}, false, false
+	}
+	return openPos, closePos, ahead, true
+}
+
+// bracketTextObjectRange wraps findBlock and returns the text object range.
 // It is used by visual mode, which only needs the inclusive [startPos, endPos] pair.
 //
 // modifier 'i' → content between the brackets (exclusive of the bracket chars).
 // modifier 'a' → the bracket chars themselves.
 func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar, closeChar rune) (startPos, endPos Position, found bool) {
-	openPos, closePos, ok := findBracketBounds(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
+	openPos, closePos, _, ok := findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
 	if !ok {
 		return Position{}, Position{}, false
 	}
@@ -909,7 +952,7 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 // applyBracketOp applies op to the i/a bracket text object for the given open/close chars.
 func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op string) *EditorError {
 	pos := blockSearchStart(buffer, buffer.GetCursor().Position, openChar)
-	openPos, closePos, found := findBracketBounds(buffer, pos, openChar, closeChar)
+	openPos, closePos, _, found := findBlock(buffer, pos, openChar, closeChar)
 	if !found {
 		return nil
 	}
@@ -966,28 +1009,32 @@ func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position)
 	return start, Position{Row: row + 1, Col: 0}
 }
 
-// findNearestBracketBounds finds the innermost bracket pair of any standard type — (), [], {} —
-// that encloses pos. "Innermost" is the pair whose opening bracket appears closest to the cursor
-// when scanning backward (i.e. largest position). Returns the open/close positions and the
-// bracket characters used.
+// findNearestBracketBounds finds the block of any standard bracket type — (), [], {} — at pos
+// (see findBlock): the innermost pair that encloses pos, i.e. the one whose opening bracket is
+// closest to the cursor when scanning backward. With none, it is the pair that opens first after
+// pos. Returns the open/close positions and the bracket characters used.
 func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Position, openChar, closeChar rune, found bool) {
 	type candidate struct {
 		openPos  Position
 		closePos Position
 		open     rune
 		close    rune
+		ahead    bool
 	}
 
 	var best *candidate
 	for _, pair := range [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}} {
-		op, cp, ok := findBracketBounds(buffer, pos, pair[0], pair[1])
+		op, cp, ahead, ok := findBlock(buffer, pos, pair[0], pair[1])
 		if !ok {
 			continue
 		}
+		// An enclosing pair beats one after pos; among enclosing pairs the
+		// innermost wins, among the others the first.
 		if best == nil ||
-			op.Row > best.openPos.Row ||
-			(op.Row == best.openPos.Row && op.Col > best.openPos.Col) {
-			best = &candidate{op, cp, pair[0], pair[1]}
+			(best.ahead && !ahead) ||
+			(!best.ahead && !ahead && positionBefore(best.openPos, op)) ||
+			(best.ahead && ahead && positionBefore(op, best.openPos)) {
+			best = &candidate{op, cp, pair[0], pair[1], ahead}
 		}
 	}
 
@@ -997,8 +1044,13 @@ func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Po
 	return best.openPos, best.closePos, best.open, best.close, true
 }
 
-// applyAnyBracketOp applies op to the innermost bracket pair of any type (()/[]/{}/)
-// enclosing the cursor. Used by the 'b' text object alias.
+// positionBefore reports whether a comes before b in the buffer.
+func positionBefore(a, b Position) bool {
+	return a.Row < b.Row || (a.Row == b.Row && a.Col < b.Col)
+}
+
+// applyAnyBracketOp applies op to the nearest bracket pair of any type (()/[]/{}/)
+// at the cursor (see findNearestBracketBounds). Used by the 'b' text object alias.
 func applyAnyBracketOp(editor Editor, buffer Buffer, modifier rune, op string) *EditorError {
 	cursor := buffer.GetCursor()
 	openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor.Position)
