@@ -42,7 +42,7 @@ const (
 // Editor represents the main editor interface
 type Editor interface {
 	// Buffer manipulation
-	GetBuffer() Buffer
+	GetBuffer() Buffer // Deletes and SetContent through it keep the cursor inside the text
 	SetBuffer(Buffer)  // Replace the current buffer
 	SetContent([]byte) // Set buffer content from byte slice
 

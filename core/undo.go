@@ -134,9 +134,29 @@ func (e *editor) clampCursor(cursor Cursor) Cursor {
 	return cursor
 }
 
+// keepCursorOnChar runs before each key. Edits keep the cursor inside the
+// text (see recordingBuffer), but a host edit that shortens the cursor line
+// can still leave it after the last character, where normal mode can't
+// stand: put it back on that character, as Vim does after a script shortens
+// the cursor line. Preferred is left as it is.
+func (e *editor) keepCursorOnChar() {
+	if e.state.Mode != NormalMode {
+		return
+	}
+	cursor := e.buffer.GetCursor()
+	if last := lastCol(e.buffer, cursor.Position.Row, false); cursor.Position.Col > last {
+		cursor.Position.Col = last
+		e.buffer.SetCursor(cursor)
+	}
+}
+
 // recordingBuffer wraps the editor's buffer so that every edit, whoever makes
 // it, lands in the open undo step. Undo and redo apply their edits to the
 // wrapped buffer directly, so they are not recorded a second time.
+//
+// A delete or SetContent also keeps the cursor inside the text, so a host
+// editing through GetBuffer() can't leave it past a line's end or the last
+// line, whether or not the wrapped Buffer clamps it. Inserts can't do that.
 type recordingBuffer struct {
 	Buffer
 	e *editor
@@ -162,6 +182,7 @@ func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 	if removed != "" {
 		b.e.recordEdit(cursor, edit{at: Position{Row: row, Col: col}, removed: removed})
 	}
+	b.keepCursorInText()
 	return nil
 }
 
@@ -169,8 +190,18 @@ func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 // forgets the change '.' repeats, as loading a file does in Vim.
 func (b *recordingBuffer) SetContent(content []byte) {
 	b.Buffer.SetContent(content)
+	b.keepCursorInText()
 	b.e.resetHistory()
 	b.e.resetRepeat()
+}
+
+// keepCursorInText clamps the cursor after an edit. Preferred is left as it
+// is, as Vim's curswant.
+func (b *recordingBuffer) keepCursorInText() {
+	cursor := b.GetCursor()
+	if clamped := b.e.clampCursor(cursor); clamped != cursor {
+		b.SetCursor(clamped)
+	}
 }
 
 // textAt returns the text DeleteRunesAt(row, col, count) removes from buf: up
