@@ -1053,15 +1053,18 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			}
 			buffer.SetCursor(cursor)
 		}
-	case key.Rune == 'X': // Delete character before cursor
+	case key.Rune == 'X': // Delete count characters before cursor (dh)
 		if cursor.Position.Col > 0 {
-			markChangeStart(editor, Position{Row: cursor.Position.Row, Col: max(cursor.Position.Col-count, 0)})
-			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col-1, count)
+			start := Position{Row: cursor.Position.Row, Col: max(cursor.Position.Col-count, 0)}
+			markChangeStart(editor, start)
+			err = buffer.DeleteRunesAt(start.Row, start.Col, cursor.Position.Col-start.Col)
 			if err == nil {
-				_ = cursor.MoveLeft(buffer, count) // Move cursor back
+				_ = cursor.MoveLeft(buffer, count) // stops at column 0, as the delete
 				buffer.SetCursor(cursor)
 			}
 		} else {
+			// dh over nothing: still the change '.' repeats, as in Vim
+			_ = applyOperatorToEmptyRange(editor, "delete")
 			err = &EditorError{
 				id:  ErrStartOfLineId,
 				err: ErrStartOfLine,

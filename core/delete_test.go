@@ -1180,3 +1180,78 @@ func TestJoinLines(t *testing.T) {
 		assert.Equal(t, "one\ntwo", content(e))
 	})
 }
+
+// TestDeleteCharBeforeCount checks [count]X against Vim 9.2: it deletes the
+// count characters before the cursor (X is dh), fewer when the line start is
+// nearer, and leaves the cursor where the deleted text began. At column 0 it
+// fails, and . still repeats it with its count. X doesn't write the clipboard
+// in goeditor yet, so the rows don't check it.
+func TestDeleteCharBeforeCount(t *testing.T) {
+	const (
+		hello = "hello world\nabcdefghijklmnop"
+		multi = "héllo wörld"
+		tab   = "a\tb c"
+		two   = "ab\ncd"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		text    string
+		want    Position // cursor; Preferred is its column
+	}{
+		{hello, "$X", "hello word\nabcdefghijklmnop", Position{0, 9}},
+		{hello, "$3X", "hello wd\nabcdefghijklmnop", Position{0, 7}},
+		{hello, "w3X", "helworld\nabcdefghijklmnop", Position{0, 3}},
+		{hello, "ll5X", "llo world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "ll2X", "llo world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "X", hello, Position{0, 0}},
+		{hello, "5X", hello, Position{0, 0}},
+		{hello, "l9X", "ello world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$10X", "d\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$11X", "d\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3X.", "helld\nabcdefghijklmnop", Position{0, 4}},
+		{hello, "$3X..", "hd\nabcdefghijklmnop", Position{0, 1}},
+		{hello, "w3X.", "world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3X2.", "hellod\nabcdefghijklmnop", Position{0, 5}},
+		{hello, "w2X3.", "hworld\nabcdefghijklmnop", Position{0, 1}},
+		{hello, "ll5X.", "llo world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3X0.", "hello wd\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3X0X.", "hello wd\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3X0X$.", "hello d\nabcdefghijklmnop", Position{0, 6}},
+		{hello, "5X$.", "hellod\nabcdefghijklmnop", Position{0, 5}},
+		{hello, "$3Xu", hello, Position{0, 7}},
+		{hello, "w3Xu", hello, Position{0, 3}},
+		{hello, "ll5Xu", hello, Position{0, 0}},
+		{hello, "$3Xu.", "hellorld\nabcdefghijklmnop", Position{0, 4}},
+		{hello, "w3X$.u", "helworld\nabcdefghijklmnop", Position{0, 4}},
+		{hello, "$3Xu<C-r>", "hello wd\nabcdefghijklmnop", Position{0, 7}},
+		{hello, "w3Xu<C-r>", "helworld\nabcdefghijklmnop", Position{0, 3}},
+		{hello, "ll5Xu<C-r>", "llo world\nabcdefghijklmnop", Position{0, 0}},
+		{hello, "$3Xj", "hello wd\nabcdefghijklmnop", Position{1, 7}},
+		{hello, "w3Xj", "helworld\nabcdefghijklmnop", Position{1, 3}},
+		{hello, "ll5Xj", "llo world\nabcdefghijklmnop", Position{1, 0}},
+		{hello, "$Xj", "hello word\nabcdefghijklmnop", Position{1, 9}},
+		{hello, "Xj", hello, Position{1, 0}},
+		{hello, "$jX", "hello world\nabcdefghijklmnp", Position{1, 14}},
+		{multi, "$3X", "héllo wd", Position{0, 7}},
+		{multi, "w3X", "hélwörld", Position{0, 3}},
+		{multi, "ll5X", "llo wörld", Position{0, 0}},
+		{tab, "$X", "a\tbc", Position{0, 3}},
+		{tab, "$3X", "ac", Position{0, 1}},
+		{tab, "f 2X", "a c", Position{0, 1}},
+		{"x", "X", "x", Position{0, 0}},
+		{"x", "3X", "x", Position{0, 0}},
+		{two, "j3X", two, Position{1, 0}},
+		{two, "l3Xj", "b\ncd", Position{1, 0}},
+		{two, "jl5X", "ab\nd", Position{1, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+" "+tt.keys, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.text, content(e), "text")
+			assert.Equal(t, tt.want, cursorPos(e), "cursor")
+			assert.Equal(t, tt.want.Col, e.GetBuffer().GetCursor().Preferred, "Preferred")
+		})
+	}
+}
