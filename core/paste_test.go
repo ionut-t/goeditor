@@ -405,6 +405,119 @@ func TestPasteLinewiseOverSelection(t *testing.T) {
 	})
 }
 
+// TestPasteCharwiseOverLines checks p and P over a linewise selection: text
+// within a line, or spanning lines, replaces the lines as lines of its own
+// instead of being joined onto the next line, and the cursor, u and <C-r>
+// go to column 0 of the first pasted line. Replacing every line leaves no
+// empty line behind, with linewise text too. Expected results are from Vim
+// 9.2; counts and . after visual p are left out (they differ from Vim on
+// their own).
+func TestPasteCharwiseOverLines(t *testing.T) {
+	const (
+		three    = "abcdef\nabcdef\nabcdef"
+		one      = "abcdef"
+		indented = "  abc\n    def\nghi\njkl"
+		four     = "abc\ndef\nghi\njkl"
+		blank    = "abc\n\ndef"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		col     int
+		text    string
+	}{
+		{three, "ylVp", Position{0, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "ylVP", Position{0, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "yljVp", Position{1, 0}, 0, "abcdef\na\nabcdef"},
+		{three, "ylGVp", Position{2, 0}, 0, "abcdef\nabcdef\na"},
+		{three, "ylVjp", Position{0, 0}, 0, "a\nabcdef"},
+		{three, "ylVGp", Position{0, 0}, 0, "a"},
+		{three, "ylggVGp", Position{0, 0}, 0, "a"},
+		{three, "ylVpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "ylVjpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "ylVpu<C-r>", Position{0, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "yeVp", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "y$Vp", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "lllyeVp", Position{0, 0}, 0, "def\nabcdef\nabcdef"},
+		{three, "ylVpj", Position{1, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "ylVpk", Position{0, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "ylVpjk", Position{0, 0}, 0, "a\nabcdef\nabcdef"},
+		{four, "lvjyVp", Position{0, 0}, 0, "bc\nde\ndef\nghi\njkl"},
+		{four, "lvjyjjVp", Position{2, 0}, 0, "abc\ndef\nbc\nde\njkl"},
+		{four, "lvjyGVp", Position{3, 0}, 0, "abc\ndef\nghi\nbc\nde"},
+		{four, "lvjyVjp", Position{0, 0}, 0, "bc\nde\nghi\njkl"},
+		{four, "lvjyVpu", Position{0, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "lvjyVP", Position{0, 0}, 0, "bc\nde\ndef\nghi\njkl"},
+		{four, "lvjyggVGp", Position{0, 0}, 0, "bc\nde"},
+		{four, "lvjyVpj", Position{1, 0}, 0, "bc\nde\ndef\nghi\njkl"},
+		{four, "lvjyVpu<C-r>", Position{0, 0}, 0, "bc\nde\ndef\nghi\njkl"},
+		{four, "llvjyVp", Position{0, 0}, 0, "c\ndef\ndef\nghi\njkl"},
+		{four, "vjhyVp", Position{0, 0}, 0, "abc\nd\ndef\nghi\njkl"},
+		{indented, "jwyeVp", Position{1, 0}, 0, "  abc\ndef\nghi\njkl"},
+		{indented, "jwyekVp", Position{0, 0}, 0, "def\n    def\nghi\njkl"},
+		{indented, "jwyeGVp", Position{3, 0}, 0, "  abc\n    def\nghi\ndef"},
+		{indented, "ylVp", Position{0, 0}, 0, " \n    def\nghi\njkl"},
+		{indented, "jwyejVp", Position{2, 0}, 0, "  abc\n    def\ndef\njkl"},
+		{indented, "wvjyjjVp", Position{2, 0}, 0, "  abc\n    def\nabc\n   \njkl"},
+		{one, "ylVp", Position{0, 0}, 0, "a"},
+		{one, "yeVp", Position{0, 0}, 0, "abcdef"},
+		{one, "ylVpu", Position{0, 0}, 0, "abcdef"},
+		{one, "ylVP", Position{0, 0}, 0, "a"},
+		{one, "lvlyVp", Position{0, 0}, 0, "bc"},
+		{three, "yyVp", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{blank, "yljVp", Position{1, 0}, 0, "abc\na\ndef"},
+		{three, "yyjVpu", Position{1, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "yyVGp", Position{0, 0}, 0, "abcdef"},
+		{three, "jyyggVGp", Position{0, 0}, 0, "abcdef"},
+		{three, "yyVGpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "ylVGpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "ylVGpu<C-r>", Position{0, 0}, 0, "a"},
+		{three, "yyVGP", Position{0, 0}, 0, "abcdef"},
+		{three, "ylggVGpj", Position{0, 0}, 0, "a"},
+		{three, "jyyggVGpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{one, "yyVp", Position{0, 0}, 0, "abcdef"},
+		{one, "yyVP", Position{0, 0}, 0, "abcdef"},
+		{one, "yyVpu", Position{0, 0}, 0, "abcdef"},
+		{one, "ylVpu<C-r>", Position{0, 0}, 0, "a"},
+		{one, "yyVpj", Position{0, 0}, 0, "abcdef"},
+		{one, "lvlyVpu", Position{0, 0}, 0, "abcdef"},
+		{indented, "wyeggVGp", Position{0, 0}, 0, "abc"},
+		{indented, "jwyeggVGp", Position{0, 0}, 0, "def"},
+		{indented, "wvjyggVGp", Position{0, 0}, 0, "abc\n   "},
+		{indented, "wvjyggVGpu", Position{0, 0}, 0, "  abc\n    def\nghi\njkl"},
+		{four, "lvjyjjVpu", Position{2, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "lvjyGVpu", Position{3, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "lvjyVjpu", Position{0, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "ylGVpu", Position{3, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "yljjVpu", Position{2, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "yyjjVpu", Position{2, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "jyyVjpu", Position{1, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "ylGllVkpu", Position{2, 2}, 2, "abc\ndef\nghi\njkl"},
+		{four, "yljjlVkkpu", Position{0, 1}, 1, "abc\ndef\nghi\njkl"},
+		{four, "yyjlVkpu", Position{0, 1}, 1, "abc\ndef\nghi\njkl"},
+		{four, "lvjyjjlVkpu", Position{1, 2}, 2, "abc\ndef\nghi\njkl"},
+		{four, "ylllVpu", Position{0, 0}, 0, "abc\ndef\nghi\njkl"},
+		{four, "ylllVpu<C-r>", Position{0, 0}, 0, "a\ndef\nghi\njkl"},
+		{four, "yljjlVkpu<C-r>", Position{1, 0}, 0, "abc\na\njkl"},
+		{four, "lvjyGlVggpu", Position{0, 0}, 0, "abc\ndef\nghi\njkl"},
+		{three, "ylllVpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "yylllVGpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "ylGlllVggpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+		})
+	}
+}
+
 type failClipboard struct{}
 
 func (failClipboard) Write(string) error    { return nil }
