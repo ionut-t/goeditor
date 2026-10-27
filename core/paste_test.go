@@ -518,6 +518,94 @@ func TestPasteCharwiseOverLines(t *testing.T) {
 	}
 }
 
+// TestPasteLinewiseOverCharwise checks p and P over a charwise selection with
+// linewise text: the line is split where the selection was and the lines go
+// in between the halves, which stay even when empty, with the cursor on the
+// first non-blank of the first pasted line; u goes back to where the
+// selection began. Expected results are from Vim 9.2.
+func TestPasteLinewiseOverCharwise(t *testing.T) {
+	const (
+		three    = "abcdef\nabcdef\nabcdef"
+		one      = "abcdef"
+		indented = "  abc\n    def\nghi\njkl"
+		four     = "abc\ndef\nghi\njkl"
+		blank    = "abc\n\ndef"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		col     int
+		text    string
+	}{
+		{three, "yyvp", Position{1, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yyvP", Position{1, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yylvlp", Position{1, 0}, 0, "a\nabcdef\ndef\nabcdef\nabcdef"},
+		{three, "yy$vp", Position{1, 0}, 0, "abcde\nabcdef\n\nabcdef\nabcdef"},
+		{three, "yy$hvlp", Position{1, 0}, 0, "abcd\nabcdef\n\nabcdef\nabcdef"},
+		{three, "yyllvp", Position{1, 0}, 0, "ab\nabcdef\ndef\nabcdef\nabcdef"},
+		{three, "yy0v$p", Position{1, 0}, 0, "\nabcdef\nabcdef\nabcdef"},
+		{three, "yylv$p", Position{1, 0}, 0, "a\nabcdef\nabcdef\nabcdef"},
+		{three, "yyvjp", Position{1, 0}, 0, "\nabcdef\nbcdef\nabcdef"},
+		{three, "yylllvjp", Position{1, 0}, 0, "abc\nabcdef\nef\nabcdef"},
+		{three, "yylvj$p", Position{1, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "yyjvp", Position{2, 0}, 0, "abcdef\n\nabcdef\nbcdef\nabcdef"},
+		{three, "yyGvp", Position{3, 0}, 0, "abcdef\nabcdef\n\nabcdef\nbcdef"},
+		{three, "yyG$vp", Position{3, 0}, 0, "abcdef\nabcdef\nabcde\nabcdef\n"},
+		{three, "yyGlvlp", Position{3, 0}, 0, "abcdef\nabcdef\na\nabcdef\ndef"},
+		{three, "yyvpu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "yyvpu<C-r>", Position{0, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yy$vpu", Position{0, 5}, 5, "abcdef\nabcdef\nabcdef"},
+		{three, "yylvjpu", Position{0, 1}, 1, "abcdef\nabcdef\nabcdef"},
+		{three, "yylvjpu<C-r>", Position{0, 0}, 0, "a\nabcdef\ncdef\nabcdef"},
+		{three, "yyvpj", Position{2, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yyvpk", Position{0, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yy$vpk", Position{0, 0}, 0, "abcde\nabcdef\n\nabcdef\nabcdef"},
+		{three, "yyvpG", Position{4, 0}, 0, "\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yyGvpu", Position{2, 0}, 0, "abcdef\nabcdef\nabcdef"},
+		{three, "yyVjyvp", Position{1, 0}, 0, "\nabcdef\nabcdef\nbcdef\nabcdef\nabcdef"},
+		{three, "yyVjy$vp", Position{1, 0}, 0, "abcde\nabcdef\nabcdef\n\nabcdef\nabcdef"},
+		{three, "yyVjyllvjp", Position{1, 0}, 0, "ab\nabcdef\nabcdef\ndef\nabcdef"},
+		{three, "yyggvGp", Position{1, 0}, 0, "\nabcdef\nbcdef"},
+		{three, "yygg0vG$p", Position{1, 0}, 0, "\nabcdef\n"},
+		{one, "yyvp", Position{1, 0}, 0, "\nabcdef\nbcdef"},
+		{one, "yy$vp", Position{1, 0}, 0, "abcde\nabcdef\n"},
+		{one, "yylvlp", Position{1, 0}, 0, "a\nabcdef\ndef"},
+		{one, "yy0v$p", Position{1, 0}, 0, "\nabcdef\n"},
+		{one, "yyvpu", Position{0, 0}, 0, "abcdef"},
+		{one, "yyvP", Position{1, 0}, 0, "\nabcdef\nbcdef"},
+		{indented, "yyjwvp", Position{2, 2}, 2, "  abc\n    \n  abc\nef\nghi\njkl"},
+		{indented, "jyywvp", Position{2, 4}, 4, "  abc\n    \n    def\nef\nghi\njkl"},
+		{indented, "jyyvp", Position{2, 4}, 4, "  abc\n\n    def\n   def\nghi\njkl"},
+		{indented, "jyyGvp", Position{4, 4}, 4, "  abc\n    def\nghi\n\n    def\nkl"},
+		{indented, "yyjwvlp", Position{2, 2}, 2, "  abc\n    \n  abc\nf\nghi\njkl"},
+		{indented, "jyy$vp", Position{2, 4}, 4, "  abc\n    de\n    def\n\nghi\njkl"},
+		{indented, "jyyjwhvp", Position{4, 4}, 4, "  abc\n    def\nghi\n\n    def\nkl"},
+		{indented, "jVjykwvp", Position{1, 4}, 4, "  \n    def\nghi\nbc\n    def\nghi\njkl"},
+		{four, "yyjvp", Position{2, 0}, 0, "abc\n\nabc\nef\nghi\njkl"},
+		{four, "yyjlvjp", Position{2, 0}, 0, "abc\nd\nabc\ni\njkl"},
+		{four, "yyjlvj$p", Position{2, 0}, 0, "abc\nd\nabc\njkl"},
+		{blank, "yyjvp", Position{2, 0}, 0, "abc\n\nabc\ndef"},
+		{blank, "yyjvP", Position{2, 0}, 0, "abc\n\nabc\ndef"},
+		{blank, "yyjvjp", Position{2, 0}, 0, "abc\n\nabc\nef"},
+		{blank, "yyjvpu", Position{1, 0}, 0, "abc\n\ndef"},
+		{blank, "jyyvp", Position{2, 0}, 0, "abc\n\n\ndef"},
+		{blank, "jyyGvp", Position{3, 0}, 0, "abc\n\n\n\nef"},
+		{blank, "yyvjp", Position{1, 0}, 0, "\nabc\ndef"},
+		{blank, "yyjv$p", Position{2, 0}, 0, "abc\n\nabc\ndef"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+		})
+	}
+}
+
 type failClipboard struct{}
 
 func (failClipboard) Write(string) error    { return nil }

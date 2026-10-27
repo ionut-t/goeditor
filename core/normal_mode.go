@@ -1326,11 +1326,3 @@ func (m *normalMode) composeOperatorCount(editor Editor) {
 	state.PendingCount = &n
 	editor.SetState(state)
 }
-
-// paster is implemented by the editor so that p and P can take a count, and
-// visual-line p can paste text as lines, without it being part of the public
-// Editor interface.
-type paster interface {
-	paste(before bool, count int) (string, *EditorError)
-	pasteLines(before bool, count int) (string, *EditorError)
-}

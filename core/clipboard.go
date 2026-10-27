@@ -20,6 +20,15 @@ func (e *editor) readClipboard() (string, error) {
 	return content, nil
 }
 
+// paster is implemented by the editor so that p and P can take a count, and
+// visual p can paste text as lines or split a line for them, without it being
+// part of the public Editor interface.
+type paster interface {
+	paste(before bool, count int) (string, *EditorError)
+	pasteLines(before bool, count int) (string, *EditorError)
+	pasteSplit(count int) (string, *EditorError)
+}
+
 func (e *editor) PasteAfter() (string, error) {
 	content, err := e.paste(false, 1)
 	if err != nil {
@@ -51,7 +60,24 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	if err != nil {
 		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
-	return content, e.put([]rune(content), before, count)
+	return content, e.put([]rune(content), placeFor(before), count)
+}
+
+// putPlace is where put puts linewise text: below the cursor line, above it,
+// or between the halves of the cursor line split at the cursor.
+type putPlace int
+
+const (
+	putAfter putPlace = iota
+	putBefore
+	putSplit
+)
+
+func placeFor(before bool) putPlace {
+	if before {
+		return putBefore
+	}
+	return putAfter
 }
 
 // pasteLines is paste for p and P over a linewise selection: text within a
@@ -66,11 +92,25 @@ func (e *editor) pasteLines(before bool, count int) (string, *EditorError) {
 	if len(text) > 0 && text[len(text)-1] != '\n' {
 		text = append(text, '\n')
 	}
-	return content, e.put(text, before, count)
+	return content, e.put(text, placeFor(before), count)
 }
 
-// put inserts count copies of text as paste describes.
-func (e *editor) put(text []rune, before bool, count int) *EditorError {
+// pasteSplit is paste for p and P over a charwise selection, with the cursor
+// where the deleted selection began, which can be past the end of the line.
+// Linewise content splits the line there and goes in between the halves, as
+// Vim puts it with PUT_LINE_SPLIT; other text goes in at the cursor.
+func (e *editor) pasteSplit(count int) (string, *EditorError) {
+	content, err := e.readClipboard()
+	if err != nil {
+		return "", &EditorError{id: ErrFailedToPasteId, err: err}
+	}
+	return content, e.put([]rune(content), putSplit, count)
+}
+
+// put inserts count copies of text as paste describes, linewise text at
+// place. Other text goes after the cursor char with putAfter, and at the
+// cursor otherwise.
+func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 	if len(text) == 0 {
 		return nil
 	}
@@ -86,20 +126,26 @@ func (e *editor) put(text []rune, before bool, count int) *EditorError {
 
 	if all[len(all)-1] == '\n' {
 		at := 0
-		if !before {
+		switch place {
+		case putAfter:
 			// The line break moves from the end of the pasted lines to
 			// before them, so they start on the next line. Shifted in
 			// place: a long paste isn't copied a second time.
 			copy(all[1:], all)
 			all[0] = '\n'
 			at = lineLen
+		case putSplit:
+			// A line break before the lines as well: the rest of the line
+			// after the cursor goes on a line of its own below them.
+			all = slices.Insert(all, 0, '\n')
+			at = min(cursor.Position.Col, lineLen)
 		}
 		// Before: inserting the lines at (row, 0) pushes the current line
 		// down, so the first pasted line is at row.
 		if err := e.buffer.InsertRunesAt(row, at, all); err != nil {
 			return &EditorError{id: ErrInvalidPositionId, err: err}
 		}
-		if !before {
+		if place != putBefore {
 			cursor.Position.Row++
 		}
 		cursor.MoveToFirstNonBlank(e.buffer)
@@ -108,7 +154,7 @@ func (e *editor) put(text []rune, before bool, count int) *EditorError {
 	}
 
 	col := cursor.Position.Col
-	if !before {
+	if place == putAfter {
 		// After the cursor char; on an empty line Col+1 would be past the
 		// end, so the text goes at col 0.
 		col = min(col+1, lineLen)
