@@ -20,6 +20,15 @@ func (e *editor) readClipboard() (string, error) {
 	return content, nil
 }
 
+// paster is implemented by the editor so that p and P can take a count, and
+// visual p can paste text as lines or split a line for them, without it being
+// part of the public Editor interface.
+type paster interface {
+	paste(before bool, count int) (string, *EditorError)
+	pasteLines(before bool, count int) (string, *EditorError)
+	pasteSplit(count int) (string, *EditorError)
+}
+
 func (e *editor) PasteAfter() (string, error) {
 	content, err := e.paste(false, 1)
 	if err != nil {
