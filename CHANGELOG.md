@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.0](https://github.com/ionut-t/goeditor/compare/v0.13.0...v0.14.0) (2026-10-27)
+
+
+### Features
+
+* **core:** search forward for block text objects with no enclosing pair ([#97](https://github.com/ionut-t/goeditor/issues/97)) ([7a71b0f](https://github.com/ionut-t/goeditor/commit/7a71b0fd387b3e7b6c858c18c6be692cfa0c5754))
+
+
+### Bug Fixes
+
+* **completion:** discard stale autocompletion responses ([#96](https://github.com/ionut-t/goeditor/issues/96)) ([2884275](https://github.com/ionut-t/goeditor/commit/28842757b76923dd7405e76402c8ea13b48ddaa3))
+* **core:** apply counts to d$, c$, y$, D, C and case operators on $ ([#95](https://github.com/ionut-t/goeditor/issues/95)) ([0a3b5b0](https://github.com/ionut-t/goeditor/commit/0a3b5b03d386ecc4df11829f2f515a6a2fabc57d))
+* **core:** clamp cursor after host edits to prevent invalid state ([#98](https://github.com/ionut-t/goeditor/issues/98)) ([35ac423](https://github.com/ionut-t/goeditor/commit/35ac423ddb586405987e5b25001aa26dec30318b))
+* **core:** delete count characters before the cursor with X ([#99](https://github.com/ionut-t/goeditor/issues/99)) ([100e158](https://github.com/ionut-t/goeditor/commit/100e15805b2ac1fba62cbce99de77768a5577131))
+* **visual:** preserve anchor when switching between visual modes ([#93](https://github.com/ionut-t/goeditor/issues/93)) ([6c31a06](https://github.com/ionut-t/goeditor/commit/6c31a061f5450b2fb8513f3a764898cfec2c08b6))
+* **visual:** put charwise text as its own lines with Vp ([#100](https://github.com/ionut-t/goeditor/issues/100)) ([45a6675](https://github.com/ionut-t/goeditor/commit/45a6675a263a13e919c394dabf91745ebf00510e))
+* **visual:** repeat only the delete with . after visual p ([#102](https://github.com/ionut-t/goeditor/issues/102)) ([a0d9768](https://github.com/ionut-t/goeditor/commit/a0d9768874bed72adc0916e8eab9a0aaf4bd988f))
+* **visual:** split the line when putting lines over a charwise selection ([#101](https://github.com/ionut-t/goeditor/issues/101)) ([a5824f7](https://github.com/ionut-t/goeditor/commit/a5824f7171a9c17f0692220d879d1edb885d6471))
+
 ## [0.13.0](https://github.com/ionut-t/goeditor/compare/v0.12.0...v0.13.0) (2026-10-24)
 
 
