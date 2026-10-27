@@ -302,6 +302,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		if !state.WithInsertMode {
 			return true, nil
 		}
+		repeatAsDelete(editor)
 		var finalPos Position
 		_, finalPos, err = deleteVisualSelection(editor, buffer, m.startPos, cursor.Position)
 		if err == nil {

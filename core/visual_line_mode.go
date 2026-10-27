@@ -168,6 +168,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if !state.WithInsertMode {
 			return true, nil
 		}
+		repeatAsDelete(editor)
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		wholeBuffer := startRow == 0 && endRow == buffer.LineCount()-1
 		markChangeStart(editor, m.changeStart(cursor.Position))
