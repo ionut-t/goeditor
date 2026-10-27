@@ -169,6 +169,8 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			return true, nil
 		}
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
+		wholeBuffer := startRow == 0 && endRow == buffer.LineCount()-1
+		markChangeStart(editor, m.changeStart(cursor.Position))
 		initialCursor := buffer.GetCursor()
 		initialCursor.Position.Row = startRow
 		buffer.SetCursor(initialCursor)
@@ -182,7 +184,10 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if startRow < buffer.LineCount() {
 			// Lines still exist at startRow — insert clipboard before that line so
 			// the pasted content lands exactly where the selection was.
-			pastedContent, pasteErr = editor.PasteBefore()
+			pastedContent, pasteErr = pasteLines(editor, true)
+			if pasteErr == nil && wholeBuffer && err == nil {
+				err = removeEmptyLastLine(buffer)
+			}
 			if pasteErr == nil {
 				cur := buffer.GetCursor()
 				cur.Position.Row = startRow
@@ -195,7 +200,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			cur.Position.Row = buffer.LineCount() - 1
 			cur.Position.Col = 0
 			buffer.SetCursor(cur)
-			pastedContent, pasteErr = editor.PasteAfter()
+			pastedContent, pasteErr = pasteLines(editor, false)
 		}
 		if pasteErr != nil {
 			// The selection stays deleted; the cursor stays where the
@@ -332,4 +337,31 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 	}
 
 	return nil
+}
+
+// removeEmptyLastLine removes the empty line that deleting every line leaves
+// once lines have been pasted above it, as Vim does when it puts lines into
+// an emptied buffer.
+func removeEmptyLastLine(buffer Buffer) *EditorError {
+	last := buffer.LineCount() - 1
+	if last > 0 && buffer.LineRuneCount(last) == 0 {
+		return buffer.DeleteRunesAt(last-1, buffer.LineRuneCount(last-1), 1)
+	}
+	return nil
+}
+
+// pasteLines pastes the clipboard over a deleted line selection: text within
+// a line goes in as a line of its own, not joined onto the next one.
+func pasteLines(editor Editor, before bool) (string, error) {
+	if p, ok := editor.(paster); ok {
+		content, err := p.pasteLines(before, 1)
+		if err != nil {
+			return "", err.err
+		}
+		return content, nil
+	}
+	if before {
+		return editor.PasteBefore()
+	}
+	return editor.PasteAfter()
 }

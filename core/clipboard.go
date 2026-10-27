@@ -51,13 +51,32 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	if err != nil {
 		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
+	return content, e.put([]rune(content), before, count)
+}
+
+// pasteLines is paste for p and P over a linewise selection: text within a
+// line, or spanning lines, goes in as whole lines of its own, as Vim puts a
+// charwise register with PUT_LINE. Linewise content is pasted as it is.
+func (e *editor) pasteLines(before bool, count int) (string, *EditorError) {
+	content, err := e.readClipboard()
+	if err != nil {
+		return "", &EditorError{id: ErrFailedToPasteId, err: err}
+	}
 	text := []rune(content)
+	if len(text) > 0 && text[len(text)-1] != '\n' {
+		text = append(text, '\n')
+	}
+	return content, e.put(text, before, count)
+}
+
+// put inserts count copies of text as paste describes.
+func (e *editor) put(text []rune, before bool, count int) *EditorError {
 	if len(text) == 0 {
-		return content, nil
+		return nil
 	}
 	count = max(count, 1)
 	if count > 1 && len(text) > maxRepeatedInsert/count {
-		return "", textTooLong(count, len(text), "rune")
+		return textTooLong(count, len(text), "rune")
 	}
 	all := slices.Repeat(text, count)
 
@@ -78,14 +97,14 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 		// Before: inserting the lines at (row, 0) pushes the current line
 		// down, so the first pasted line is at row.
 		if err := e.buffer.InsertRunesAt(row, at, all); err != nil {
-			return "", &EditorError{id: ErrInvalidPositionId, err: err}
+			return &EditorError{id: ErrInvalidPositionId, err: err}
 		}
 		if !before {
 			cursor.Position.Row++
 		}
 		cursor.MoveToFirstNonBlank(e.buffer)
 		e.buffer.SetCursor(cursor)
-		return content, nil
+		return nil
 	}
 
 	col := cursor.Position.Col
@@ -95,7 +114,7 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 		col = min(col+1, lineLen)
 	}
 	if err := e.buffer.InsertRunesAt(row, col, all); err != nil {
-		return "", &EditorError{id: ErrInvalidPositionId, err: err}
+		return &EditorError{id: ErrInvalidPositionId, err: err}
 	}
 	cursor.Position.Col = col
 	if !slices.Contains(text, '\n') {
@@ -103,7 +122,7 @@ func (e *editor) paste(before bool, count int) (string, *EditorError) {
 	}
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
-	return content, nil
+	return nil
 }
 
 // yankNothing empties the clipboard, as Vim's yank over an empty range
