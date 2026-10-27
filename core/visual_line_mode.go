@@ -185,8 +185,8 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			// Lines still exist at startRow — insert clipboard before that line so
 			// the pasted content lands exactly where the selection was.
 			pastedContent, pasteErr = pasteLines(editor, true)
-			if pasteErr == nil && wholeBuffer {
-				removeEmptyLastLine(buffer)
+			if pasteErr == nil && wholeBuffer && err == nil {
+				err = removeEmptyLastLine(buffer)
 			}
 			if pasteErr == nil {
 				cur := buffer.GetCursor()
@@ -342,11 +342,12 @@ func (m *visualLineMode) handleMovement(editor Editor, buffer Buffer, key KeyEve
 // removeEmptyLastLine removes the empty line that deleting every line leaves
 // once lines have been pasted above it, as Vim does when it puts lines into
 // an emptied buffer.
-func removeEmptyLastLine(buffer Buffer) {
+func removeEmptyLastLine(buffer Buffer) *EditorError {
 	last := buffer.LineCount() - 1
 	if last > 0 && buffer.LineRuneCount(last) == 0 {
-		_ = buffer.DeleteRunesAt(last-1, buffer.LineRuneCount(last-1), 1)
+		return buffer.DeleteRunesAt(last-1, buffer.LineRuneCount(last-1), 1)
 	}
+	return nil
 }
 
 // pasteLines pastes the clipboard over a deleted line selection: text within
