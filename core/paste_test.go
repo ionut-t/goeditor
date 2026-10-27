@@ -606,6 +606,77 @@ func TestPasteLinewiseOverCharwise(t *testing.T) {
 	}
 }
 
+// TestRepeatVisualPaste checks . after p and P in visual and visual-line mode:
+// as in Vim, it repeats only the delete of the selection, over the same amount
+// of text, and doesn't paste. Expected results are from Vim 9.2; selections
+// made with $ are left out (. after them differs from Vim on its own, open
+// bug 12).
+func TestRepeatVisualPaste(t *testing.T) {
+	const (
+		three = "abcdef\nabcdef\nabcdef"
+		one   = "abcdef"
+		four  = "abc\ndef\nghi\njkl"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		col     int
+		text    string
+	}{
+		{three, "ylvlpj.", Position{1, 0}, 0, "acdef\ncdef\nabcdef"},
+		{three, "ylvlPj.", Position{1, 0}, 0, "acdef\ncdef\nabcdef"},
+		{three, "ylllvlpj.", Position{1, 2}, 2, "abaef\nabef\nabcdef"},
+		{three, "ylvlp..", Position{0, 0}, 0, "f\nabcdef\nabcdef"},
+		{three, "ylvlpj.u", Position{1, 0}, 0, "acdef\nabcdef\nabcdef"},
+		{three, "ylvlpj.u<C-r>", Position{1, 0}, 0, "acdef\ncdef\nabcdef"},
+		{three, "ylvlpj3.", Position{1, 0}, 0, "acdef\ncdef\nabcdef"},
+		{three, "ylvlpjj.", Position{2, 0}, 0, "acdef\nabcdef\ncdef"},
+		{three, "yllvhpj.", Position{1, 0}, 0, "acdef\ncdef\nabcdef"},
+		{three, "ylvjpj.", Position{1, 0}, 0, "abcdef\nbcdef"},
+		{three, "yllvjlp.", Position{0, 1}, 1, "adef"},
+		{three, "ylvlolpj.", Position{1, 1}, 1, "aacdef\nacdef\nabcdef"},
+		{three, "yyvpj.", Position{2, 0}, 0, "\nabcdef\ncdef\nabcdef\nabcdef"},
+		{three, "yyvlpjj.", Position{3, 0}, 0, "\nabcdef\ncdef\ncdef\nabcdef"},
+		{three, "ylvlpj.j.", Position{2, 0}, 0, "acdef\ncdef\ncdef"},
+		{four, "ylvjlpj.", Position{1, 0}, 0, "af\nl"},
+		{four, "lvjylvlpj.", Position{1, 2}, 2, "abbc\ndef\nghi\njkl"},
+		{four, "lvjyvpj.", Position{1, 1}, 1, "abc\ndc\ndef\nghi\njkl"},
+		{four, "lvjyvjp.", Position{0, 1}, 1, "af\nghi\njkl"},
+		{four, "ylviwpj.", Position{1, 0}, 0, "a\n\nghi\njkl"},
+		{three, "ylVpj.", Position{1, 0}, 0, "a\nabcdef"},
+		{three, "yyVpj.", Position{1, 0}, 0, "abcdef\nabcdef"},
+		{three, "ylVjp.", Position{0, 0}, 0, ""},
+		{three, "ylVpk.", Position{0, 0}, 0, "abcdef\nabcdef"},
+		{three, "ylVpG.", Position{1, 0}, 0, "a\nabcdef"},
+		{three, "ylVp2.", Position{0, 0}, 0, "abcdef\nabcdef"},
+		{three, "ylVpj.u", Position{1, 0}, 0, "a\nabcdef\nabcdef"},
+		{three, "ylVPj.", Position{1, 0}, 0, "a\nabcdef"},
+		{three, "yyVPj.", Position{1, 0}, 0, "abcdef\nabcdef"},
+		{three, "ylVjokpj.", Position{0, 0}, 0, "a"},
+		{three, "ylVp..", Position{0, 0}, 0, "abcdef"},
+		{four, "ylVpj.", Position{1, 0}, 0, "a\nghi\njkl"},
+		{four, "ylVjpj.", Position{0, 0}, 0, "a"},
+		{four, "ylVjpj.u<C-r>", Position{0, 0}, 0, "a"},
+		{four, "lvjyVpjj.", Position{2, 0}, 0, "bc\nde\nghi\njkl"},
+		{four, "ylVjjp.", Position{0, 0}, 0, ""},
+		{four, "ylGVkpk.", Position{0, 0}, 0, "abc"},
+		{one, "ylVp.", Position{0, 0}, 0, ""},
+		{one, "ylvlp.", Position{0, 0}, 0, "def"},
+		{one, "yyvp.", Position{1, 0}, 0, "\nbcdef\nbcdef"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.True(t, e.IsNormalMode())
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+		})
+	}
+}
+
 type failClipboard struct{}
 
 func (failClipboard) Write(string) error    { return nil }

@@ -24,6 +24,8 @@ import (
 //
 // A change made from visual mode records only the keys from the operator on,
 // with the size of the selection, which '.' selects again from the cursor.
+// A visual p or P records as d: Vim's put deletes the selection with the d
+// operator, which is what its redo buffer gets, so '.' only deletes.
 // A command that goes through the command line or search is not recorded yet.
 
 // repeatRecord is a change '.' can repeat.
@@ -53,7 +55,8 @@ type commandRecording struct {
 	edits      int  // e.editCount when the command started
 	repeatable bool // cleared by commands '.' must not repeat (U, '.' itself)
 	visual     visualSpan
-	moved      bool // a cursor key came after the last key typed in insert mode
+	moved      bool      // a cursor key came after the last key typed in insert mode
+	as         *KeyEvent // recorded in place of the key being handled, if set
 }
 
 // insertSession is the insert in progress, kept so that the count of the
@@ -120,6 +123,9 @@ func (e *editor) recordKeyEnd(mode EditorMode, key KeyEvent, before *int) {
 		if rec.inRun {
 			rec.count = mulCount(max(rec.count, 1), rec.run)
 			rec.inRun = false
+		}
+		if rec.as != nil {
+			key, rec.as = *rec.as, nil
 		}
 		rec.keys = append(rec.keys, key)
 	}
@@ -466,6 +472,26 @@ func (e *editor) normalIdle() bool {
 // repeats, though it changes the text.
 func (e *editor) noRepeat() {
 	e.recording.repeatable = false
+}
+
+// recordAs records key in place of the key being handled, for '.'.
+func (e *editor) recordAs(key KeyEvent) {
+	if !e.replaying && e.recording.active {
+		e.recording.as = &key
+	}
+}
+
+// repeatRecorder is implemented by the editor so that a command can say how
+// '.' repeats it, without it being part of the public Editor interface.
+type repeatRecorder interface {
+	recordAs(key KeyEvent)
+}
+
+// repeatAsDelete makes a visual p or P repeat as d, as in Vim.
+func repeatAsDelete(editor Editor) {
+	if r, ok := editor.(repeatRecorder); ok {
+		r.recordAs(KeyEvent{Rune: 'd'})
+	}
 }
 
 // countChange makes the command in progress the change '.' repeats, though
