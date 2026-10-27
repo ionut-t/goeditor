@@ -312,7 +312,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
 		}
-		content, pasteErr := editor.PasteBefore()
+		content, pasteErr := pasteSplit(editor)
 		if pasteErr != nil {
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
@@ -398,4 +398,17 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 		buffer.SetCursor(cursor)
 	}
 	return nil
+}
+
+// pasteSplit pastes the clipboard where a deleted charwise selection was:
+// lines go in between the halves of the line split there, not joined into it.
+func pasteSplit(editor Editor) (string, error) {
+	if p, ok := editor.(paster); ok {
+		content, err := p.pasteSplit(1)
+		if err != nil {
+			return "", err.err
+		}
+		return content, nil
+	}
+	return editor.PasteBefore()
 }
