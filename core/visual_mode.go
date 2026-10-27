@@ -160,6 +160,13 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		}
 	case '"', '\'', '`': // vi"/va", vi'/va', vi`/va` — select inside/around quote
 		startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, key.Rune)
+		if !found && modifier == 'i' {
+			if openCol, closeCol, ok := quoteTextObjectRange(buffer, cursor.Position, 'a', key.Rune); ok && closeCol == openCol+1 {
+				// As Vim, vi" on empty quotes selects both quotes, from
+				// the closing one back to the opening one.
+				startCol, endCol, found = closeCol, openCol, true
+			}
+		}
 		if found {
 			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
 			state := editor.GetState()
@@ -170,6 +177,11 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		}
 	case 'q': // viq/vaq — select inside/around any quote
 		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
+		if !found && modifier == 'i' {
+			if openCol, closeCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, 'a'); ok && closeCol == openCol+1 {
+				startCol, endCol, found = closeCol, openCol, true // empty quotes, as vi"
+			}
+		}
 		if found {
 			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
 			state := editor.GetState()

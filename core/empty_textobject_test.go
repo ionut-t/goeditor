@@ -42,6 +42,38 @@ func TestOperatorOnEmptyQuotes(t *testing.T) {
 	runEmptyRangeCases(t, tests)
 }
 
+// TestVisualEmptyQuotes checks vi", vi' and vi` on empty quotes. Vim 9.2
+// selects both quotes, with the cursor on the opening one and the other
+// end on the closing one. d doesn't write the register in goeditor, so it
+// keeps REG (Vim's holds the two quotes).
+func TestVisualEmptyQuotes(t *testing.T) {
+	var tests []emptyRangeCase
+	for _, q := range []string{`"`, `'`, "`"} {
+		buf := fmt.Sprintf("a%s%sb x%sy%s", q, q, q, q)
+		rest := fmt.Sprintf("ab x%sy%s", q, q)
+		both := q + q
+		tests = append(tests,
+			emptyRangeCase{name: q + " selects both quotes", content: buf, keys: "lvi" + q, text: buf, want: Position{0, 1}, visual: true, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " o goes to the close quote", content: buf, keys: "lvi" + q + "o", text: buf, want: Position{0, 2}, visual: true, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " d before the pair", content: buf, keys: "vi" + q + "d", text: rest, want: Position{0, 1}, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " d on the open quote", content: buf, keys: "lvi" + q + "d", text: rest, want: Position{0, 1}, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " d on the close quote", content: buf, keys: "llvi" + q + "d", text: rest, want: Position{0, 1}, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " y", content: buf, keys: "lvi" + q + "y", text: buf, want: Position{0, 1}, reg: both},
+			emptyRangeCase{name: q + " c then typing", content: buf, keys: "lvi" + q + "cY<Esc>",
+				text: fmt.Sprintf("aYb x%sy%s", q, q), want: Position{0, 1}, reg: anyReg},
+			emptyRangeCase{name: q + " d is repeated", content: buf, keys: "lvi" + q + "dw.",
+				text: fmt.Sprintf("ab y%s", q), want: Position{0, 3}, reg: emptyRangeReg},
+			emptyRangeCase{name: q + " d on a line of just the quotes", content: both, keys: "vi" + q + "d", text: "", want: Position{0, 0}, reg: emptyRangeReg},
+		)
+	}
+	// iq (any quote) isn't a Vim text object; it acts as the quote it finds.
+	tests = append(tests,
+		emptyRangeCase{name: "iq d", content: `a''b x"y"`, keys: "lviqd", text: `ab x"y"`, want: Position{0, 1}, reg: emptyRangeReg},
+	)
+
+	runEmptyRangeCases(t, tests)
+}
+
 // TestOperatorOnEmptyBrackets checks d, c and y on an empty i(, ib, i[, i{,
 // iB and i<, on one line and with the brackets on two lines. As with quotes,
 // the operator runs on the empty range just after the open bracket.
