@@ -433,7 +433,7 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 	// Update derived state AFTER handling key
 	e.ScrollViewport() // Ensure cursor is visible after potential movement
 
-	e.recordKeyEnd(mode, key, pendingCount)
+	e.recordKeyEnd(mode, key, pendingCount, err)
 	e.trackInsertCursor()
 	if e.endsUndoStep(mode, key) {
 		e.closeUndoStep()

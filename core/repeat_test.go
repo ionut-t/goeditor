@@ -211,6 +211,14 @@ func TestRepeatInsert(t *testing.T) {
 		{". repeats only what was typed after a cursor key", "cd", "Aab<Left>X<Esc>0.", "XcdaXb", Position{0, 0}},
 		{". after a cursor key typed nothing repeats what came before", "cd", "Aab<Left><Esc>0.", "cdabab", Position{0, 5}},
 		{"text typed after a cursor key repeats as i", "abc def", "vlcX<Left>Y<Esc>w.", "YXc Ydef", Position{0, 4}},
+		{". leaves out a backspace at the buffer start", "abc", "i<BS>z<Esc>.", "zzabc", Position{0, 0}},
+		{". after a backspace at the buffer start, moved", "abc", "i<BS>z<Esc>l.", "zzabc", Position{0, 1}},
+		{". keeps a backspace that deleted, not one that didn't", "abc", "iy<BS><BS>z<Esc>l.", "zzabc", Position{0, 1}},
+		{". after two backspaces at the buffer start", "abc", "i<BS><BS>z<Esc>l.", "zzabc", Position{0, 1}},
+		{"count after a backspace at the buffer start", "abc", "3i<BS>z<Esc>", "zzzabc", Position{0, 2}},
+		{"count and . after backspaces at the buffer start", "abc", "2i<BS><BS>zq<Esc>l.", "zqzqzqzqabc", Position{0, 7}},
+		{"CTRL-H at the buffer start is left out too", "abc", "i<BS>z<C-h><C-h>y<Esc>l.", "yyabc", Position{0, 1}},
+		{"backspaces that join lines are kept", "abc\ndef", "ji<BS><BS>z<Esc>.", "zzdef", Position{0, 0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
