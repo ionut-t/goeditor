@@ -101,12 +101,15 @@ func (e *editor) recordKeyStart() (pendingCount *int) {
 	return e.state.PendingCount
 }
 
-// recordKeyEnd runs after key was dispatched in mode. before is
-// State.PendingCount as it was before. Count digits go into the count, other
-// keys into the keys, and once the command is over a command that changed
-// the text becomes the record '.' repeats.
-func (e *editor) recordKeyEnd(mode EditorMode, key KeyEvent, before *int) {
-	if mode.Name() == InsertMode {
+// recordKeyEnd runs after key was dispatched in mode, which returned err.
+// before is State.PendingCount as it was before. Count digits go into the
+// count, other keys into the keys, and once the command is over a command
+// that changed the text becomes the record '.' repeats.
+func (e *editor) recordKeyEnd(mode EditorMode, key KeyEvent, before *int, err *EditorError) {
+	// A Backspace that deleted nothing (at the start of the buffer) is left
+	// out, as Vim leaves it out of the redo buffer: replayed after other
+	// text, it would delete some.
+	if mode.Name() == InsertMode && (key.Key != KeyBackspace || err == nil) {
 		e.insertKey(key)
 	}
 	rec := &e.recording
