@@ -879,6 +879,15 @@ func TestDeleteToEndOfPrevWord(t *testing.T) {
 	runDollarCases(t, []dollarCase{
 		{name: "dge from a line end to the indent", content: "  a\nbc", keys: seq("j$dge"), want: Position{0, 0}, empty: true},
 		{name: "dgE from a line end to the indent", content: "  a\nbc", keys: seq("j$dgE"), want: Position{0, 0}, empty: true},
+		// From or to an empty line; ending on one adds nothing past its start.
+		{name: "dge from an empty line", content: "abc\n\nx", keys: seq("jdge"), want: Position{0, 1}, text: "ab\nx"},
+		{name: "dgE from an empty line", content: "abc\n\nx", keys: seq("jdgE"), want: Position{0, 1}, text: "ab\nx"},
+		{name: "yge from an empty line", content: "abc\n\nx", keys: seq("jyge"), want: Position{0, 2}, text: "abc\n\nx", yanked: "c\n"},
+		{name: "cge from an empty line", content: "abc\n\nx", keys: seq("jcge"), want: Position{0, 2}, text: "ab\nx"},
+		{name: "d2ge over an empty line", content: "abc\n\n\nx", keys: seq("2jd2ge"), want: Position{0, 1}, text: "ab\nx"},
+		{name: "dge from an empty line to an empty line", content: "abc\n\n\nx", keys: seq("2jdge"), want: Position{1, 0}, text: "abc\nx"},
+		{name: "dge to an empty line", content: "abc\n\nx", keys: seq("Gdge"), want: Position{0, 0}, text: "abc"},
+		{name: "dge from an empty line to the indent", content: "  a\n\nx", keys: seq("jdge"), want: Position{0, 0}, text: "x"},
 	})
 }
 

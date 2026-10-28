@@ -592,15 +592,23 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) 
 		}
 	}
 
-	// Skip whitespace backward, crossing lines, until we land on a non-whitespace character.
+	// Skip whitespace backward, crossing lines, until we land on a non-whitespace
+	// character. Past the line end (visual mode) counts as whitespace.
+	startRow := row
+	col = min(col, len(lineRunes)-1)
 	for {
-		for col >= 0 && col < len(lineRunes) && isWhiteSpace(lineRunes[col]) {
+		for col >= 0 && isWhiteSpace(lineRunes[col]) {
 			col--
 		}
 
 		if col >= 0 {
-			c.Position.Row = row
-			c.Position.Col = col
+			c.Position.Row, c.Position.Col = row, col
+			return false
+		}
+
+		// Vim counts an empty line as a word for ge, except the one it starts on.
+		if len(lineRunes) == 0 && row != startRow {
+			c.Position.Row, c.Position.Col = row, 0
 			return false
 		}
 
