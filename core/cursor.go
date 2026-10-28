@@ -328,14 +328,31 @@ func (c *Cursor) moveToLine(buffer Buffer, count int) {
 
 // --- Word Movement (Using Unicode and Runes) ---
 // These generally work on logical positions, but update the preferred column at the end.
+
+// isWhiteSpace is Vim's VIM_ISWHITE: space or tab. The first non-blank, J and
+// indent use it, so they keep a no-break space as text.
 func isWhiteSpace(r rune) bool {
 	return r == ' ' || r == '\t'
 }
 
-// isBigWordChar treats any non-whitespace rune as a word character, giving the
+// isBlank reports whether r is in class 0 of Vim's utf_class (mbyte.c): the
+// blanks that word motions, word objects and <cWORD> skip. Besides space and
+// tab these are the no-break space, the Ogham space mark, the spaces from
+// U+2000 to U+200B, the line and paragraph separators, the narrow no-break
+// space, the medium mathematical space and the ideographic space, but not
+// U+000B or U+0085.
+func isBlank(r rune) bool {
+	switch r {
+	case ' ', '\t', 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000:
+		return true
+	}
+	return r >= 0x2000 && r <= 0x200b
+}
+
+// isBigWordChar treats any non-blank rune as a word character, giving the
 // WORD semantics of the W/E/B/gE motions.
 func isBigWordChar(r rune) bool {
-	return !isWhiteSpace(r)
+	return !isBlank(r)
 }
 
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
@@ -369,10 +386,12 @@ func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune)
 				if eol {
 					break
 				}
-				// Go to the first non-blank on the new line; a line of only
+				// Skip the blanks at the start of the new line; a line of only
 				// blanks is skipped like the blanks at the end of a line.
 				newLineRunes := buffer.GetLineRunes(c.Position.Row)
-				c.Position.Col = firstNonBlankCol(newLineRunes)
+				for c.Position.Col < len(newLineRunes) && isBlank(newLineRunes[c.Position.Col]) {
+					c.Position.Col++
+				}
 				moved = len(newLineRunes) == 0 || c.Position.Col < len(newLineRunes)
 				continue
 			}
@@ -388,21 +407,21 @@ func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune)
 					pos++
 				}
 				// Skip whitespace
-				for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
+				for pos < lineLen && isBlank(lineRunes[pos]) {
 					pos++
 				}
-			} else if isWhiteSpace(currentChar) {
+			} else if isBlank(currentChar) {
 				// State 2: On whitespace -> skip whitespace
-				for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
+				for pos < lineLen && isBlank(lineRunes[pos]) {
 					pos++
 				}
 			} else {
 				// State 3: On punctuation -> move past current punctuation block, then skip whitespace
-				for pos < lineLen && !isWordChar(lineRunes[pos]) && !isWhiteSpace(lineRunes[pos]) {
+				for pos < lineLen && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
 					pos++
 				}
 				// Skip whitespace
-				for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
+				for pos < lineLen && isBlank(lineRunes[pos]) {
 					pos++
 				}
 			}
@@ -451,7 +470,7 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 			continue
 		}
 
-		for pos < lineLen && isWhiteSpace(lineRunes[pos]) {
+		for pos < lineLen && isBlank(lineRunes[pos]) {
 			pos++
 		}
 		if pos >= lineLen {
@@ -463,7 +482,7 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 				pos++
 			}
 		} else {
-			for pos < lineLen && !isWordChar(lineRunes[pos]) && !isWhiteSpace(lineRunes[pos]) {
+			for pos < lineLen && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
 				pos++
 			}
 		}
@@ -530,8 +549,8 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune
 			currentChar := lineRunes[pos]
 
 			// State 1: Landed on whitespace -> skip back over whitespace
-			if isWhiteSpace(currentChar) {
-				for pos >= 0 && isWhiteSpace(lineRunes[pos]) {
+			if isBlank(currentChar) {
+				for pos >= 0 && isBlank(lineRunes[pos]) {
 					pos--
 				}
 			}
@@ -546,7 +565,7 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune
 					}
 				} else {
 					// State 3: Now on punctuation -> skip back to beginning of this punctuation block
-					for pos >= 0 && !isWordChar(lineRunes[pos]) && !isWhiteSpace(lineRunes[pos]) {
+					for pos >= 0 && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
 						pos--
 					}
 				}
@@ -580,13 +599,13 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) 
 	lineRunes := buffer.GetLineRunes(row)
 
 	// Exit the current token going backward so we don't stop inside the word we are on.
-	if col < len(lineRunes) && !isWhiteSpace(lineRunes[col]) {
+	if col < len(lineRunes) && !isBlank(lineRunes[col]) {
 		if isWordChar(lineRunes[col]) {
 			for col >= 0 && isWordChar(lineRunes[col]) {
 				col--
 			}
 		} else {
-			for col >= 0 && !isWordChar(lineRunes[col]) && !isWhiteSpace(lineRunes[col]) {
+			for col >= 0 && !isWordChar(lineRunes[col]) && !isBlank(lineRunes[col]) {
 				col--
 			}
 		}
@@ -597,7 +616,7 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) 
 	startRow := row
 	col = min(col, len(lineRunes)-1)
 	for {
-		for col >= 0 && isWhiteSpace(lineRunes[col]) {
+		for col >= 0 && isBlank(lineRunes[col]) {
 			col--
 		}
 
