@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.1](https://github.com/ionut-t/goeditor/compare/v0.14.0...v0.14.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **motion:** move ge from and stop it on empty lines ([#106](https://github.com/ionut-t/goeditor/issues/106)) ([313910c](https://github.com/ionut-t/goeditor/commit/313910c77fad4e948413246df347ec019d2c7a04))
+* **repeat:** leave out a backspace that deleted nothing ([#105](https://github.com/ionut-t/goeditor/issues/105)) ([5756879](https://github.com/ionut-t/goeditor/commit/57568792da6450dbb12c8a93a816d3c17bbc3737))
+* **repeat:** reselect the span Vim does for visual . ([#107](https://github.com/ionut-t/goeditor/issues/107)) ([205a35e](https://github.com/ionut-t/goeditor/commit/205a35ed107c259b8f065a955a2691ab3cc4c36a))
+* **visual:** select both quotes with vi" on empty quotes ([#103](https://github.com/ionut-t/goeditor/issues/103)) ([7390900](https://github.com/ionut-t/goeditor/commit/73909009538d919c774e4cbeab3183d26dfc33db))
+
 ## [0.14.0](https://github.com/ionut-t/goeditor/compare/v0.13.0...v0.14.0) (2026-10-27)
 
 
