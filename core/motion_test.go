@@ -872,6 +872,18 @@ func TestGPrefix(t *testing.T) {
 		assert.Equal(t, Position{0, 4}, cursorPos(e)) // 'o' of "hello"
 	})
 
+	// Vim 9.2: an empty line counts as a word for ge, except the one it starts on.
+	seq := keySeq
+	runDollarCases(t, []dollarCase{
+		{name: "ge from an empty line", content: "abc\n\nx", keys: seq("jge"), want: Position{0, 2}},
+		{name: "ge stops on an empty line", content: "abc\n\nx", keys: seq("Gge"), want: Position{1, 0}},
+		{name: "ge from an empty line to an empty line", content: "abc\n\n\nx", keys: seq("2jge"), want: Position{1, 0}},
+		{name: "ge skips a line of blanks", content: "abc\n  \nx", keys: seq("Gge"), want: Position{0, 2}},
+		{name: "2ge over an empty line", content: "abc\n\nx", keys: seq("G2ge"), want: Position{0, 2}},
+		{name: "ge to an empty first line", content: "\nx", keys: seq("jge"), want: Position{0, 0}},
+		{name: "ge from the line break in visual mode", content: "abc def\nx", keys: seq("v$ge"), want: Position{0, 6}},
+	})
+
 	// Escape cancels pending g
 	t.Run("Escape after g cancels prefix", func(t *testing.T) {
 		e := newTestEditor("hello\nworld")
