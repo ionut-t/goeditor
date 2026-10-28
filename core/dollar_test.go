@@ -199,10 +199,13 @@ func TestVisualDollar(t *testing.T) {
 
 // TestVisualRepeatAfterDollar checks Vim's ':h visual-repeat': when $ was
 // used to extend the selection, '.' goes to the end of the line, whatever its
-// length, on as many lines. Expected text is from Vim 9.2.
+// length, on as many lines. On one line that holds only from columns 0 and 1:
+// Vim's redo overflows further on and selects back to the start of the line.
+// Expected text is from Vim 9.2.
 func TestVisualRepeatAfterDollar(t *testing.T) {
 	_, _, _, _, esc := whichwrapKeys()
 	seq := keySeq
+	const three = "abcdef\nabcdef\nabcdef"
 	const four = "abcdef\nabcdef\nabcdef\nabcdef"
 
 	runDollarCases(t, []dollarCase{
@@ -217,5 +220,14 @@ func TestVisualRepeatAfterDollar(t *testing.T) {
 		{name: "cursor at the start of the selection", content: four, keys: seq("j$vkdj."), text: "abcdef\nabcde", want: Position{1, 4}},
 		{name: "cursor at the start, then h", content: four, keys: seq("j$vkhdj."), text: "abcde\nabcd", want: Position{1, 3}},
 		{name: "a new selection after <Esc> doesn't stick", content: four, keys: seq("lv$", esc, "jlvhd"), text: "abcdef\nabcd\nabcdef\nabcdef", want: Position{1, 3}},
+		{name: "$v from column 2 goes back to the line start", content: three, keys: seq("$vdj0ll."), text: "abcde\ndef\nabcdef", want: Position{1, 0}},
+		{name: "$v from further on", content: three, keys: seq("$vdj."), text: "abcde\nf\nabcdef", want: Position{1, 0}},
+		{name: "$v from column 2 of the last line", content: three, keys: seq("$vdGll."), text: "abcde\nabcdef\ndef", want: Position{2, 0}},
+		{name: "v$ from further on", content: three, keys: seq("lllv$dj."), text: "abcabcdef\nef", want: Position{1, 0}},
+		{name: "$vc from further on", content: three, keys: seq("$vcX", esc, "j."), text: "abcdeX\nX\nabcdef", want: Position{1, 0}},
+		{name: "$vU from further on", content: three, keys: seq("$vUj."), text: "abcdeF\nABCDEF\nabcdef", want: Position{1, 0}},
+		{name: "$vp from further on", content: three, keys: seq("yl$vpj."), text: "abcdea\n\nabcdef", want: Position{1, 0}},
+		{name: "v$p from further on", content: three, keys: seq("ylllv$pj."), text: "abaabcdef\ndef", want: Position{1, 0}},
+		{name: "$v on several lines still goes to the end", content: four, keys: seq("ll$vjdj0ll."), text: "abcdeabcdef\nab", want: Position{1, 1}},
 	})
 }

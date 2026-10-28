@@ -247,8 +247,8 @@ func (e *editor) idleVisualSpan() (visualSpan, bool) {
 		span.cols = end.Col - start.Col + 1
 	}
 	if e.buffer.GetCursor().Preferred == maxCol {
-		// $ extended the selection: '.' goes to the end of the line, as in
-		// Vim, whichever end the cursor is at.
+		// $ extended the selection, whichever end the cursor is at: see
+		// selectSpan for where '.' then goes.
 		span.cols = maxCol
 	}
 	return span, true
@@ -268,20 +268,30 @@ func (e *editor) selectSpan(span visualSpan) bool {
 	}
 
 	row := max(0, min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1))
-	if span.mode == VisualMode && span.cols == maxCol {
-		cursor.Position.Row = row
-		_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break; a count of 1 never fails
-		e.buffer.SetCursor(cursor)
-		return true
-	}
 	col := cursor.Position.Col
+	lastCol := e.buffer.LineRuneCount(row) - 1
 	if span.mode == VisualMode {
-		col = span.cols
-		if span.lines == 1 {
-			col = cursor.Position.Col + span.cols - 1
+		// As in Vim, the end may go onto the line break, which the
+		// operator then includes.
+		lastCol++
+		switch {
+		case span.cols == maxCol && (span.lines > 1 || col < 2):
+			cursor.Position.Row = row
+			_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break; a count of 1 never fails
+			e.buffer.SetCursor(cursor)
+			return true
+		case span.cols == maxCol:
+			// Vim's redo of one line adds MAXCOL to the cursor's column,
+			// which overflows from column 2 on and lands on column 0: the
+			// selection goes back to the start of the line.
+			col = 0
+		case span.lines == 1:
+			col += span.cols - 1
+		default:
+			col = span.cols
 		}
 	}
-	cursor.Position = Position{Row: row, Col: max(0, min(col, e.buffer.LineRuneCount(row)-1))}
+	cursor.Position = Position{Row: row, Col: max(0, min(col, lastCol))}
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
 	return true

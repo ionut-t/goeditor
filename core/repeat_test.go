@@ -271,6 +271,33 @@ func TestRepeatVisual(t *testing.T) {
 		})
 	}
 
+	// A selection that ends past the line ends on the line break, which the
+	// operator includes, as in Vim 9.2.
+	const four = "abcdef\nabcdef\nabcdef\nabcdef"
+	lineBreak := []struct {
+		name    string
+		content string
+		keys    string
+		want    string
+		cursor  Position
+	}{
+		{"one line", four, "$vhd.", "abcabcdef\nabcdef\nabcdef", Position{0, 3}},
+		{"one line, further down", "abc def\nab\nabcdefghij\nxyz", "$vhhdj.", "abc \naabcdefghij\nxyz", Position{1, 1}},
+		{"one line, from column 0", "abcdef\nab\nxyz", "llvlldj0.", "abf\nxyz", Position{1, 0}},
+		{"not on the last line", "abcdef\nab", "llvlldj0l.", "abf\na", Position{1, 0}},
+		{"several lines", "abcdefghij\nabcdefghij\nabcdefghij\nab\nxyz", "llvjfedj0ll.", "abfghij\nabxyz", Position{1, 2}},
+		{"after visual p", "abcdef\nabcdef\nabcdef", "ylvlp$.", "acdeabcdef\nabcdef", Position{0, 4}},
+	}
+	for _, tt := range lineBreak {
+		t.Run("line break: "+tt.name, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.True(t, e.IsNormalMode())
+		})
+	}
+
 	t.Run("the span is the one the operator used, whatever the host set", func(t *testing.T) {
 		// The operator deletes from the mode's anchor; State.VisualStart is
 		// only a copy the host can overwrite.
