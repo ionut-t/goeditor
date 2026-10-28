@@ -55,6 +55,7 @@ func TestGxNormal(t *testing.T) {
 		{"blanks then paren before url", "   (https://x.com)", 0, 0, "https://x.com"},
 		{"cursor on paren after url", "(https://x.com)", 0, 14, "https://x.com"},
 		{"cursor on ws before WORD", "foo https://x.com", 0, 3, "https://x.com"},
+		{"no-break space ends the WORD", "https://a.com\u00a0x", 0, 0, "https://a.com"},
 
 		// No URL: <cfile>
 		{"uppercase scheme is a file name", "HTTPS://X.COM/P", 0, 2, "HTTPS://X.COM/P"},
@@ -86,6 +87,7 @@ func TestGxNormal(t *testing.T) {
 		{"non-ASCII name", "naïve/파일.txt", 0, 0, "naïve/파일.txt"},
 		{"emoji", "😀/x", 0, 0, "😀/x"},
 		{"tab before name", "a\tb.txt", 0, 1, "b.txt"},
+		{"no-break and ideographic spaces in a name", "a b.txt　c x", 0, 0, "a b.txt　c"},
 		{"second line", "one\ntwo/x", 1, 1, "two/x"},
 
 		// Other schemes: "type://" stays together, and ":?&=" join a URL

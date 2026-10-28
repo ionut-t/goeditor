@@ -25,17 +25,17 @@ func openTargetUnderCursor(buffer Buffer) string {
 // or the next one on the line when col is on a blank.
 func wordUnderCursor(line []rune, col int) []rune {
 	col = max(col, 0)
-	for col < len(line) && isWhiteSpace(line[col]) {
+	for col < len(line) && isBlank(line[col]) {
 		col++
 	}
 	if col >= len(line) {
 		return nil
 	}
 	start, end := col, col
-	for start > 0 && !isWhiteSpace(line[start-1]) {
+	for start > 0 && !isBlank(line[start-1]) {
 		start--
 	}
-	for end < len(line) && !isWhiteSpace(line[end]) {
+	for end < len(line) && !isBlank(line[end]) {
 		end++
 	}
 	return line[start:end]

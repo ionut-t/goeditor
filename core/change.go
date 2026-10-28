@@ -4,8 +4,8 @@ import "errors"
 
 // changeWordsForward implements cw (cW with isBigWordChar). On a word Vim
 // changes to its end, as ce, except that from the word's last character it
-// changes only that character on the first count. On blanks or an empty line
-// it takes w's motion, as dw (Vim without 'w' in 'cpoptions').
+// changes only that character on the first count. On a space, a tab or an
+// empty line it takes w's motion, as dw (Vim without 'w' in 'cpoptions').
 func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func(rune) bool) *EditorError {
 	cursor := buffer.GetCursor()
 	start := cursor.Position
@@ -14,8 +14,11 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func
 		return applyOperatorToWords(editor, buffer, "change", count, isWordChar)
 	}
 
+	// A blank other than space or tab (a no-break space) takes the ce path
+	// too, and changes to the end of the next word.
 	tempCursor := cursor
-	if start.Col+1 < len(line) && wordClass(line[start.Col+1], isWordChar) == wordClass(line[start.Col], isWordChar) {
+	class := wordClass(line[start.Col], isWordChar)
+	if class == blankClass || start.Col+1 < len(line) && wordClass(line[start.Col+1], isWordChar) == class {
 		_ = tempCursor.MoveWordToEnd(buffer, count, isWordChar)
 	} else if count > 1 {
 		_ = tempCursor.MoveWordToEnd(buffer, count-1, isWordChar)
@@ -35,7 +38,7 @@ const (
 // character and punctClass for any other character.
 func wordClass(r rune, isWordChar func(rune) bool) int {
 	switch {
-	case isWhiteSpace(r):
+	case isBlank(r):
 		return blankClass
 	case isWordChar(r):
 		return wordCharClass
