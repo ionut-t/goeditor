@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/ionut-t/goeditor/compare/v0.14.1...v0.14.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **motion:** treat Unicode spaces as blanks for words ([#108](https://github.com/ionut-t/goeditor/issues/108)) ([5cf722e](https://github.com/ionut-t/goeditor/commit/5cf722ece3c4941e2b650edabd61fd22bcb05c57))
+
 ## [0.14.1](https://github.com/ionut-t/goeditor/compare/v0.14.0...v0.14.1) (2026-10-28)
 
 
