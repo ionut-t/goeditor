@@ -461,6 +461,7 @@ func (e *editor) GetSelectionStatus(pos Position) SelectionType {
 
 	// Normalize selection range using the accessible function
 	selStart, selEnd := NormalizeSelection(state.VisualStart, cursor.Position)
+	selEnd = lastRuneOf(buffer, selEnd) // the end takes its composing characters
 
 	// Check if this is line-wise selection (either visual-line mode or yank line selection)
 	isLineWise := state.Mode == VisualLineMode || state.YankSelection == SelectionLine

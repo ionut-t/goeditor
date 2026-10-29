@@ -150,6 +150,24 @@ func (e *editor) keepCursorOnChar() {
 	}
 }
 
+// keepCursorOffMarks puts the cursor back on the start of its character when
+// it is on a composing character, in normal and visual mode, before and
+// after each key: a host, an undo or a search can leave it there, and no
+// command of these modes may (Vim's mb_adjust_cursor). Insert mode can stand
+// before a mark that joins the rune just typed, as in Vim.
+func (e *editor) keepCursorOffMarks() {
+	switch e.state.Mode {
+	case NormalMode, VisualMode, VisualLineMode:
+	default:
+		return
+	}
+	cursor := e.buffer.GetCursor()
+	if col := charStart(e.buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col); col != cursor.Position.Col {
+		cursor.Position.Col = col
+		e.buffer.SetCursor(cursor)
+	}
+}
+
 // recordingBuffer wraps the editor's buffer so that every edit, whoever makes
 // it, lands in the open undo step. Undo and redo apply their edits to the
 // wrapped buffer directly, so they are not recorded a second time.

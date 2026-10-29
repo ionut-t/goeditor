@@ -130,7 +130,7 @@ func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 	// iw selects the word without the blanks around it; on a word character
 	// it stays on the line.
 	start, end, _, _ := currentWord(e.buffer, pos, pos, false, 1, false, e.CharClass)
-	word := string(lineRunes[start.Col : end.Col+1])
+	word := string(lineRunes[start.Col:charEnd(lineRunes, end.Col)])
 
 	e.ExecuteSearch(word, SearchOptions{
 		Backwards: backwards,

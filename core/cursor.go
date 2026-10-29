@@ -27,6 +27,8 @@ func (c *Cursor) clampCol(buffer Buffer) {
 	if c.Position.Col < 0 {
 		c.Position.Col = 0
 	}
+	// Never on a composing character: back to the start of its character.
+	c.Position.Col = charStart(buffer.GetLineRunes(c.Position.Row), c.Position.Col)
 }
 
 // MoveLeft moves the cursor left by count characters, staying on the line. It
@@ -38,11 +40,11 @@ func (c *Cursor) MoveLeft(buffer Buffer, count int) error {
 	if c.Position.Col <= 0 && count > 0 {
 		return ErrStartOfLine
 	}
-	if count > c.Position.Col {
-		count = max(c.Position.Col, 0)
+	col, n := charsBack(buffer.GetLineRunes(c.Position.Row), c.Position.Col, count)
+	if n < count {
 		err = ErrStartOfLine
 	}
-	c.Position.Col -= count
+	c.Position.Col = col
 	c.clampCol(buffer)
 	c.Preferred = c.Position.Col
 	return err
@@ -58,11 +60,11 @@ func (c *Cursor) MoveRight(buffer Buffer, count int) error {
 	if c.Position.Col >= buffer.LineRuneCount(c.Position.Row) && count > 0 {
 		return ErrEndOfLine
 	}
-	if room := buffer.LineRuneCount(c.Position.Row) - c.Position.Col; count > room {
-		count = max(room, 0)
+	col, n := charsForward(buffer.GetLineRunes(c.Position.Row), c.Position.Col, count)
+	if n < count {
 		err = ErrEndOfLine
 	}
-	c.Position.Col += count
+	c.Position.Col = col
 	c.clampCol(buffer)
 	c.Preferred = c.Position.Col
 	return err
@@ -160,7 +162,7 @@ func (c *Cursor) moveLeftOrUp(buffer Buffer, count int, pastEnd bool) error {
 	var err error
 	for range count {
 		if c.Position.Col > 0 {
-			c.Position.Col--
+			c.Position.Col, _ = charsBack(buffer.GetLineRunes(c.Position.Row), c.Position.Col, 1)
 		} else if c.Position.Row > 0 {
 			c.Position.Row--
 			c.Position.Col = lastCol(buffer, c.Position.Row, pastEnd)
@@ -185,7 +187,7 @@ func (c *Cursor) moveRightOrDown(buffer Buffer, count int, pastEnd bool) error {
 	var err error
 	for range count {
 		if c.Position.Col < lastCol(buffer, c.Position.Row, pastEnd) {
-			c.Position.Col++
+			c.Position.Col, _ = charsForward(buffer.GetLineRunes(c.Position.Row), c.Position.Col, 1)
 		} else if c.Position.Row < buffer.LineCount()-1 {
 			c.Position.Row++
 			c.Position.Col = 0
@@ -198,13 +200,14 @@ func (c *Cursor) moveRightOrDown(buffer Buffer, count int, pastEnd bool) error {
 	return err
 }
 
-// lastCol returns the last column the cursor can take on row: the last
-// character, or the position after it with pastEnd.
+// lastCol returns the last column the cursor can take on row: the start of
+// the last character, or the position after it with pastEnd.
 func lastCol(buffer Buffer, row int, pastEnd bool) int {
 	if pastEnd {
 		return buffer.LineRuneCount(row)
 	}
-	return max(buffer.LineRuneCount(row)-1, 0)
+	line := buffer.GetLineRunes(row)
+	return charStart(line, max(len(line)-1, 0))
 }
 
 // moveRightToLastChar moves the cursor right by count characters, stopping on
@@ -218,11 +221,14 @@ func (c *Cursor) moveRightToLastChar(buffer Buffer, count int, pastEnd bool) err
 	if c.Position.Col >= last && count > 0 {
 		return ErrEndOfLine
 	}
-	if c.Position.Col+count > last {
-		count = max(last-c.Position.Col, 0)
-		err = ErrEndOfLine
+	line := buffer.GetLineRunes(c.Position.Row)
+	for n := 0; n < count; n++ {
+		if c.Position.Col >= last {
+			err = ErrEndOfLine
+			break
+		}
+		c.Position.Col = charEnd(line, c.Position.Col)
 	}
-	c.Position.Col += count
 	c.Preferred = c.Position.Col
 	return err
 }
@@ -275,7 +281,8 @@ func (c *Cursor) MoveToFirstNonBlank(buffer Buffer) {
 	if col == len(line) && col > 0 { // only blanks: stop on the last one
 		col--
 	}
-	c.Position.Col = col
+	// A mark on a blank is part of the blank's character: stand on that.
+	c.Position.Col = charStart(line, col)
 	c.Preferred = c.Position.Col
 }
 
@@ -287,7 +294,8 @@ func (c *Cursor) moveToInsertStart(buffer Buffer) {
 }
 
 // firstNonBlankCol returns the column of the first non-blank in line, or
-// len(line) if there is none.
+// len(line) if there is none. A mark on a blank counts as a non-blank, as
+// in Vim's skipwhite, so I inserts between the blank and its mark.
 func firstNonBlankCol(line []rune) int {
 	for i, r := range line {
 		if !isWhiteSpace(r) {
@@ -384,7 +392,7 @@ func (c *Cursor) moveWordForward(buffer Buffer, count int, cls func(rune) int, s
 				// Skip the blanks at the start of the new line; a line of only
 				// blanks is skipped like the blanks at the end of a line.
 				newLineRunes := buffer.GetLineRunes(c.Position.Row)
-				for c.Position.Col < len(newLineRunes) && isBlank(newLineRunes[c.Position.Col]) {
+				for c.Position.Col < len(newLineRunes) && blankAt(newLineRunes, c.Position.Col) {
 					c.Position.Col++
 				}
 				moved = len(newLineRunes) == 0 || c.Position.Col < len(newLineRunes)
@@ -393,12 +401,12 @@ func (c *Cursor) moveWordForward(buffer Buffer, count int, cls func(rune) int, s
 
 			// Move past the word under the cursor, then over the blanks after it.
 			pos := c.Position.Col
-			if class := cls(lineRunes[pos]); class != blankClass {
-				for pos < lineLen && cls(lineRunes[pos]) == class {
+			if class := classAt(lineRunes, pos, cls); class != blankClass {
+				for pos < lineLen && classAt(lineRunes, pos, cls) == class {
 					pos++
 				}
 			}
-			for pos < lineLen && isBlank(lineRunes[pos]) {
+			for pos < lineLen && blankAt(lineRunes, pos) {
 				pos++
 			}
 
@@ -431,7 +439,7 @@ func (c *Cursor) stayOnLastChar(buffer Buffer, err error) {
 // Returns true if the end of the buffer was reached without finding a word
 // end; the cursor is then on the last character of the buffer, as Vim's e.
 func (c *Cursor) moveWordToEndOnce(buffer Buffer, cls func(rune) int) bool {
-	pos := c.Position.Col + 1
+	pos := charEnd(buffer.GetLineRunes(c.Position.Row), c.Position.Col)
 	for {
 		lineRunes := buffer.GetLineRunes(c.Position.Row)
 		lineLen := len(lineRunes)
@@ -446,19 +454,19 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, cls func(rune) int) bool {
 			continue
 		}
 
-		for pos < lineLen && isBlank(lineRunes[pos]) {
+		for pos < lineLen && blankAt(lineRunes, pos) {
 			pos++
 		}
 		if pos >= lineLen {
 			continue
 		}
 
-		class := cls(lineRunes[pos])
-		for pos < lineLen && cls(lineRunes[pos]) == class {
+		class := classAt(lineRunes, pos, cls)
+		for pos < lineLen && classAt(lineRunes, pos, cls) == class {
 			pos++
 		}
 
-		c.Position.Col = pos - 1
+		c.Position.Col = charStart(lineRunes, pos-1)
 		return false
 	}
 }
@@ -497,12 +505,12 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, cls func(rune) int) 
 				// If the prev line is empty, Col becomes 0, loop continues correctly
 				if c.Position.Col > 0 {
 					// Start scan from last character of previous line
-					c.Position.Col--
+					c.Position.Col = lastCol(buffer, c.Position.Row, false)
 				}
 				// Don't set moved = true yet, need to find the word start on this (prev) line
 			} else {
 				// Move back one character to start the scan from within the current line
-				c.Position.Col--
+				c.Position.Col, _ = charsBack(buffer.GetLineRunes(c.Position.Row), c.Position.Col, 1)
 			}
 
 			lineRunes := buffer.GetLineRunes(c.Position.Row)
@@ -516,12 +524,9 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, cls func(rune) int) 
 				continue
 			}
 
-			// Current character type after moving back (or onto prev line)
-			currentChar := lineRunes[pos]
-
 			// State 1: Landed on whitespace -> skip back over whitespace
-			if isBlank(currentChar) {
-				for pos >= 0 && isBlank(lineRunes[pos]) {
+			if blankAt(lineRunes, pos) {
+				for pos >= 0 && blankAt(lineRunes, pos) {
 					pos--
 				}
 			}
@@ -529,8 +534,8 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, cls func(rune) int) 
 			// If we skipped whitespace and are not at start of line
 			if pos >= 0 {
 				// Skip back to the start of the word before the cursor.
-				class := cls(lineRunes[pos])
-				for pos >= 0 && cls(lineRunes[pos]) == class {
+				class := classAt(lineRunes, pos, cls)
+				for pos >= 0 && classAt(lineRunes, pos, cls) == class {
 					pos--
 				}
 				// Move one forward to land on the start of the word/punctuation found
@@ -563,9 +568,9 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, cls func(rune) int) bo
 	lineRunes := buffer.GetLineRunes(row)
 
 	// Exit the current token going backward so we don't stop inside the word we are on.
-	if col < len(lineRunes) && !isBlank(lineRunes[col]) {
-		class := cls(lineRunes[col])
-		for col >= 0 && cls(lineRunes[col]) == class {
+	if col < len(lineRunes) && !blankAt(lineRunes, col) {
+		class := classAt(lineRunes, col, cls)
+		for col >= 0 && classAt(lineRunes, col, cls) == class {
 			col--
 		}
 	}
@@ -575,12 +580,12 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, cls func(rune) int) bo
 	startRow := row
 	col = min(col, len(lineRunes)-1)
 	for {
-		for col >= 0 && isBlank(lineRunes[col]) {
+		for col >= 0 && blankAt(lineRunes, col) {
 			col--
 		}
 
 		if col >= 0 {
-			c.Position.Row, c.Position.Col = row, col
+			c.Position.Row, c.Position.Col = row, charStart(lineRunes, col)
 			return false
 		}
 

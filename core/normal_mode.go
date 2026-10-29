@@ -737,8 +737,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		actionTaken = true
 
 	case 'l': // dl, yl, cl — count characters under/after the cursor
-		lineLen := buffer.LineRuneCount(cursor.Position.Row)
-		endCol := min(cursor.Position.Col+count, lineLen)
+		endCol, _ := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
 		actionTaken = true
 
@@ -758,7 +757,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		// false. A } that ends on the last character of the buffer includes it.
 		if end, inclusive, ok := findParagraph(buffer, cursor.Position.Row, count, key.Rune == '}'); ok {
 			if inclusive {
-				end.Col++
+				end = afterChar(buffer, end)
 			}
 			err = applyOperatorToMotion(editor, buffer, op, cursor.Position, end)
 		}
@@ -790,7 +789,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case '%': // d%, y%, c% — through the matching bracket (inclusive both ends)
 		if target, ok := findMatchingBracket(buffer, cursor.Position); ok {
 			start, end := NormalizeSelection(cursor.Position, target)
-			err = applyOperatorToRange(editor, buffer, op, start, Position{Row: end.Row, Col: end.Col + 1})
+			err = applyOperatorToRange(editor, buffer, op, start, afterChar(buffer, end))
 		} else {
 			m.motionFailed = true
 		}
@@ -1040,14 +1039,15 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == 'x': // Delete character under cursor
 		lineLen := buffer.LineRuneCount(cursor.Position.Row)
 		if cursor.Position.Col < lineLen { // Only delete if cursor is on a char
-			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count)
+			endCol, _ := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
+			err = buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, endCol-cursor.Position.Col)
 
 			// Ensure cursor doesn't go past end of line after deletion
 			cursor = buffer.GetCursor() // Refresh cursor state
 			finalCol := cursor.Position.Col
 			newLineLen := buffer.LineRuneCount(cursor.Position.Row)
 			if finalCol >= newLineLen && newLineLen > 0 {
-				cursor.Position.Col = newLineLen - 1
+				cursor.Position.Col = lastCol(buffer, cursor.Position.Row, false)
 			} else if newLineLen == 0 {
 				cursor.Position.Col = 0
 			}
@@ -1055,7 +1055,8 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 	case key.Rune == 'X': // Delete count characters before cursor (dh)
 		if cursor.Position.Col > 0 {
-			start := Position{Row: cursor.Position.Row, Col: max(cursor.Position.Col-count, 0)}
+			startCol, _ := charsBack(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
+			start := Position{Row: cursor.Position.Row, Col: startCol}
 			markChangeStart(editor, start)
 			err = buffer.DeleteRunesAt(start.Row, start.Col, cursor.Position.Col-start.Col)
 			if err == nil {
@@ -1086,8 +1087,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 's': // Substitute character(s) — like 'cl'
-		lineLen := buffer.LineRuneCount(cursor.Position.Row)
-		endCol := min(cursor.Position.Col+count, lineLen)
+		endCol, _ := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
 		err = applyOperatorToRange(editor, buffer, "change", cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
 		if err == nil && !editor.IsInsertMode() {
 			editor.SetInsertMode() // empty line: 's' still enters insert mode

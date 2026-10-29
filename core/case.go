@@ -75,7 +75,7 @@ func toggleCaseChar(editor Editor, buffer Buffer, count int) *EditorError {
 		return nil
 	}
 
-	endCol := min(cursor.Position.Col+count, lineLen)
+	endCol, _ := charsForward(buffer.GetLineRunes(row), cursor.Position.Col, count)
 
 	start := Position{Row: row, Col: cursor.Position.Col}
 	end := Position{Row: row, Col: endCol} // exclusive
@@ -85,11 +85,7 @@ func toggleCaseChar(editor Editor, buffer Buffer, count int) *EditorError {
 	}
 
 	// Advance cursor past the toggled region (clamp to last char).
-	newCol := endCol
-	if newCol >= lineLen {
-		newCol = lineLen - 1
-	}
-	cursor.Position.Col = newCol
+	cursor.Position.Col = min(endCol, lastCol(buffer, row, false))
 	buffer.SetCursor(cursor)
 	return nil
 }
@@ -309,7 +305,7 @@ func applyCaseToTargetLine(editor Editor, buffer Buffer, op rune, targetRow int)
 func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos, endPos Position) *EditorError {
 	startSel, endSel := NormalizeSelection(startPos, endPos)
 	// Visual selection end is inclusive; convert to exclusive.
-	exclusiveEnd := Position{Row: endSel.Row, Col: endSel.Col + 1}
+	exclusiveEnd := afterChar(buffer, endSel)
 
 	if err := applyCaseInRange(editor, buffer, startSel, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
@@ -381,7 +377,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 	}
 
 	// endPos is inclusive; convert to exclusive for applyCaseInRange.
-	exclusiveEnd := Position{Row: endPos.Row, Col: endPos.Col + 1}
+	exclusiveEnd := afterChar(buffer, endPos)
 	if err := applyCaseInRange(editor, buffer, startPos, exclusiveEnd, caseTransformForOp(op)); err != nil {
 		return err
 	}

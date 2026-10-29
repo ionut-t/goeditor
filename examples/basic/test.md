@@ -1,14 +1,14 @@
 # 🌌 The Cosmic Multilingual Archive 🚀
 
-Welcome to the ultimate interstellar repository. This document contains fragments of data collected from across the multiverses, encoded in various Earth languages, complex grapheme clusters, and visual pictograms (emojis).
+Welcome to the ultimate interstellar repository. This document contains fragments of data collected from across the multiverses, encoded in various Earth languages, complex grapheme clusters, and visual pictograms (emojis). W̷a̵r̷n̵i̸n̵g̸:̷ ̸S̵o̴m̵e̴ ̵d̸a̸t̵a̷ ̶m̵a̷y̵ ̷b̸e̷ ̵c̸o̴r̵r̵u̷p̴t̷e̸d̴.̴
 
 ## 1. 🇬🇧 English: The Commander's Log 👨‍🚀
 
 Day 145: We have breached the outer limits of the [Andromeda galaxy](https://en.wikipedia.org/wiki/Andromeda_Galaxy). The visual sensors are picking up immense fields of ionized gas, glowing in hues of ultraviolet and deep crimson. ☄️ The ship's AI, 𝕬𝖊𝖙𝖍𝖊𝖗𝖎𝖚𝖒, has begun translating the ambient [cosmic microwave background radiation](https://en.wikipedia.org/wiki/Cosmic_microwave_background) into an audio feed. It sounds like a choir of glass instruments.
 
-Our crew consists of 14 distinct species, though communication is primarily handled through the Universal Translation Matrix. Sometimes, the matrix glitches, but our engineers quickly patch the display errors.
+Our crew consists of 14 distinct species, though communication is primarily handled through the Universal Translation Matrix. Sometimes, the matrix glitches, b̷u̵t̷ ̷o̷u̷r̵ ̴e̴n̵g̴i̷n̶e̴e̶r̴s̴ ̷q̸u̷i̵c̶k̶l̴y̸ ̶p̷a̵t̴c̷h̶ ̷t̴h̴e̴ ̴d̸i̵s̶p̶l̶a̶y̶ ̴e̸r̵r̷o̴r̶s̸.
 
-The primary mission is to find the "Source." A theoretical construct believed to be the origin of all [dark matter](https://en.wikipedia.org/wiki/Dark_matter). 🕳️ We travel at speeds exceeding $c \times 10^4$, utilizing a localized [Alcubierre warp bubble](https://en.wikipedia.org/wiki/Alcubierre_drive).
+The primary mission is to find the "S̴o̷u̴r̸c̸e̶". A theoretical construct believed to be the origin of all [dark matter](https://en.wikipedia.org/wiki/Dark_matter). 🕳️ We travel at speeds exceeding $c \times 10^4$, utilizing a localized [Alcubierre warp bubble](https://en.wikipedia.org/wiki/Alcubierre_drive).
 
 ## 2. 🇷🇴 Română: Jurnal de Bord 🛸
 
@@ -50,7 +50,7 @@ La tripulación está fascinada. La diversidad de nuestro equipo es nuestra mayo
 
 Системи безпеки в нормі. Щити працюють на 100% потужності. Ми виявили невідомий сигнал із сектора 7-G. 🚨 Можливо, це просто космічний шум, але ми повинні залишатися пильними. Наші [протоколи](https://uk.wikipedia.org/wiki/Протокол) готові до будь-яких несподіванок.
 
-## 7. Graphemes and Complex Unicode 🔣
+## 7. Graphemes, Complex Unicode, and Anomalies 🔣
 
 The deeper we go, we continue to document how various linguistic structures behave under different gravitational stresses. We observe [grapheme clusters](https://en.wikipedia.org/wiki/Grapheme) remaining remarkably stable.
 
@@ -69,6 +69,10 @@ Hindi (Devanagari) complex rendering:
 Thai complex vowel/tone stacking:
 ผู้พิทักษ์ (Guardian)
 จักรวาล (Universe)
+
+⚠️ Zalgo Anomaly Detected:
+T̴h̴e̶ ̷V̷o̶i̵d̶ ̷L̶o̸o̶k̸s̵ ̷B̷a̵c̵k̴
+H̷e̴ ̶C̵o̸m̷e̶s̶
 
 ## 8. Data Tables and Matrices 📊
 
@@ -101,5 +105,5 @@ _Generating continuous automated logs to fill the database buffer..._
 **\[REPEATING DATA STREAM ENCRYPTED\]**
 01010011 01110100 01100001 01110010 01100100 01110101 01110011 01110100
 01000011 01101111 01110011 01101101 01101111 01110011
-
+E̵r̶r̵o̷r̷:̶ ̸C̵o̸n̸t̸a̵i̷n̶m̶e̴n̶t̷ ̷B̸r̶e̷a̸c̷h̴
 (End of Archive Transmission)

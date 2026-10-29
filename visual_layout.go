@@ -1106,6 +1106,13 @@ func wrapLine(line string, width int) []string {
 			tempRuneIdx += runesConsumed
 		}
 
+		// The rest fits, though it has more runes than the row has cells
+		// (combining marks): no break, not even after a space.
+		if tempRuneIdx == len(runes) {
+			wrappedLines = append(wrappedLines, string(runes[lineStartRuneIdx:]))
+			break
+		}
+
 		// Determine where to break the line
 		var breakEndRuneIdx int
 		if tempRuneIdx == lineStartRuneIdx {

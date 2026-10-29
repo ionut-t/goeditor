@@ -423,12 +423,14 @@ func (e *editor) dispatchKey(key KeyEvent) *EditorError {
 	}
 
 	e.keepCursorOnChar()
+	e.keepCursorOffMarks()
 	e.noticeCursorMove()
 	e.openUndoStep()
 	pendingCount := e.recordKeyStart()
 
 	mode := e.currentMode
 	err := mode.HandleKey(e, e.buffer, key)
+	e.keepCursorOffMarks()
 
 	// Update derived state AFTER handling key
 	e.ScrollViewport() // Ensure cursor is visible after potential movement

@@ -58,10 +58,13 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	case KeyBackspace:
 		if col > 0 {
-			// Delete character before cursor
-			err = buffer.DeleteRunesAt(row, col-1, 1)
+			// Delete the character before the cursor with its composing
+			// characters, as Vim with 'delcombine' off.
+			start, _ := charsBack(buffer.GetLineRunes(row), col, 1)
+			err = buffer.DeleteRunesAt(row, start, col-start)
 			if err == nil {
-				_ = cursor.MoveLeft(buffer, 1) // Move cursor back
+				cursor.Position.Col = start
+				cursor.Preferred = start
 				buffer.SetCursor(cursor)
 			}
 		} else if row > 0 {
@@ -107,7 +110,9 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// For simplicity, insert literal tab rune
 		insertErr := buffer.InsertRunesAt(row, col, []rune{'\t'})
 		if insertErr == nil {
-			_ = cursor.MoveRight(buffer, 1) // Tab counts as one "character" position for movement
+			// Just after the tab, even when a mark after it now joins it.
+			cursor.Position.Col = col + 1
+			cursor.Preferred = cursor.Position.Col
 			buffer.SetCursor(cursor)
 		} else {
 			err = &EditorError{
@@ -166,7 +171,10 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if key.Rune != 0 {
 			insertErr := buffer.InsertRunesAt(row, col, []rune{key.Rune})
 			if insertErr == nil {
-				_ = cursor.MoveRight(buffer, 1) // Move cursor forward
+				// Just after the rune typed, even when it is a mark that joins
+				// the character before it, or one that a mark after it joins.
+				cursor.Position.Col = col + 1
+				cursor.Preferred = cursor.Position.Col
 				buffer.SetCursor(cursor)
 			} else {
 				err = &EditorError{

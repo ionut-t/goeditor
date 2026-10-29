@@ -192,7 +192,7 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 	if joined {
 		lineLen := buffer.LineRuneCount(row)
 		if cursor.Position.Col >= lineLen && lineLen > 0 {
-			cursor.Position.Col = lineLen - 1
+			cursor.Position.Col = lastCol(buffer, row, false)
 		}
 		buffer.SetCursor(cursor)
 	}
@@ -207,6 +207,7 @@ func deleteVisualSelection(editor Editor, buffer Buffer, startPos, endPos Positi
 
 	var deletedContent string
 	startSel, endSel := NormalizeSelection(startPos, endPos)
+	endSel = lastRuneOf(buffer, endSel) // the end takes its composing characters
 	markChangeStart(editor, startSel)
 	finalCursorPos := startSel // Default final position is the start of selection
 
