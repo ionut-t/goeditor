@@ -147,12 +147,12 @@ func yankRange(editor Editor, buffer Buffer, start, last Position) *EditorError 
 }
 
 // applyOperatorToWords applies a delete/yank/change operator to what w (W
-// with isBigWordChar) moves over from the cursor. After an operator the last
+// with bigWordClass) moves over from the cursor. After an operator the last
 // word stops at the end of its line (:h dw).
-func applyOperatorToWords(editor Editor, buffer Buffer, op string, count int, isWordChar func(rune) bool) *EditorError {
+func applyOperatorToWords(editor Editor, buffer Buffer, op string, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
 	start := cursor.Position
-	_ = cursor.moveWordForward(buffer, count, isWordChar, true)
+	_ = cursor.moveWordForward(buffer, count, cls, true)
 	return applyOperatorToMotion(editor, buffer, op, start, cursor.Position)
 }
 

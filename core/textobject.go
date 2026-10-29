@@ -5,15 +5,15 @@ package core
 // (column = line length), and reads as a blank, so a word ends at the end of
 // its line and an empty line is one blank.
 type wordWalker struct {
-	buffer     Buffer
-	pos        Position
-	line       []rune
-	isWordChar func(rune) bool
+	buffer    Buffer
+	pos       Position
+	line      []rune
+	charClass func(rune) int
 }
 
 // newWordWalker returns the walker by value, so that it stays on the stack.
-func newWordWalker(buffer Buffer, pos Position, isWordChar func(rune) bool) wordWalker {
-	w := wordWalker{buffer: buffer, isWordChar: isWordChar}
+func newWordWalker(buffer Buffer, pos Position, cls func(rune) int) wordWalker {
+	w := wordWalker{buffer: buffer, charClass: cls}
 	w.moveTo(pos)
 	return w
 }
@@ -29,7 +29,7 @@ func (w *wordWalker) cls() int {
 	if w.pos.Col >= len(w.line) {
 		return blankClass
 	}
-	return wordClass(w.line[w.pos.Col], w.isWordChar)
+	return w.charClass(w.line[w.pos.Col])
 }
 
 func (w *wordWalker) onEmptyLine() bool { return len(w.line) == 0 }
@@ -228,9 +228,10 @@ func (w *wordWalker) bckendWord() bool {
 }
 
 // currentWord is Vim's current_word: the iw/aw text object at cursor (iW/aW
-// when isWordChar is isBigWordChar), count times, with include for aw. A word
-// is a run of one class (blanks, word characters, other characters; see
-// wordClass), so a WORD is a run of non-blanks, and a line break is a blank.
+// when cls is bigWordClass), count times, with include for aw. A word
+// is a run of one class of cls (blanks, punctuation, word characters, emoji
+// or a script; see utfClass), so a WORD is a run of non-blanks, and a line
+// break is a blank.
 //
 //   - i: the run under the cursor; a count adds the runs after it.
 //   - a on blanks: the blanks and the word after them.
@@ -245,8 +246,8 @@ func (w *wordWalker) bckendWord() bool {
 //
 // On failure (a count that runs out at the end of the buffer), end is where
 // Vim leaves the cursor, and in visual mode, start where it leaves the start.
-func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count int, include bool, isWordChar func(rune) bool) (start, end Position, inclusive, ok bool) {
-	w := newWordWalker(buffer, cursor, isWordChar)
+func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count int, include bool, cls func(rune) int) (start, end Position, inclusive, ok bool) {
+	w := newWordWalker(buffer, cursor, cls)
 	start = visualStart
 	inclusive = true
 	includeWhite := false
@@ -313,7 +314,7 @@ func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count
 	// With no blanks after the word, aw takes the blanks before it instead,
 	// unless they are the indent.
 	if includeWhite && (w.cls() != blankClass || w.pos.Col == 0 && !inclusive) {
-		b := newWordWalker(buffer, start, isWordChar)
+		b := newWordWalker(buffer, start, cls)
 		if b.oneLeft() {
 			b.backInLine()
 			if b.cls() == blankClass && b.pos.Col > 0 {
@@ -325,13 +326,13 @@ func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count
 }
 
 // applyWordTextObject applies a delete/yank/change operator to the iw/aw text
-// object under the cursor (diw, y2aw, caw, ...), or iW/aW when isWordChar is
-// isBigWordChar. When the object runs out at the end of the buffer (d5aw on
+// object under the cursor (diw, y2aw, caw, ...), or iW/aW when cls is
+// bigWordClass. When the object runs out at the end of the buffer (d5aw on
 // four words, daw on an empty last line), nothing changes, and as in Vim the
 // cursor stays where the search ended.
-func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int, isWordChar func(rune) bool) *EditorError {
+func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
-	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, modifier == 'a', isWordChar)
+	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, modifier == 'a', cls)
 	if !ok {
 		cursor.Position = Position{Row: end.Row, Col: min(end.Col, lastCol(buffer, end.Row, false))}
 		buffer.SetCursor(cursor)

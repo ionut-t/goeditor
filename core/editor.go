@@ -144,6 +144,7 @@ type Editor interface {
 
 	SetExtraWordChars(chars ...rune) // Set additional characters to be considered part of words for navigation and selection
 	IsWordChar(r rune) bool          // Reports whether r is considered a word character in this editor's context
+	CharClass(r rune) int            // The class of r for word motions and objects; a word is a run of one class
 
 	ResetSelection()
 }
@@ -497,7 +498,11 @@ func (e *editor) Quit() {
 }
 
 func (e *editor) SetExtraWordChars(chars ...rune) {
-	e.state.isWordCharFunc = createIsWordCharClassifier(chars)
+	e.state.charClassFunc = createCharClassifier(chars)
+}
+
+func (e *editor) CharClass(r rune) int {
+	return e.state.CharClass(r)
 }
 
 func (e *editor) IsWordChar(r rune) bool {

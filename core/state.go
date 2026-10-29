@@ -1,11 +1,5 @@
 package core
 
-import (
-	"slices"
-	"sync"
-	"unicode"
-)
-
 type SearchQuery struct {
 	Pattern string
 	Term    string
@@ -45,7 +39,7 @@ type State struct {
 
 	AvailableWidth int // Width available for text rendering
 
-	isWordCharFunc func(rune) bool // Pre-computed classifier for word characters
+	charClassFunc func(rune) int // Pre-computed classifier for word motions and objects
 
 	WithCommandMode bool // Whether command mode is enabled
 
@@ -58,57 +52,34 @@ type State struct {
 	WithSearchMode bool // Whether search mode is enabled
 }
 
-// defaultIsWordCharFunc is the singleton default classifier (letters, digits, '_').
-// Initialized once via sync.Once to avoid repeated allocations.
-var (
-	defaultIsWordCharFunc     func(rune) bool
-	defaultIsWordCharFuncOnce sync.Once
-)
-
-func getDefaultIsWordCharFunc() func(rune) bool {
-	defaultIsWordCharFuncOnce.Do(func() {
-		defaultIsWordCharFunc = func(r rune) bool {
-			return unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_'
-		}
-	})
-	return defaultIsWordCharFunc
-}
-
-// createIsWordCharClassifier builds a func(rune) bool that returns true for
-// standard word characters (letters, digits, '_') plus any extra runes.
-// For small sets of extra chars a linear scan is used (better cache locality);
-// for larger sets a map provides O(1) lookup.
-func createIsWordCharClassifier(extraChars []rune) func(rune) bool {
+// createCharClassifier returns utfClass with the extra runes counted as
+// word characters.
+func createCharClassifier(extraChars []rune) func(rune) int {
 	if len(extraChars) == 0 {
-		return getDefaultIsWordCharFunc()
+		return utfClass
 	}
-	if len(extraChars) < 8 {
-		extra := make([]rune, len(extraChars))
-		copy(extra, extraChars)
-		return func(r rune) bool {
-			if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' {
-				return true
-			}
-			return slices.Contains(extra, r)
-		}
-	}
-	extraMap := make(map[rune]struct{}, len(extraChars))
+	extra := make(map[rune]struct{}, len(extraChars))
 	for _, ch := range extraChars {
-		extraMap[ch] = struct{}{}
+		extra[ch] = struct{}{}
 	}
-	return func(r rune) bool {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' {
-			return true
+	return func(r rune) int {
+		if _, ok := extra[r]; ok {
+			return wordCharClass
 		}
-		_, ok := extraMap[r]
-		return ok
+		return utfClass(r)
 	}
 }
 
-// IsWordChar reports whether r is considered a word character in this state.
-// isWordCharFunc is guaranteed to be non-nil by InitialState and SetExtraWordChars.
+// CharClass is the class of r for word motions and objects (see utfClass).
+// charClassFunc is guaranteed to be non-nil by InitialState and SetExtraWordChars.
+func (s State) CharClass(r rune) int {
+	return s.charClassFunc(r)
+}
+
+// IsWordChar reports whether r is considered a word character in this state:
+// Vim's vim_iswordc, which counts emoji and the script classes.
 func (s State) IsWordChar(r rune) bool {
-	return s.isWordCharFunc(r)
+	return s.charClassFunc(r) >= wordCharClass
 }
 
 // InitialState creates a default state
@@ -130,7 +101,7 @@ func InitialState() State {
 		RelativeNumbers:   false, // Default to absolute numbers
 		Quit:              false,
 		VimMode:           true,
-		isWordCharFunc:    getDefaultIsWordCharFunc(),
+		charClassFunc:     utfClass,
 
 		WithCommandMode:    true,
 		WithInsertMode:     true,

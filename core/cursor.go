@@ -349,24 +349,19 @@ func isBlank(r rune) bool {
 	return r >= 0x2000 && r <= 0x200b
 }
 
-// isBigWordChar treats any non-blank rune as a word character, giving the
-// WORD semantics of the W/E/B/gE motions.
-func isBigWordChar(r rune) bool {
-	return !isBlank(r)
-}
-
 // MoveWordForward moves the cursor forward by count words (Vim 'w' behavior)
-func (c *Cursor) MoveWordForward(buffer Buffer, count int, isWordChar func(rune) bool) error {
-	return c.moveWordForward(buffer, count, isWordChar, false)
+func (c *Cursor) MoveWordForward(buffer Buffer, count int, cls func(rune) int) error {
+	return c.moveWordForward(buffer, count, cls, false)
 }
 
-// moveWordForward is w. It stops on empty lines but not on lines of only
+// moveWordForward is w (W with bigWordClass); a word is a run of one class of
+// cls. It stops on empty lines but not on lines of only
 // blanks, and at the end of the buffer it leaves the cursor after the last
 // character. With stopAtEOL, as w after an operator, the last of the count
 // words stops at the end of its line instead of going on to the next one,
 // and from an empty line it stops at the start of the next line, as Vim's
 // fwd_word with eol.
-func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune) bool, stopAtEOL bool) error {
+func (c *Cursor) moveWordForward(buffer Buffer, count int, cls func(rune) int, stopAtEOL bool) error {
 	for i := range count {
 		eol := stopAtEOL && i == count-1
 		moved := false // Flag to track if we actually moved
@@ -396,34 +391,15 @@ func (c *Cursor) moveWordForward(buffer Buffer, count int, isWordChar func(rune)
 				continue
 			}
 
-			// Current position
+			// Move past the word under the cursor, then over the blanks after it.
 			pos := c.Position.Col
-			currentChar := lineRunes[pos]
-
-			// State 1: On a word character -> move to end of word, then skip whitespace
-			if isWordChar(currentChar) {
-				// Move to end of word
-				for pos < lineLen && isWordChar(lineRunes[pos]) {
+			if class := cls(lineRunes[pos]); class != blankClass {
+				for pos < lineLen && cls(lineRunes[pos]) == class {
 					pos++
 				}
-				// Skip whitespace
-				for pos < lineLen && isBlank(lineRunes[pos]) {
-					pos++
-				}
-			} else if isBlank(currentChar) {
-				// State 2: On whitespace -> skip whitespace
-				for pos < lineLen && isBlank(lineRunes[pos]) {
-					pos++
-				}
-			} else {
-				// State 3: On punctuation -> move past current punctuation block, then skip whitespace
-				for pos < lineLen && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
-					pos++
-				}
-				// Skip whitespace
-				for pos < lineLen && isBlank(lineRunes[pos]) {
-					pos++
-				}
+			}
+			for pos < lineLen && isBlank(lineRunes[pos]) {
+				pos++
 			}
 
 			// If we moved past the end of the line during scan
@@ -454,7 +430,7 @@ func (c *Cursor) stayOnLastChar(buffer Buffer, err error) {
 // moveWordToEndOnce advances the cursor to the end of the next word once.
 // Returns true if the end of the buffer was reached without finding a word
 // end; the cursor is then on the last character of the buffer, as Vim's e.
-func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bool {
+func (c *Cursor) moveWordToEndOnce(buffer Buffer, cls func(rune) int) bool {
 	pos := c.Position.Col + 1
 	for {
 		lineRunes := buffer.GetLineRunes(c.Position.Row)
@@ -477,14 +453,9 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 			continue
 		}
 
-		if isWordChar(lineRunes[pos]) {
-			for pos < lineLen && isWordChar(lineRunes[pos]) {
-				pos++
-			}
-		} else {
-			for pos < lineLen && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
-				pos++
-			}
+		class := cls(lineRunes[pos])
+		for pos < lineLen && cls(lineRunes[pos]) == class {
+			pos++
 		}
 
 		c.Position.Col = pos - 1
@@ -495,10 +466,10 @@ func (c *Cursor) moveWordToEndOnce(buffer Buffer, isWordChar func(rune) bool) bo
 // MoveWordToEnd moves the cursor to the end of the word count times (Vim 'e'
 // behavior). Past the last word it goes to the last character of the buffer,
 // and returns ErrEndOfBuffer if there was no word end at all to go to.
-func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, isWordChar func(rune) bool) error {
+func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, cls func(rune) int) error {
 	var err error
 	for i := range count {
-		if atEnd := c.moveWordToEndOnce(buffer, isWordChar); atEnd {
+		if atEnd := c.moveWordToEndOnce(buffer, cls); atEnd {
 			if i == 0 {
 				err = ErrEndOfBuffer
 			}
@@ -510,7 +481,7 @@ func (c *Cursor) MoveWordToEnd(buffer Buffer, count int, isWordChar func(rune) b
 }
 
 // MoveWordBackward moves the cursor backward by count words (Vim 'b' behavior)
-func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune) bool) error {
+func (c *Cursor) MoveWordBackward(buffer Buffer, count int, cls func(rune) int) error {
 	for range count {
 		moved := false // Flag to track if we actually moved
 
@@ -557,17 +528,10 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune
 
 			// If we skipped whitespace and are not at start of line
 			if pos >= 0 {
-				currentChar = lineRunes[pos] // Re-evaluate current char
-				// State 2: Now on word char -> skip back to beginning of this word
-				if isWordChar(currentChar) {
-					for pos >= 0 && isWordChar(lineRunes[pos]) {
-						pos--
-					}
-				} else {
-					// State 3: Now on punctuation -> skip back to beginning of this punctuation block
-					for pos >= 0 && !isWordChar(lineRunes[pos]) && !isBlank(lineRunes[pos]) {
-						pos--
-					}
+				// Skip back to the start of the word before the cursor.
+				class := cls(lineRunes[pos])
+				for pos >= 0 && cls(lineRunes[pos]) == class {
+					pos--
 				}
 				// Move one forward to land on the start of the word/punctuation found
 				pos++
@@ -594,20 +558,15 @@ func (c *Cursor) MoveWordBackward(buffer Buffer, count int, isWordChar func(rune
 
 // moveWordToEndBackwardOnce moves the cursor to the end of the previous word once.
 // Returns true if the start of the buffer was reached without finding a previous word end.
-func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) bool) bool {
+func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, cls func(rune) int) bool {
 	row, col := c.Position.Row, c.Position.Col
 	lineRunes := buffer.GetLineRunes(row)
 
 	// Exit the current token going backward so we don't stop inside the word we are on.
 	if col < len(lineRunes) && !isBlank(lineRunes[col]) {
-		if isWordChar(lineRunes[col]) {
-			for col >= 0 && isWordChar(lineRunes[col]) {
-				col--
-			}
-		} else {
-			for col >= 0 && !isWordChar(lineRunes[col]) && !isBlank(lineRunes[col]) {
-				col--
-			}
+		class := cls(lineRunes[col])
+		for col >= 0 && cls(lineRunes[col]) == class {
+			col--
 		}
 	}
 
@@ -643,9 +602,9 @@ func (c *Cursor) moveWordToEndBackwardOnce(buffer Buffer, isWordChar func(rune) 
 }
 
 // MoveWordToEndBackward moves the cursor to the end of the previous word count times (Vim 'ge' behaviour).
-func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, isWordChar func(rune) bool) error {
+func (c *Cursor) MoveWordToEndBackward(buffer Buffer, count int, cls func(rune) int) error {
 	for i := range count {
-		if atStart := c.moveWordToEndBackwardOnce(buffer, isWordChar); atStart {
+		if atStart := c.moveWordToEndBackwardOnce(buffer, cls); atStart {
 			if i == 0 {
 				return ErrStartOfBuffer
 			}

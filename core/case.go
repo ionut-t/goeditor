@@ -101,7 +101,7 @@ func applyCaseWord(editor Editor, buffer Buffer, op rune, count int) *EditorErro
 	startPos := cursor.Position
 	tempCursor := cursor
 
-	_ = tempCursor.moveWordForward(buffer, count, editor.IsWordChar, true)
+	_ = tempCursor.moveWordForward(buffer, count, editor.CharClass, true)
 	endPos := tempCursor.Position // exclusive end (start of next word, or the end of its line)
 
 	if startPos == endPos {
@@ -121,7 +121,7 @@ func applyCaseWordEnd(editor Editor, buffer Buffer, op rune, count int) *EditorE
 	startPos := cursor.Position
 	tempCursor := cursor
 
-	_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
+	_ = tempCursor.MoveWordToEnd(buffer, count, editor.CharClass)
 	// MoveWordToEnd lands on the last character (inclusive); move one right for exclusive end.
 	_ = tempCursor.MoveRight(buffer, 1)
 	endPos := tempCursor.Position // exclusive
@@ -143,7 +143,7 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	endPos := cursor.Position // exclusive end
 	tempCursor := cursor
 
-	_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
+	_ = tempCursor.MoveWordBackward(buffer, count, editor.CharClass)
 	startPos := tempCursor.Position
 
 	if startPos == endPos {
@@ -329,11 +329,11 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 
 	switch objectKey {
 	case 'w', 'W':
-		isWordChar := editor.IsWordChar
+		cls := editor.CharClass
 		if objectKey == 'W' {
-			isWordChar = isBigWordChar
+			cls = bigWordClass
 		}
-		return applyCaseToWordObject(editor, buffer, op, modifier == 'a', count, isWordChar)
+		return applyCaseToWordObject(editor, buffer, op, modifier == 'a', count, cls)
 
 	case '"', '\'', '`':
 		startCol, endCol, ok := quoteTextObjectRange(buffer, cursor.Position, modifier, objectKey)
@@ -393,13 +393,13 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 }
 
 // applyCaseToWordObject applies a case transform to the iw/aw text object at
-// the cursor (iW/aW when isWordChar is isBigWordChar), count times, and moves
+// the cursor (iW/aW when cls is bigWordClass), count times, and moves
 // the cursor to its start. As with the other operators, an object that runs
 // out at the end of the buffer changes nothing, and the cursor stays where the
 // search ended.
-func applyCaseToWordObject(editor Editor, buffer Buffer, op rune, include bool, count int, isWordChar func(rune) bool) *EditorError {
+func applyCaseToWordObject(editor Editor, buffer Buffer, op rune, include bool, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
-	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, include, isWordChar)
+	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, include, cls)
 	if !ok {
 		cursor.Position = Position{Row: end.Row, Col: min(end.Col, lastCol(buffer, end.Row, false))}
 		buffer.SetCursor(cursor)

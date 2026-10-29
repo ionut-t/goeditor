@@ -263,13 +263,13 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 			editor.ResetPendingCount()
 		}
 
-		isWordChar := editor.IsWordChar
+		cls := editor.CharClass
 		if key.Rune == 'E' {
-			isWordChar = isBigWordChar
+			cls = bigWordClass
 		}
 
 		tempCursor := cursor
-		_ = tempCursor.MoveWordToEndBackward(buffer, geCount, isWordChar)
+		_ = tempCursor.MoveWordToEndBackward(buffer, geCount, cls)
 		if tempCursor.Position == cursor.Position {
 			return nil // at the start of the buffer, where Vim's ge fails
 		}
@@ -312,12 +312,12 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		cursor.moveToLine(buffer, max(gCount, 1))
 		buffer.SetCursor(cursor)
 	case 'e': // ge — end of previous word
-		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, editor.IsWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, editor.CharClass)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
 	case 'E': // gE — end of previous WORD
-		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, isBigWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, gCount, bigWordClass)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
@@ -577,11 +577,11 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 	// Handle text objects after modifier
 	switch key.Rune {
 	case 'w', 'W': // iw/aw, iW/aW = inside/around word or WORD
-		isWordChar := editor.IsWordChar
+		cls := editor.CharClass
 		if key.Rune == 'W' {
-			isWordChar = isBigWordChar
+			cls = bigWordClass
 		}
-		err = applyWordTextObject(editor, buffer, op, modifier, count, isWordChar)
+		err = applyWordTextObject(editor, buffer, op, modifier, count, cls)
 		actionTaken = true
 	case 'p': // ip or ap = inside/around paragraph
 		switch op {
@@ -671,22 +671,22 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'w': // dw = delete word, yw = yank word forward, cw = change word
 		switch op {
 		case "delete", "yank":
-			err = applyOperatorToWords(editor, buffer, op, count, editor.IsWordChar)
+			err = applyOperatorToWords(editor, buffer, op, count, editor.CharClass)
 			actionTaken = true
 		case "change":
-			err = changeWordsForward(editor, buffer, count, editor.IsWordChar)
+			err = changeWordsForward(editor, buffer, count, editor.CharClass)
 			actionTaken = true
 		}
 	case 'b': // yb = yank word backward, cb = change word backward, db = delete word backward
 		tempCursor := cursor
-		_ = tempCursor.MoveWordBackward(buffer, count, editor.IsWordChar)
+		_ = tempCursor.MoveWordBackward(buffer, count, editor.CharClass)
 		if tempCursor.Position != cursor.Position { // b fails at the start of the buffer
 			err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
 		}
 		actionTaken = true
 	case 'e': // de = delete to word end, ye = yank to word end, ce = change to word end (inclusive)
 		tempCursor := cursor
-		_ = tempCursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
+		_ = tempCursor.MoveWordToEnd(buffer, count, editor.CharClass)
 		_ = tempCursor.MoveRight(buffer, 1)
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
@@ -766,22 +766,22 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 
 	case 'W': // dW, yW, cW — WORD forward (cW changes to end of WORD, like cE)
 		if op == "change" {
-			err = changeWordsForward(editor, buffer, count, isBigWordChar)
+			err = changeWordsForward(editor, buffer, count, bigWordClass)
 		} else {
-			err = applyOperatorToWords(editor, buffer, op, count, isBigWordChar)
+			err = applyOperatorToWords(editor, buffer, op, count, bigWordClass)
 		}
 		actionTaken = true
 
 	case 'E': // dE, yE, cE — to end of WORD (inclusive)
 		tempCursor := cursor
-		_ = tempCursor.MoveWordToEnd(buffer, count, isBigWordChar)
+		_ = tempCursor.MoveWordToEnd(buffer, count, bigWordClass)
 		_ = tempCursor.MoveRight(buffer, 1)
 		err = applyOperatorToRange(editor, buffer, op, cursor.Position, tempCursor.Position)
 		actionTaken = true
 
 	case 'B': // dB, yB, cB — WORD backward
 		tempCursor := cursor
-		_ = tempCursor.MoveWordBackward(buffer, count, isBigWordChar)
+		_ = tempCursor.MoveWordBackward(buffer, count, bigWordClass)
 		if tempCursor.Position != cursor.Position { // B fails at the start of the buffer
 			err = applyOperatorToMotion(editor, buffer, op, tempCursor.Position, cursor.Position)
 		}
@@ -912,19 +912,19 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 	case key.Rune == '}':
 		moveErr = cursor.MoveBlockForward(buffer, count)
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, editor.CharClass)
 		cursor.stayOnLastChar(buffer, moveErr)
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, editor.CharClass)
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, editor.CharClass)
 	case key.Rune == 'W':
-		moveErr = cursor.MoveWordForward(buffer, count, isBigWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, bigWordClass)
 		cursor.stayOnLastChar(buffer, moveErr)
 	case key.Rune == 'E':
-		moveErr = cursor.MoveWordToEnd(buffer, count, isBigWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, bigWordClass)
 	case key.Rune == 'B':
-		moveErr = cursor.MoveWordBackward(buffer, count, isBigWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, bigWordClass)
 	case key.Rune == '%': // Jump to the matching bracket
 		if target, ok := findMatchingBracket(buffer, cursor.Position); ok {
 			cursor.Position = target

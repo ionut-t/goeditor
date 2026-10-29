@@ -603,7 +603,8 @@ func (m *Model) SetLanguage(language string, theme string) {
 }
 
 // SetExtraWordChars allows specifying additional characters to be considered part of words for cursor movement and selection.
-// By default, the editor considers alphanumeric characters and underscores as part of words.
+// By default, the editor classes characters as Vim does: letters, digits and underscores
+// are word characters, and emoji, CJK, kana and hangul are words of their own.
 // This method allows to include additional characters (e.g., hyphens, dots).
 func (m *Model) SetExtraWordChars(chars ...rune) {
 	m.editor.SetExtraWordChars(chars...)
