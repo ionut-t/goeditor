@@ -221,14 +221,12 @@ func (c *Cursor) moveRightToLastChar(buffer Buffer, count int, pastEnd bool) err
 	if c.Position.Col >= last && count > 0 {
 		return ErrEndOfLine
 	}
-	line := buffer.GetLineRunes(c.Position.Row)
-	for n := 0; n < count; n++ {
-		if c.Position.Col >= last {
-			err = ErrEndOfLine
-			break
-		}
-		c.Position.Col = charEnd(line, c.Position.Col)
+	col, n := charsForward(buffer.GetLineRunes(c.Position.Row), c.Position.Col, count)
+	if n < count || col > last {
+		col = last
+		err = ErrEndOfLine
 	}
+	c.Position.Col = col
 	c.Preferred = c.Position.Col
 	return err
 }
