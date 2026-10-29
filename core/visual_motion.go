@@ -27,7 +27,7 @@ func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 		cursor.moveToLine(buffer, max(count, 1))
 		buffer.SetCursor(cursor)
 	case 'e':
-		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.IsWordChar)
+		moveErr := cursor.MoveWordToEndBackward(buffer, max(count, 1), editor.CharClass)
 		if moveErr == nil || errors.Is(moveErr, ErrStartOfBuffer) {
 			buffer.SetCursor(cursor)
 		}
@@ -92,13 +92,13 @@ func applyVisualMotion(
 		cursor.MoveToFirstNonBlank(buffer)
 		movementAttempted = true
 	case key.Rune == 'w':
-		moveErr = cursor.MoveWordForward(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordForward(buffer, count, editor.CharClass)
 		movementAttempted = true
 	case key.Rune == 'e':
-		moveErr = cursor.MoveWordToEnd(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordToEnd(buffer, count, editor.CharClass)
 		movementAttempted = true
 	case key.Rune == 'b':
-		moveErr = cursor.MoveWordBackward(buffer, count, editor.IsWordChar)
+		moveErr = cursor.MoveWordBackward(buffer, count, editor.CharClass)
 		movementAttempted = true
 	case key.Rune == 'G':
 		cursor.moveToLine(buffer, lineCount)

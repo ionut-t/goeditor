@@ -33,7 +33,12 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 
 	e.state.SearchQuery.Term = query
 	// Inline modifiers (\c, \C, \<, \>) take precedence and override the input searchOptions.
-	// Other fields (Backwards, Wrap, WholeWord, IsWordChar) are taken directly from searchOptions.
+	// Other fields (Backwards, Wrap, WholeWord, CharClass) are taken directly from searchOptions;
+	// without a CharClass the boundaries use the editor's.
+	charClass := searchOptions.CharClass
+	if charClass == nil {
+		charClass = e.CharClass
+	}
 	e.state.SearchOptions = SearchOptions{
 		IgnoreCase:        ignoreCase,
 		SmartCase:         smartCase,
@@ -42,7 +47,7 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 		WholeWord:         searchOptions.WholeWord,
 		WordBoundaryStart: wordBoundaryStart,
 		WordBoundaryEnd:   wordBoundaryEnd,
-		IsWordChar:        searchOptions.IsWordChar,
+		CharClass:         charClass,
 	}
 
 	// Find the first result
@@ -124,14 +129,14 @@ func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 
 	// iw selects the word without the blanks around it; on a word character
 	// it stays on the line.
-	start, end, _, _ := currentWord(e.buffer, pos, pos, false, 1, false, e.IsWordChar)
+	start, end, _, _ := currentWord(e.buffer, pos, pos, false, 1, false, e.CharClass)
 	word := string(lineRunes[start.Col : end.Col+1])
 
 	e.ExecuteSearch(word, SearchOptions{
-		Backwards:  backwards,
-		Wrap:       true,
-		WholeWord:  true,
-		IsWordChar: e.IsWordChar,
+		Backwards: backwards,
+		Wrap:      true,
+		WholeWord: true,
+		CharClass: e.CharClass,
 	})
 	e.ScrollViewport()
 

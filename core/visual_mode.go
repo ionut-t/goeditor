@@ -131,13 +131,13 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 	m.pendingModifier = 0
 	switch key.Rune {
 	case 'w', 'W': // viw / vaw, viW / vaW — adjust selection to cover the word or WORD
-		isWordChar := editor.IsWordChar
+		cls := editor.CharClass
 		if key.Rune == 'W' {
-			isWordChar = isBigWordChar
+			cls = bigWordClass
 		}
 		// As in Vim, a count that runs out still moves the selection as far
 		// as the search went.
-		start, end, _, _ := currentWord(buffer, cursor.Position, m.startPos, true, count, modifier == 'a', isWordChar)
+		start, end, _, _ := currentWord(buffer, cursor.Position, m.startPos, true, count, modifier == 'a', cls)
 		m.startPos = start
 		state := editor.GetState()
 		state.VisualStart = m.startPos

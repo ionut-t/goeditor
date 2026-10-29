@@ -2,49 +2,29 @@ package core
 
 import "errors"
 
-// changeWordsForward implements cw (cW with isBigWordChar). On a word Vim
+// changeWordsForward implements cw (cW with bigWordClass). On a word Vim
 // changes to its end, as ce, except that from the word's last character it
 // changes only that character on the first count. On a space, a tab or an
 // empty line it takes w's motion, as dw (Vim without 'w' in 'cpoptions').
-func changeWordsForward(editor Editor, buffer Buffer, count int, isWordChar func(rune) bool) *EditorError {
+func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
 	start := cursor.Position
 	line := buffer.GetLineRunes(start.Row)
 	if start.Col >= len(line) || isWhiteSpace(line[start.Col]) {
-		return applyOperatorToWords(editor, buffer, "change", count, isWordChar)
+		return applyOperatorToWords(editor, buffer, "change", count, cls)
 	}
 
 	// A blank other than space or tab (a no-break space) takes the ce path
 	// too, and changes to the end of the next word.
 	tempCursor := cursor
-	class := wordClass(line[start.Col], isWordChar)
-	if class == blankClass || start.Col+1 < len(line) && wordClass(line[start.Col+1], isWordChar) == class {
-		_ = tempCursor.MoveWordToEnd(buffer, count, isWordChar)
+	class := cls(line[start.Col])
+	if class == blankClass || start.Col+1 < len(line) && cls(line[start.Col+1]) == class {
+		_ = tempCursor.MoveWordToEnd(buffer, count, cls)
 	} else if count > 1 {
-		_ = tempCursor.MoveWordToEnd(buffer, count-1, isWordChar)
+		_ = tempCursor.MoveWordToEnd(buffer, count-1, cls)
 	}
 	_ = tempCursor.MoveRight(buffer, 1) // the end is inclusive
 	return applyOperatorToRange(editor, buffer, "change", start, tempCursor.Position)
-}
-
-// The classes wordClass returns, with Vim's values.
-const (
-	blankClass    = 0
-	punctClass    = 1 // any other character
-	wordCharClass = 2
-)
-
-// wordClass is Vim's cls(): blankClass for a blank, wordCharClass for a word
-// character and punctClass for any other character.
-func wordClass(r rune, isWordChar func(rune) bool) int {
-	switch {
-	case isBlank(r):
-		return blankClass
-	case isWordChar(r):
-		return wordCharClass
-	default:
-		return punctClass
-	}
 }
 
 func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *EditorError {

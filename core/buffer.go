@@ -42,35 +42,44 @@ type Buffer interface {
 
 // SearchOptions represents options for search operations
 type SearchOptions struct {
-	IgnoreCase        bool            // Case insensitive search
-	SmartCase         bool            // ...unless search contains uppercase
-	Backwards         bool            // Whether to search backwards
-	Wrap              bool            // Whether to wrap around the buffer
-	WholeWord         bool            // Only match whole words — used by * and #
-	WordBoundaryStart bool            // \< anchor: match must start at a word boundary
-	WordBoundaryEnd   bool            // \> anchor: match must end at a word boundary
-	IsWordChar        func(rune) bool // Classifier for boundary checks; nil falls back to letter|digit|_
-}
-
-// defaultWordCharClassifier is the fallback word-character classifier used when
-// SearchOptions.IsWordChar is nil.
-var defaultWordCharClassifier = func(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+	IgnoreCase        bool           // Case insensitive search
+	SmartCase         bool           // ...unless search contains uppercase
+	Backwards         bool           // Whether to search backwards
+	Wrap              bool           // Whether to wrap around the buffer
+	WholeWord         bool           // Only match whole words — used by * and #
+	WordBoundaryStart bool           // \< anchor: match must start at a word boundary
+	CharClass         func(rune) int // Classifier for boundary checks; nil falls back to utfClass
+	WordBoundaryEnd   bool           // \> anchor: match must end at a word boundary
 }
 
 // checkWordBoundaries reports whether the match at [col, col+matchLen) on lineRunes
-// satisfies the word-boundary constraints in opts.
+// satisfies the word-boundary constraints in opts, as Vim's regexp does with
+// classes: \< needs a word character (class 2 or more) at the start of the
+// match of another class than the one before it, and \> needs one at the end
+// of another class than the one after it.
 // lineRunes must be the original (non-lowercased) line so boundary chars are classified correctly.
 func checkWordBoundaries(lineRunes []rune, col, matchLen int, opts SearchOptions) bool {
-	isWordChar := opts.IsWordChar
-	if isWordChar == nil {
-		isWordChar = defaultWordCharClassifier
+	cls := opts.CharClass
+	if cls == nil {
+		cls = utfClass
 	}
-	if (opts.WholeWord || opts.WordBoundaryStart) && col > 0 && isWordChar(lineRunes[col-1]) {
-		return false
+	if opts.WholeWord || opts.WordBoundaryStart {
+		if col >= len(lineRunes) {
+			return false
+		}
+		class := cls(lineRunes[col])
+		if class < wordCharClass || col > 0 && cls(lineRunes[col-1]) == class {
+			return false
+		}
 	}
-	if (opts.WholeWord || opts.WordBoundaryEnd) && col+matchLen < len(lineRunes) && isWordChar(lineRunes[col+matchLen]) {
-		return false
+	if end := col + matchLen; opts.WholeWord || opts.WordBoundaryEnd {
+		if end == 0 {
+			return false
+		}
+		class := cls(lineRunes[end-1])
+		if class < wordCharClass || end < len(lineRunes) && cls(lineRunes[end]) == class {
+			return false
+		}
 	}
 	return true
 }
