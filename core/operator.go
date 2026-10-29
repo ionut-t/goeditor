@@ -143,8 +143,9 @@ func yankRange(editor Editor, buffer Buffer, start, last Position) *EditorError 
 			err: err,
 		}
 	}
-	// T can start the range on a mark ($yT on a target with marks); the
-	// yank takes it, but the cursor goes back to the start of its character.
+	// T can start the range on a composing character ($yT on a target with
+	// composing characters); the yank takes it, but the cursor goes back to
+	// the start of its character.
 	cursor = buffer.GetCursor()
 	if col := charStart(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col); col != cursor.Position.Col {
 		cursor.Position.Col = col

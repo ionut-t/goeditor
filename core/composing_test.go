@@ -19,14 +19,15 @@ func TestJoinsPrevious(t *testing.T) {
 		assert.False(t, joinsPrevious('a', r), "%U", r)
 	}
 	assert.True(t, joinsPrevious(0x0644, 0x0627), "lam alef")
-	assert.True(t, joinsPrevious('\t', 0x0301), "mark after a tab")
+	assert.True(t, joinsPrevious('\t', 0x0301), "composing character after a tab")
 }
 
 // TestComposingChars checks the rows below against Vim 9.2. A rune and the
-// composing characters after it are one character: the cursor never stands
-// on a mark, and commands that step or act on characters take the marks
-// with their character. Word motions and objects class a character by its
-// first rune, so a mark on a blank is a blank. Columns are rune indexes.
+// composing characters after it are one character: the cursor never stands on
+// a composing character, and commands that step or act on characters take
+// its composing characters with them. Word motions and objects class a
+// character by its first rune, so a composing character on a blank is a
+// blank. Columns are rune indexes.
 func TestComposingChars(t *testing.T) {
 	runEmptyRangeCases(t, []emptyRangeCase{
 		// e+U+0301
@@ -81,23 +82,23 @@ func TestComposingChars(t *testing.T) {
 		{name: "two e+U+0301: $Ta;", content: "xae\u0301ae\u0301a", keys: "$Ta;", text: "xae\u0301ae\u0301a", want: Position{0, 2}, reg: anyReg},
 		{name: "two e+U+0301: 2fa", content: "xae\u0301ae\u0301a", keys: "2fa", text: "xae\u0301ae\u0301a", want: Position{0, 4}, reg: anyReg},
 		{name: "two e+U+0301: d2ta", content: "xae\u0301ae\u0301a", keys: "d2ta", text: "ae\u0301a", want: Position{0, 0}, reg: anyReg},
-		// stacked marks
-		{name: "stacked marks: l", content: "a\u0334\u0335b\u0334c", keys: "l", text: "a\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: ll", content: "a\u0334\u0335b\u0334c", keys: "ll", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
-		{name: "stacked marks: $", content: "a\u0334\u0335b\u0334c", keys: "$", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
-		{name: "stacked marks: $h", content: "a\u0334\u0335b\u0334c", keys: "$h", text: "a\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: x", content: "a\u0334\u0335b\u0334c", keys: "x", text: "b\u0334c", want: Position{0, 0}, reg: anyReg},
-		{name: "stacked marks: lx", content: "a\u0334\u0335b\u0334c", keys: "lx", text: "a\u0334\u0335c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: dw", content: "a\u0334\u0335b\u0334c", keys: "dw", text: "", want: Position{0, 0}, reg: anyReg},
-		{name: "stacked marks: e", content: "a\u0334\u0335b\u0334c", keys: "e", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
-		{name: "stacked marks: vd", content: "a\u0334\u0335b\u0334c", keys: "vd", text: "b\u0334c", want: Position{0, 0}, reg: anyReg},
-		{name: "stacked marks: vld", content: "a\u0334\u0335b\u0334c", keys: "vld", text: "c", want: Position{0, 0}, reg: anyReg},
-		{name: "stacked marks: lr-", content: "a\u0334\u0335b\u0334c", keys: "lr-", text: "a\u0334\u0335-c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: 2r-", content: "a\u0334\u0335b\u0334c", keys: "2r-", text: "--c", want: Position{0, 1}, reg: anyReg},
-		{name: "stacked marks: ~", content: "a\u0334\u0335b\u0334c", keys: "~", text: "A\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: 3~", content: "a\u0334\u0335b\u0334c", keys: "3~", text: "A\u0334\u0335B\u0334C", want: Position{0, 5}, reg: anyReg},
-		{name: "stacked marks: a-<Esc>", content: "a\u0334\u0335b\u0334c", keys: "a-<Esc>", text: "a\u0334\u0335-b\u0334c", want: Position{0, 3}, reg: anyReg},
-		{name: "stacked marks: yl$p", content: "a\u0334\u0335b\u0334c", keys: "yl$p", text: "a\u0334\u0335b\u0334ca\u0334\u0335", want: Position{0, 6}, reg: anyReg},
+		// stacked composing characters
+		{name: "stacked composing characters: l", content: "a\u0334\u0335b\u0334c", keys: "l", text: "a\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: ll", content: "a\u0334\u0335b\u0334c", keys: "ll", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
+		{name: "stacked composing characters: $", content: "a\u0334\u0335b\u0334c", keys: "$", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
+		{name: "stacked composing characters: $h", content: "a\u0334\u0335b\u0334c", keys: "$h", text: "a\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: x", content: "a\u0334\u0335b\u0334c", keys: "x", text: "b\u0334c", want: Position{0, 0}, reg: anyReg},
+		{name: "stacked composing characters: lx", content: "a\u0334\u0335b\u0334c", keys: "lx", text: "a\u0334\u0335c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: dw", content: "a\u0334\u0335b\u0334c", keys: "dw", text: "", want: Position{0, 0}, reg: anyReg},
+		{name: "stacked composing characters: e", content: "a\u0334\u0335b\u0334c", keys: "e", text: "a\u0334\u0335b\u0334c", want: Position{0, 5}, reg: anyReg},
+		{name: "stacked composing characters: vd", content: "a\u0334\u0335b\u0334c", keys: "vd", text: "b\u0334c", want: Position{0, 0}, reg: anyReg},
+		{name: "stacked composing characters: vld", content: "a\u0334\u0335b\u0334c", keys: "vld", text: "c", want: Position{0, 0}, reg: anyReg},
+		{name: "stacked composing characters: lr-", content: "a\u0334\u0335b\u0334c", keys: "lr-", text: "a\u0334\u0335-c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: 2r-", content: "a\u0334\u0335b\u0334c", keys: "2r-", text: "--c", want: Position{0, 1}, reg: anyReg},
+		{name: "stacked composing characters: ~", content: "a\u0334\u0335b\u0334c", keys: "~", text: "A\u0334\u0335b\u0334c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: 3~", content: "a\u0334\u0335b\u0334c", keys: "3~", text: "A\u0334\u0335B\u0334C", want: Position{0, 5}, reg: anyReg},
+		{name: "stacked composing characters: a-<Esc>", content: "a\u0334\u0335b\u0334c", keys: "a-<Esc>", text: "a\u0334\u0335-b\u0334c", want: Position{0, 3}, reg: anyReg},
+		{name: "stacked composing characters: yl$p", content: "a\u0334\u0335b\u0334c", keys: "yl$p", text: "a\u0334\u0335b\u0334ca\u0334\u0335", want: Position{0, 6}, reg: anyReg},
 		// ab+U+0301c
 		{name: "ab+U+0301c: A<BS><BS><Esc>", content: "ab\u0301c", keys: "A<BS><BS><Esc>", text: "a", want: Position{0, 0}, reg: anyReg},
 		{name: "ab+U+0301c: $i<BS><Esc>", content: "ab\u0301c", keys: "$i<BS><Esc>", text: "ac", want: Position{0, 0}, reg: anyReg},
@@ -106,40 +107,40 @@ func TestComposingChars(t *testing.T) {
 		{name: "ab+U+0301c: i<Right><Right>x<Esc>", content: "ab\u0301c", keys: "i<Right><Right>x<Esc>", text: "ab\u0301xc", want: Position{0, 3}, reg: anyReg},
 		{name: "ab+U+0301c: A<Left>x<Esc>", content: "ab\u0301c", keys: "A<Left>x<Esc>", text: "ab\u0301xc", want: Position{0, 3}, reg: anyReg},
 		{name: "ab+U+0301c: lvld.", content: "ab\u0301c", keys: "lvld.", text: "", want: Position{0, 0}, reg: anyReg},
-		// insert a mark
-		{name: "insert a mark: a\u0301<Esc>", content: "ab", keys: "a\u0301<Esc>", text: "a\u0301b", want: Position{0, 0}, reg: anyReg},
-		{name: "insert a mark: a\u0301\u0302<Esc>x", content: "ab", keys: "a\u0301\u0302<Esc>x", text: "b", want: Position{0, 0}, reg: anyReg},
-		{name: "insert a mark: A\u0301<Esc>", content: "ab", keys: "A\u0301<Esc>", text: "ab\u0301", want: Position{0, 1}, reg: anyReg},
-		// marks on blanks
-		{name: "marks on blanks: w", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "w", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
-		{name: "marks on blanks: 2w", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "2w", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 16}, reg: anyReg},
-		{name: "marks on blanks: e", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "e", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 4}, reg: anyReg},
-		{name: "marks on blanks: $b", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$b", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
-		{name: "marks on blanks: $ge", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$ge", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 12}, reg: anyReg},
-		{name: "marks on blanks: wdiw", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "wdiw", text: "T\u0334h\u0334e\u0334 \u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
-		{name: "marks on blanks: daw", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "daw", text: "s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 0}, reg: anyReg},
-		{name: "marks on blanks: W", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "W", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
-		{name: "marks on blanks: $B", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$B", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
-		// mark on punctuation
-		{name: "mark on punctuation: w", content: "a\u0334.\u0334b\u0334 c", keys: "w", text: "a\u0334.\u0334b\u0334 c", want: Position{0, 2}, reg: anyReg},
-		{name: "mark on punctuation: 2w", content: "a\u0334.\u0334b\u0334 c", keys: "2w", text: "a\u0334.\u0334b\u0334 c", want: Position{0, 4}, reg: anyReg},
-		{name: "mark on punctuation: dw", content: "a\u0334.\u0334b\u0334 c", keys: "dw", text: ".\u0334b\u0334 c", want: Position{0, 0}, reg: anyReg},
-		// mark on a word end
-		{name: "mark on a word end: cwX<Esc>", content: "a\u0301 b", keys: "cwX<Esc>", text: "X b", want: Position{0, 0}, reg: anyReg},
-		{name: "mark on a word end: x", content: "a\u0301 b", keys: "x", text: " b", want: Position{0, 0}, reg: anyReg},
-		{name: "mark on a word end: dw", content: "a\u0301 b", keys: "dw", text: "b", want: Position{0, 0}, reg: anyReg},
-		// mark on the indent
-		{name: "mark on the indent: IZ<Esc>", content: " \u0301x", keys: "IZ<Esc>", text: " Z\u0301x", want: Position{0, 1}, reg: anyReg},
-		{name: "mark on the indent: ^", content: "  \u0301x", keys: "^", text: "  \u0301x", want: Position{0, 1}, reg: anyReg},
-		{name: "mark on the indent: ^x", content: "  \u0301x", keys: "^x", text: " x", want: Position{0, 1}, reg: anyReg},
-		// mark at line start
-		{name: "mark at line start: ie<Tab>x<Esc>", content: "\u0301", keys: "ie<Tab>x<Esc>", text: "e\tx\u0301", want: Position{0, 2}, reg: anyReg},
-		{name: "mark at line start: l", content: "\u0301ax", keys: "l", text: "\u0301ax", want: Position{0, 1}, reg: anyReg},
-		{name: "mark at line start: x", content: "\u0301ax", keys: "x", text: "ax", want: Position{0, 0}, reg: anyReg},
-		{name: "mark at line start: $x", content: "\u0301ax", keys: "$x", text: "\u0301a", want: Position{0, 1}, reg: anyReg},
-		// mark after a tab
-		{name: "mark after a tab: l", content: "\t\u0301x", keys: "l", text: "\t\u0301x", want: Position{0, 2}, reg: anyReg},
-		{name: "mark after a tab: x", content: "\t\u0301x", keys: "x", text: "x", want: Position{0, 0}, reg: anyReg},
+		// insert a composing character
+		{name: "insert a composing character: a\u0301<Esc>", content: "ab", keys: "a\u0301<Esc>", text: "a\u0301b", want: Position{0, 0}, reg: anyReg},
+		{name: "insert a composing character: a\u0301\u0302<Esc>x", content: "ab", keys: "a\u0301\u0302<Esc>x", text: "b", want: Position{0, 0}, reg: anyReg},
+		{name: "insert a composing character: A\u0301<Esc>", content: "ab", keys: "A\u0301<Esc>", text: "ab\u0301", want: Position{0, 1}, reg: anyReg},
+		// composing characters on blanks
+		{name: "composing characters on blanks: w", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "w", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
+		{name: "composing characters on blanks: 2w", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "2w", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 16}, reg: anyReg},
+		{name: "composing characters on blanks: e", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "e", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 4}, reg: anyReg},
+		{name: "composing characters on blanks: $b", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$b", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
+		{name: "composing characters on blanks: $ge", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$ge", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 12}, reg: anyReg},
+		{name: "composing characters on blanks: wdiw", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "wdiw", text: "T\u0334h\u0334e\u0334 \u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
+		{name: "composing characters on blanks: daw", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "daw", text: "s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 0}, reg: anyReg},
+		{name: "composing characters on blanks: W", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "W", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
+		{name: "composing characters on blanks: $B", content: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", keys: "$B", text: "T\u0334h\u0334e\u0334 \u0334s\u0334i\u0334m\u0334 \u0334x", want: Position{0, 8}, reg: anyReg},
+		// composing character on punctuation
+		{name: "composing character on punctuation: w", content: "a\u0334.\u0334b\u0334 c", keys: "w", text: "a\u0334.\u0334b\u0334 c", want: Position{0, 2}, reg: anyReg},
+		{name: "composing character on punctuation: 2w", content: "a\u0334.\u0334b\u0334 c", keys: "2w", text: "a\u0334.\u0334b\u0334 c", want: Position{0, 4}, reg: anyReg},
+		{name: "composing character on punctuation: dw", content: "a\u0334.\u0334b\u0334 c", keys: "dw", text: ".\u0334b\u0334 c", want: Position{0, 0}, reg: anyReg},
+		// composing character on a word end
+		{name: "composing character on a word end: cwX<Esc>", content: "a\u0301 b", keys: "cwX<Esc>", text: "X b", want: Position{0, 0}, reg: anyReg},
+		{name: "composing character on a word end: x", content: "a\u0301 b", keys: "x", text: " b", want: Position{0, 0}, reg: anyReg},
+		{name: "composing character on a word end: dw", content: "a\u0301 b", keys: "dw", text: "b", want: Position{0, 0}, reg: anyReg},
+		// composing character on the indent
+		{name: "composing character on the indent: IZ<Esc>", content: " \u0301x", keys: "IZ<Esc>", text: " Z\u0301x", want: Position{0, 1}, reg: anyReg},
+		{name: "composing character on the indent: ^", content: "  \u0301x", keys: "^", text: "  \u0301x", want: Position{0, 1}, reg: anyReg},
+		{name: "composing character on the indent: ^x", content: "  \u0301x", keys: "^x", text: " x", want: Position{0, 1}, reg: anyReg},
+		// composing character at line start
+		{name: "composing character at line start: ie<Tab>x<Esc>", content: "\u0301", keys: "ie<Tab>x<Esc>", text: "e\tx\u0301", want: Position{0, 2}, reg: anyReg},
+		{name: "composing character at line start: l", content: "\u0301ax", keys: "l", text: "\u0301ax", want: Position{0, 1}, reg: anyReg},
+		{name: "composing character at line start: x", content: "\u0301ax", keys: "x", text: "ax", want: Position{0, 0}, reg: anyReg},
+		{name: "composing character at line start: $x", content: "\u0301ax", keys: "$x", text: "\u0301a", want: Position{0, 1}, reg: anyReg},
+		// composing character after a tab
+		{name: "composing character after a tab: l", content: "\t\u0301x", keys: "l", text: "\t\u0301x", want: Position{0, 2}, reg: anyReg},
+		{name: "composing character after a tab: x", content: "\t\u0301x", keys: "x", text: "x", want: Position{0, 0}, reg: anyReg},
 		// lam alef
 		{name: "lam alef: l", content: "x\u0644\u0627y", keys: "l", text: "x\u0644\u0627y", want: Position{0, 1}, reg: anyReg},
 		{name: "lam alef: ll", content: "x\u0644\u0627y", keys: "ll", text: "x\u0644\u0627y", want: Position{0, 3}, reg: anyReg},
@@ -152,9 +153,9 @@ func TestComposingChars(t *testing.T) {
 		{name: "j onto a shorter line: llj", content: "xyzw\nab\u0301\u0302", keys: "llj", text: "xyzw\nab\u0301\u0302", want: Position{1, 1}, reg: anyReg},
 		{name: "j onto a shorter line: lllj", content: "xyzw\nab\u0301\u0302", keys: "lllj", text: "xyzw\nab\u0301\u0302", want: Position{1, 1}, reg: anyReg},
 		{name: "j onto a shorter line: jx", content: "xyzw\nab\u0301\u0302", keys: "jx", text: "xyzw\nb\u0301\u0302", want: Position{1, 0}, reg: anyReg},
-		// k onto marks
-		{name: "k onto marks: jlk", content: "ab\u0301c\nxy", keys: "jlk", text: "ab\u0301c\nxy", want: Position{0, 1}, reg: anyReg},
-		{name: "k onto marks: $jk", content: "ab\u0301c\nxy", keys: "$jk", text: "ab\u0301c\nxy", want: Position{0, 3}, reg: anyReg},
+		// k onto composing characters
+		{name: "k onto composing characters: jlk", content: "ab\u0301c\nxy", keys: "jlk", text: "ab\u0301c\nxy", want: Position{0, 1}, reg: anyReg},
+		{name: "k onto composing characters: $jk", content: "ab\u0301c\nxy", keys: "$jk", text: "ab\u0301c\nxy", want: Position{0, 3}, reg: anyReg},
 		// the reported Zalgo line ("Anomaly Expanding...")
 		{name: "zalgo: w", content: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", keys: "w", text: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", want: Position{0, 60}, reg: anyReg},
 		{name: "zalgo: 3w", content: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", keys: "3w", text: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", want: Position{0, 138}, reg: anyReg},
@@ -180,7 +181,8 @@ func TestComposingChars(t *testing.T) {
 		{name: "zalgo: $yT P", content: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", keys: "$yT P", text: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b\u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", want: Position{0, 131}, reg: anyReg},
 		{name: "zalgo: $cT Z<Esc>", content: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", keys: "$cT Z<Esc>", text: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b Z.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", want: Position{0, 53}, reg: anyReg},
 		{name: "zalgo: $vT d", content: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b \u0335\u034e\u0348\u0332\u0312\u0311\u0300\u00ca\u0337\u0326\u0307\u0351\u0315x\u0337\u031b\u034d\u0319\u034e\u0330\u0300\u034bp\u0337\u0347\u0306\u0307\u0313\u0315a\u0337\u0355\u034d\u0330\u034a\u0310\u033d\u1e45\u0337\u032b\u0329\u030a\u0315\u010f\u0337\u0324\u031c\u0332\u0304\u0308\u0301\u1e2f\u0337\u0327\u0355\u0357\u0148\u0337\u0349\u0350\u035dg\u0337\u0324\u0324\u0324\u032b\u0300\u0342\u031a.\u0335\u0319\u0330\u0326\u0333\u0307\u033d\u034b.\u0338\u0318\u034b\u0313\u035b.\u0336\u032e\u0329\u0320\u0329\u0342\u0351\u034a", keys: "$vT d", text: "\u0100\u0337\u0348\u0332\u032d\u0315\u035c\u035d\u035d\u0144\u0337\u035a\u0359\u0305\u030d\u0302\u01eb\u0337\u0330\u0330\u0310\u0313\u030a\u035bm\u0337\u031d\u0354\u0352\u033e\u0300\u00e2\u0337\u0319\u0359\u0331\u0305\u031a\u035cl\u0337\u0348\u0348\u0308\u034b\u030d\u1ef7\u0337\u033c\u031f\u0313\u030b", want: Position{0, 46}, reg: anyReg},
-		// T onto a target with marks: the cursor goes to the target, an operator starts after its first rune
+		// T onto a target with composing characters: the cursor goes to the
+		// target, an operator starts after its first rune
 		{name: "marked targets: $Ta", content: "a\u0301b\u0301c\u0301", keys: "$Ta", text: "a\u0301b\u0301c\u0301", want: Position{0, 0}, reg: anyReg},
 		{name: "marked targets: $Tb", content: "a\u0301b\u0301c\u0301", keys: "$Tb", text: "a\u0301b\u0301c\u0301", want: Position{0, 2}, reg: anyReg},
 		{name: "marked targets: $Tb;", content: "a\u0301b\u0301c\u0301", keys: "$Tb;", text: "a\u0301b\u0301c\u0301", want: Position{0, 2}, reg: anyReg},
@@ -198,7 +200,7 @@ func TestComposingChars(t *testing.T) {
 }
 
 // TestComposingSelection checks that a selection ending on a character
-// highlights its marks too.
+// highlights its composing characters too.
 func TestComposingSelection(t *testing.T) {
 	e := newTestEditor("aé b")
 	typeKeys(t, e, "lv")

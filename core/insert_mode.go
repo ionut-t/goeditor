@@ -110,7 +110,8 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		// For simplicity, insert literal tab rune
 		insertErr := buffer.InsertRunesAt(row, col, []rune{'\t'})
 		if insertErr == nil {
-			// Just after the tab, even when a mark after it now joins it.
+			// Just after the tab, even when a composing character after it
+			// now joins it.
 			cursor.Position.Col = col + 1
 			cursor.Preferred = cursor.Position.Col
 			buffer.SetCursor(cursor)
@@ -171,8 +172,9 @@ func (m *insertMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		if key.Rune != 0 {
 			insertErr := buffer.InsertRunesAt(row, col, []rune{key.Rune})
 			if insertErr == nil {
-				// Just after the rune typed, even when it is a mark that joins
-				// the character before it, or one that a mark after it joins.
+				// Just after the rune typed, even when it is a composing
+				// character that joins the character before it, or one that a
+				// composing character after it joins.
 				cursor.Position.Col = col + 1
 				cursor.Preferred = cursor.Position.Col
 				buffer.SetCursor(cursor)

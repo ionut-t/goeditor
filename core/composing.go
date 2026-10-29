@@ -7,12 +7,14 @@ import "unicode"
 // rune indexes, but the cursor only stands on the first rune of a character,
 // and commands that act on characters take its composing characters with it.
 // This isn't a grapheme cluster: Vim doesn't join emoji ZWJ sequences, flags,
-// Hangul jamo or spacing marks, and it does join a mark to a tab.
+// Hangul jamo or spacing marks, and it does join a composing character to a
+// tab.
 
 // joinsPrevious reports whether r is part of the character that prev is in,
 // as Vim's utf_composinglike: r is a nonspacing or enclosing mark (Vim's
 // utf_iscomposing), or an alef after a lam, which Vim joins with the default
-// 'arabicshape'. A mark at the start of a line is a character of its own.
+// 'arabicshape'. A composing character at the start of a line is a character
+// of its own.
 func joinsPrevious(prev, r rune) bool {
 	if r < 0x300 {
 		return false
@@ -67,7 +69,8 @@ func charsBack(line []rune, col, count int) (int, int) {
 }
 
 // classAt is cls of the character col is in: its first rune decides, so a
-// mark on a space is a blank and a mark on a letter is part of its word.
+// composing character on a space is a blank and a composing character on a
+// letter is part of its word.
 func classAt(line []rune, col int, cls func(rune) int) int {
 	return cls(line[charStart(line, col)])
 }

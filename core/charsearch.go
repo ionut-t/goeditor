@@ -42,7 +42,7 @@ func (cs *charSearchState) record(char rune) {
 // searchType: 'f' (find forward), 'F' (find backward), 't' (till forward), 'T' (till backward)
 // Returns the column position if found, -1 if not found. It steps a character
 // at a time, and a character matches by its first rune, as Vim's searchc: fe
-// finds an e with an accent mark after it.
+// finds an e with a composing accent after it.
 func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, count int) int {
 	if count <= 0 {
 		count = 1
@@ -71,11 +71,11 @@ func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, 
 		case 't': // Till forward (one character before)
 			return charStart(lineRunes, col-1)
 		case 'T': // Till backward (one rune after)
-			// As Vim's searchc: the rune after the target's first rune, so
-			// on a target with marks, its first mark. The cursor goes back
-			// to the start of that character, but an operator starts there
-			// and takes the marks without their letter ($dTa on a\u0301b
-			// leaves a b).
+			// As Vim's searchc: the rune after the target's first rune, so on
+			// a target with composing characters, its first composing
+			// character. The cursor goes back to the start of that character,
+			// but an operator starts there and takes the composing characters
+			// without their letter ($dTa on a\u0301b leaves a b).
 			if col+1 < len(lineRunes) {
 				return col + 1
 			}
@@ -97,7 +97,7 @@ func performCharSearch(buffer Buffer, searchType rune, char rune, count int) err
 		return fmt.Errorf("character '%c' not found", char)
 	}
 
-	cursor.Position.Col = charStart(lineRunes, newCol) // T can find a mark
+	cursor.Position.Col = charStart(lineRunes, newCol) // T can stop on a composing char
 	buffer.SetCursor(cursor)
 
 	return nil

@@ -150,14 +150,14 @@ func (e *editor) keepCursorOnChar() {
 	}
 }
 
-// keepCursorOffMarks puts the cursor back on the start of its character when
-// it is on a composing character, in normal and visual mode, before and
+// keepCursorOffComposing puts the cursor back on the start of its character
+// when it is on a composing character, in normal and visual mode, before and
 // after each key, as Vim's mb_adjust_cursor. The motions and commands land on
 // the start of a character themselves; this is for cursors set from outside
 // them: by the host, by an undo, or by a search match that starts with a
-// mark. Insert mode can stand before a mark that joins the rune just typed,
-// as in Vim, so it is left alone.
-func (e *editor) keepCursorOffMarks() {
+// composing character. Insert mode can stand before a composing character
+// that joins the rune just typed, as in Vim, so it is left alone.
+func (e *editor) keepCursorOffComposing() {
 	switch e.state.Mode {
 	case NormalMode, VisualMode, VisualLineMode:
 	default:

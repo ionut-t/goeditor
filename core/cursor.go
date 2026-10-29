@@ -279,7 +279,8 @@ func (c *Cursor) MoveToFirstNonBlank(buffer Buffer) {
 	if col == len(line) && col > 0 { // only blanks: stop on the last one
 		col--
 	}
-	// A mark on a blank is part of the blank's character: stand on that.
+	// A composing character on a blank is part of the blank's character:
+	// stand on that.
 	c.Position.Col = charStart(line, col)
 	c.Preferred = c.Position.Col
 }
@@ -292,8 +293,9 @@ func (c *Cursor) moveToInsertStart(buffer Buffer) {
 }
 
 // firstNonBlankCol returns the column of the first non-blank in line, or
-// len(line) if there is none. A mark on a blank counts as a non-blank, as
-// in Vim's skipwhite, so I inserts between the blank and its mark.
+// len(line) if there is none. A composing character on a blank counts as a
+// non-blank, as in Vim's skipwhite, so I inserts between the blank and its
+// composing character.
 func firstNonBlankCol(line []rune) int {
 	for i, r := range line {
 		if !isWhiteSpace(r) {
