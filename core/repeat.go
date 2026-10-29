@@ -42,7 +42,7 @@ type repeatRecord struct {
 type visualSpan struct {
 	mode  Mode // VisualMode or VisualLineMode
 	lines int  // 0 if the change wasn't made from visual mode
-	cols  int  // characterwise: characters if one line, else last line's end column; maxCol after $
+	cols  int  // characterwise: characters if one line, else the last line's characters before the end; maxCol after $
 }
 
 // commandRecording collects the keys of the command in progress.
@@ -242,9 +242,12 @@ func (e *editor) idleVisualSpan() (visualSpan, bool) {
 		return visualSpan{}, false
 	}
 	start, end := NormalizeSelection(anchor, e.buffer.GetCursor().Position)
-	span := visualSpan{mode: e.state.Mode, lines: end.Row - start.Row + 1, cols: end.Col}
+	// Counted in characters, as Vim counts screen columns: a letter and its
+	// composing characters are one.
+	endLine := e.buffer.GetLineRunes(end.Row)
+	span := visualSpan{mode: e.state.Mode, lines: end.Row - start.Row + 1, cols: charCount(endLine, 0, end.Col)}
 	if span.lines == 1 {
-		span.cols = end.Col - start.Col + 1
+		span.cols = charCount(endLine, start.Col, end.Col) + 1
 	}
 	if e.buffer.GetCursor().Preferred == maxCol {
 		// $ extended the selection, whichever end the cursor is at: see
@@ -268,14 +271,15 @@ func (e *editor) selectSpan(span visualSpan) bool {
 	}
 
 	row := max(0, min(cursor.Position.Row+span.lines-1, e.buffer.LineCount()-1))
+	line := e.buffer.GetLineRunes(row)
 	col := cursor.Position.Col
-	lastCol := e.buffer.LineRuneCount(row) - 1
+	lastCol := charStart(line, len(line)-1) // 0 on an empty line
 	if span.mode == VisualMode {
 		// As in Vim, the end may go onto the line break, which the
 		// operator then includes.
-		lastCol++
+		lastCol = len(line)
 		switch {
-		case span.cols == maxCol && (span.lines > 1 || col < 2):
+		case span.cols == maxCol && (span.lines > 1 || charCount(line, 0, col) < 2):
 			cursor.Position.Row = row
 			_ = cursor.moveToLineEnd(e.buffer, 1, true) // onto the line break; a count of 1 never fails
 			e.buffer.SetCursor(cursor)
@@ -286,9 +290,9 @@ func (e *editor) selectSpan(span visualSpan) bool {
 			// selection goes back to the start of the line.
 			col = 0
 		case span.lines == 1:
-			col += span.cols - 1
+			col, _ = charsForward(line, col, span.cols-1)
 		default:
-			col = span.cols
+			col, _ = charsForward(line, 0, span.cols)
 		}
 	}
 	cursor.Position = Position{Row: row, Col: max(0, min(col, lastCol))}

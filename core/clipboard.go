@@ -155,16 +155,17 @@ func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 
 	col := cursor.Position.Col
 	if place == putAfter {
-		// After the cursor char; on an empty line Col+1 would be past the
-		// end, so the text goes at col 0.
-		col = min(col+1, lineLen)
+		// After the cursor char and its composing characters; on an empty
+		// line that would be past the end, so the text goes at col 0.
+		col = min(charEnd(e.buffer.GetLineRunes(row), col), lineLen)
 	}
 	if err := e.buffer.InsertRunesAt(row, col, all); err != nil {
 		return &EditorError{id: ErrInvalidPositionId, err: err}
 	}
 	cursor.Position.Col = col
 	if !slices.Contains(text, '\n') {
-		cursor.Position.Col += len(all) - 1
+		// On the last pasted character, not on a composing character of it.
+		cursor.Position.Col = charStart(e.buffer.GetLineRunes(row), col+len(all)-1)
 	}
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
@@ -200,6 +201,7 @@ func (e *editor) Copy(op copyType) error {
 	if isVisual {
 		// Visual mode or yank from normal mode: use the selected range, normalize it
 		start, end = NormalizeSelection(state.VisualStart, cursor.Position)
+		end = lastRuneOf(buffer, end) // the end takes its composing characters
 
 		// Check if the selection is line-wise
 		// Either from visual-line mode OR from YankSelection being set to SelectionLine

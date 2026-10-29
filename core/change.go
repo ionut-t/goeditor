@@ -18,7 +18,8 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) 
 	// too, and changes to the end of the next word.
 	tempCursor := cursor
 	class := cls(line[start.Col])
-	if class == blankClass || start.Col+1 < len(line) && cls(line[start.Col+1]) == class {
+	next := charEnd(line, start.Col)
+	if class == blankClass || next < len(line) && classAt(line, next, cls) == class {
 		_ = tempCursor.MoveWordToEnd(buffer, count, cls)
 	} else if count > 1 {
 		_ = tempCursor.MoveWordToEnd(buffer, count-1, cls)
@@ -29,14 +30,15 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) 
 
 func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	lineLen := buffer.LineRuneCount(cursor.Position.Row)
 
 	// Vim replaces nothing when the line has fewer than count characters left.
-	if count > lineLen-cursor.Position.Col {
+	// Each character goes with its composing characters.
+	endCol, n := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
+	if n < count {
 		return nil
 	}
 
-	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, count); err != nil {
+	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, endCol-cursor.Position.Col); err != nil {
 		return err
 	}
 

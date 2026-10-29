@@ -141,7 +141,7 @@ func visualSelectionText(editor Editor, buffer Buffer) string {
 				from = min(start.Col, len(line))
 			}
 			if row == end.Row {
-				to = min(end.Col+1, len(line))
+				to = min(charEnd(line, end.Col), len(line))
 			}
 		}
 		parts = append(parts, string(line[from:max(from, to)]))

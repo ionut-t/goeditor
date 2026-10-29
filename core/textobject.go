@@ -1,9 +1,10 @@
 package core
 
 // wordWalker steps through the buffer as Vim's inc() and dec() do, for the
-// word text objects. The line break of each line is a position of its own
-// (column = line length), and reads as a blank, so a word ends at the end of
-// its line and an empty line is one blank.
+// word text objects: a character (with its composing characters) at a time.
+// The line break of each line is a position of its own (column = line
+// length), and reads as a blank, so a word ends at the end of its line and an
+// empty line is one blank.
 type wordWalker struct {
 	buffer    Buffer
 	pos       Position
@@ -21,7 +22,7 @@ func newWordWalker(buffer Buffer, pos Position, cls func(rune) int) wordWalker {
 func (w *wordWalker) moveTo(pos Position) {
 	w.pos = pos
 	w.line = w.buffer.GetLineRunes(pos.Row)
-	w.pos.Col = min(pos.Col, len(w.line))
+	w.pos.Col = charStart(w.line, min(pos.Col, len(w.line)))
 }
 
 // cls is Vim's cls(): the class of the character under the walker.
@@ -38,7 +39,7 @@ func (w *wordWalker) onEmptyLine() bool { return len(w.line) == 0 }
 // line break, 1 onto the next line and -1 at the end of the buffer.
 func (w *wordWalker) inc() int {
 	if w.pos.Col < len(w.line) {
-		w.pos.Col++
+		w.pos.Col = charEnd(w.line, w.pos.Col)
 		if w.pos.Col < len(w.line) {
 			return 0
 		}
@@ -55,7 +56,7 @@ func (w *wordWalker) inc() int {
 // break of the line above and -1 at the start of the buffer.
 func (w *wordWalker) dec() int {
 	if w.pos.Col > 0 {
-		w.pos.Col--
+		w.pos.Col = charStart(w.line, w.pos.Col-1)
 		return 0
 	}
 	if w.pos.Row > 0 {
@@ -88,7 +89,7 @@ func (w *wordWalker) oneLeft() bool {
 	if w.pos.Col == 0 {
 		return false
 	}
-	w.pos.Col--
+	w.pos.Col = charStart(w.line, w.pos.Col-1)
 	return true
 }
 
@@ -349,7 +350,7 @@ func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune,
 // before it.
 func afterWordObject(buffer Buffer, end Position) Position {
 	if end.Col < buffer.LineRuneCount(end.Row) {
-		end.Col++
+		return afterChar(buffer, end)
 	}
 	return end
 }

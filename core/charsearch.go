@@ -40,63 +40,49 @@ func (cs *charSearchState) record(char rune) {
 
 // findCharOnLine searches for a character on the current line.
 // searchType: 'f' (find forward), 'F' (find backward), 't' (till forward), 'T' (till backward)
-// Returns the column position if found, -1 if not found.
+// Returns the column position if found, -1 if not found. It steps a character
+// at a time, and a character matches by its first rune, as Vim's searchc: fe
+// finds an e with a composing accent after it.
 func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, count int) int {
 	if count <= 0 {
 		count = 1
 	}
+	forward := searchType == 'f' || searchType == 't'
 
 	occurrencesFound := 0
-
-	switch searchType {
-	case 'f': // Find forward
-		for col := startCol + 1; col < len(lineRunes); col++ {
-			if lineRunes[col] == char {
-				occurrencesFound++
-				if occurrencesFound == count {
-					return col
-				}
+	for col := startCol; ; {
+		if forward {
+			if col = charEnd(lineRunes, max(col, 0)); col >= len(lineRunes) {
+				return -1
 			}
-		}
-
-	case 'F': // Find backward
-		for col := startCol - 1; col >= 0; col-- {
-			if lineRunes[col] == char {
-				occurrencesFound++
-				if occurrencesFound == count {
-					return col
-				}
+		} else {
+			if col <= 0 || len(lineRunes) == 0 {
+				return -1
 			}
+			col = charStart(lineRunes, min(col, len(lineRunes))-1)
 		}
-
-	case 't': // Till forward (one before the character)
-		for col := startCol + 1; col < len(lineRunes); col++ {
-			if lineRunes[col] == char {
-				occurrencesFound++
-				if occurrencesFound == count {
-					if col > 0 {
-						return col - 1
-					}
-					return -1
-				}
+		if lineRunes[col] != char {
+			continue
+		}
+		if occurrencesFound++; occurrencesFound < count {
+			continue
+		}
+		switch searchType {
+		case 't': // Till forward (one character before)
+			return charStart(lineRunes, col-1)
+		case 'T': // Till backward (one rune after)
+			// As Vim's searchc: the rune after the target's first rune, so on
+			// a target with composing characters, its first composing
+			// character. The cursor goes back to the start of that character,
+			// but an operator starts there and takes the composing characters
+			// without their letter ($dTa on a\u0301b leaves a b).
+			if col+1 < len(lineRunes) {
+				return col + 1
 			}
+			return -1
 		}
-
-	case 'T': // Till backward (one after the character)
-		for col := startCol - 1; col >= 0; col-- {
-			if lineRunes[col] == char {
-				occurrencesFound++
-				if occurrencesFound == count {
-					if col < len(lineRunes)-1 {
-						return col + 1
-					}
-					return -1
-				}
-			}
-		}
+		return col
 	}
-
-	return -1 // Not found
 }
 
 // performCharSearch executes a character search and moves the cursor.
@@ -111,7 +97,7 @@ func performCharSearch(buffer Buffer, searchType rune, char rune, count int) err
 		return fmt.Errorf("character '%c' not found", char)
 	}
 
-	cursor.Position.Col = newCol
+	cursor.Position.Col = charStart(lineRunes, newCol) // T can stop on a composing char
 	buffer.SetCursor(cursor)
 
 	return nil
@@ -130,9 +116,9 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 	if skipAdjacent {
 		switch searchType {
 		case 't':
-			searchCol++
+			searchCol, _ = charsForward(lineRunes, searchCol, 1)
 		case 'T':
-			searchCol--
+			searchCol, _ = charsBack(lineRunes, searchCol, 1)
 		}
 	}
 
@@ -154,23 +140,11 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 	switch searchType {
 	case 'f', 't': // Forward search
 		startCol = startPos.Col
-		endCol = targetCol
-		if searchType == 'f' {
-			endCol++ // Include the found character for 'f'
-		} else {
-			endCol++ // For 't', we stopped one before, so include up to that position
-		}
+		// Inclusive: f takes the found character, t the one before it.
+		endCol = charEnd(lineRunes, targetCol)
 	case 'F', 'T': // Backward search: exclusive, so the cursor char stays
 		startCol = targetCol
 		endCol = startPos.Col
-	}
-
-	// Ensure we don't go out of bounds
-	if startCol < 0 {
-		startCol = 0
-	}
-	if endCol > len(lineRunes) {
-		endCol = len(lineRunes)
 	}
 
 	return applyOperatorToRange(editor, buffer, op,
@@ -282,12 +256,13 @@ func repeatCharSearch(cs *charSearchState, editor Editor, buffer Buffer, count i
 	// one step further so findCharOnLine skips that char and finds the next one.
 	original := buffer.GetCursor()
 	cursor := original
+	line := buffer.GetLineRunes(cursor.Position.Row)
 	switch searchType {
 	case 't':
-		cursor.Position.Col++
+		cursor.Position.Col, _ = charsForward(line, cursor.Position.Col, 1)
 		buffer.SetCursor(cursor)
 	case 'T':
-		cursor.Position.Col--
+		cursor.Position.Col, _ = charsBack(line, cursor.Position.Col, 1)
 		buffer.SetCursor(cursor)
 	}
 

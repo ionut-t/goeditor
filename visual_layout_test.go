@@ -421,6 +421,8 @@ func TestWrapLine(t *testing.T) {
 		{"keeps a run of spaces at a wrap", "aaaaa   bbbbb", 5, []string{"aaaaa", "   ", "bbbbb"}},
 		{"spaces longer than the row continue on the next rows", "ab" + strings.Repeat(" ", 20) + "cd", 10, []string{"ab        ", "          ", "  cd"}},
 		{"spaces only", strings.Repeat(" ", 25), 10, []string{"          ", "          ", "     "}},
+		{"more runes than cells but fits", "a\u0334\u0335b\u0334 c\u0334\u0335\u0336", 4, []string{"a\u0334\u0335b\u0334 c\u0334\u0335\u0336"}},
+		{"more runes than cells, wraps after the space", "a\u0334\u0335b\u0334 c\u0334\u0335\u0336d", 4, []string{"a\u0334\u0335b\u0334 ", "c\u0334\u0335\u0336d"}},
 	}
 
 	for _, tt := range tests {
