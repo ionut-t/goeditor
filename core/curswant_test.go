@@ -85,6 +85,35 @@ func TestVisualYankSetsColumn(t *testing.T) {
 	})
 }
 
+// TestCharSearchSetsColumn checks that f/F/t/T, ; and , set the column j and
+// k go to where they land, as Vim, and that a search which fails keeps it.
+func TestCharSearchSetsColumn(t *testing.T) {
+	const text = "abcdcf\nabcdefghij"
+	runCurswantCases(t, []curswantCase{
+		{text, "fcj", NormalMode, Position{1, 2}, 2},
+		{text, "2fcj", NormalMode, Position{1, 4}, 4},
+		{text, "$Fcj", NormalMode, Position{1, 4}, 4},
+		{text, "tcj", NormalMode, Position{1, 1}, 1},
+		{text, "lTaj", NormalMode, Position{1, 1}, 1},
+		{text, "fc;j", NormalMode, Position{1, 4}, 4},
+		{text, "tc;j", NormalMode, Position{1, 3}, 3},
+		{text, "fc;,j", NormalMode, Position{1, 2}, 2},
+		{text, "fcvj", VisualMode, Position{1, 2}, 2},
+		{text, "fcv;j", VisualMode, Position{1, 4}, 4},
+		{text, "lVfcj", VisualLineMode, Position{1, 2}, 2},
+		{text, "$fzj", NormalMode, Position{1, 9}, -1},
+		{text, "$9fcj", NormalMode, Position{1, 9}, -1},
+		{text, "$;j", NormalMode, Position{1, 9}, -1},
+		{text, "fc$;j", NormalMode, Position{1, 9}, -1},
+		{text, "$vfzj", VisualMode, Position{1, 10}, -1},
+		{text, "$Vfcj", VisualLineMode, Position{1, 10}, -1},
+		{text, "yfcj", NormalMode, Position{1, 0}, 0},
+		{text, "$yFcj", NormalMode, Position{1, 4}, 4},
+		{text, "dfcj", NormalMode, Position{1, 0}, 0},
+		{text, "$dFcj", NormalMode, Position{1, 4}, 4},
+	})
+}
+
 // TestVisualEscapeCancelsTextObject checks that Esc after a visual i/a only
 // cancels it and its count, as Vim: the mode, the selection and the column
 // j and k go to stay, and a second Esc leaves visual mode.
@@ -129,13 +158,7 @@ func TestVisualEscapeCancelsPrefix(t *testing.T) {
 		{"abcdef\nabcdefghij", "lvg<Esc><Esc>", NormalMode, Position{0, 1}, 1},
 		{"abcdef\nabcdefghij", "lVf<Esc><Esc>", NormalMode, Position{0, 1}, 1},
 		{"abcdef\nabcdefghij", "lv2<Esc>", NormalMode, Position{0, 1}, 1},
-	})
-
-	t.Run("; repeats the search before the cancelled one", func(t *testing.T) {
-		e := newTestEditor("abcdcf\nabcdefghij")
-		typeKeys(t, e, "fcvF<Esc>;")
-		assert.Equal(t, VisualMode, e.GetMode().Name())
-		assert.Equal(t, Position{0, 4}, cursorPos(e))
+		{"abcdcf\nabcdefghij", "fcvF<Esc>;", VisualMode, Position{0, 4}, 4}, // ; repeats fc, not the cancelled F
 	})
 }
 
