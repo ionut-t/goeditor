@@ -129,6 +129,13 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor, count int) *EditorError {
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
+	// Vim sets curswant after any object, even one that isn't found, so j and
+	// k go back to the column the cursor ends on.
+	defer func() {
+		cursor := buffer.GetCursor()
+		cursor.Preferred = cursor.Position.Col
+		buffer.SetCursor(cursor)
+	}()
 	switch key.Rune {
 	case 'w', 'W': // viw / vaw, viW / vaW — adjust selection to cover the word or WORD
 		cls := editor.CharClass
@@ -143,7 +150,6 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		state.VisualStart = m.startPos
 		editor.SetState(state)
 		cursor.Position = end
-		cursor.Preferred = end.Col
 		buffer.SetCursor(cursor)
 	case 'p': // vip / vap — expand to paragraph and switch to visual line mode
 		startRow, endRow, found := paragraphRows(buffer, cursor.Position, modifier)
@@ -299,9 +305,9 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			// stays selected as a yank highlight, as after yw.
 			start, end := NormalizeSelection(m.startPos, cursor.Position)
 			cursor.Position = start
-			cursor.Preferred = start.Col
 			buffer.SetCursor(cursor)
 			editor.SetNormalMode()
+			endVisualOperator(buffer) // the start can be a line break
 			state = editor.GetState()
 			state.VisualStart = end
 			state.YankSelection = SelectionCharacter

@@ -521,11 +521,12 @@ func (e *editor) countChange() {
 // recorded one, for this and later repeats, as in Vim; a change made from
 // visual mode ignores it. The replay is one undo step. If a key fails, or the command ends before its last key (a motion
 // that found nothing ends it early), the rest is dropped and the editor goes
-// back to normal mode; the record is kept.
-func (e *editor) repeatChange(count int) *EditorError {
+// back to normal mode; the record is kept. repeated is false when there was
+// no change to repeat.
+func (e *editor) repeatChange(count int) (repeated bool, err *EditorError) {
 	e.noRepeat()
 	if len(e.repeat.keys) == 0 {
-		return nil
+		return false, nil
 	}
 	visual := e.repeat.visual.lines > 0
 	if count > 0 && !visual {
@@ -536,7 +537,7 @@ func (e *editor) repeatChange(count int) *EditorError {
 	defer func() { e.replaying = false }()
 
 	if visual && !e.selectSpan(e.repeat.visual) {
-		return nil
+		return false, nil
 	}
 
 	keys := make([]KeyEvent, 0, len(e.repeat.keys)+4)
@@ -550,13 +551,13 @@ func (e *editor) repeatChange(count int) *EditorError {
 	for i, key := range keys {
 		if err := e.dispatchKey(key); err != nil {
 			e.abortReplay()
-			return err
+			return true, err
 		}
 		if i < len(keys)-1 && e.normalIdle() {
 			break
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // abortReplay drops whatever command a failed replay left part way.
