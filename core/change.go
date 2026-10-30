@@ -28,18 +28,20 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) 
 	return applyOperatorToRange(editor, buffer, "change", start, tempCursor.Position)
 }
 
-func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *EditorError {
+// replaceCharUnderCursor is r: it replaces count characters from the cursor
+// with ch, and reports whether it did.
+func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) (replaced bool, err *EditorError) {
 	cursor := buffer.GetCursor()
 
 	// Vim replaces nothing when the line has fewer than count characters left.
 	// Each character goes with its composing characters.
 	endCol, n := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
 	if n < count {
-		return nil
+		return false, nil
 	}
 
 	if err := buffer.DeleteRunesAt(cursor.Position.Row, cursor.Position.Col, endCol-cursor.Position.Col); err != nil {
-		return err
+		return false, err
 	}
 
 	runes := make([]rune, count)
@@ -47,13 +49,13 @@ func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) *E
 		runes[i] = ch
 	}
 	if err := buffer.InsertRunesAt(cursor.Position.Row, cursor.Position.Col, runes); err != nil {
-		return &EditorError{id: ErrInvalidPositionId, err: err}
+		return false, &EditorError{id: ErrInvalidPositionId, err: err}
 	}
 
 	// The cursor ends on the last replaced character.
 	cursor.Position.Col += count - 1
 	buffer.SetCursor(cursor)
-	return nil
+	return true, nil
 }
 
 // changeLineRange is the linewise change (cc, S, cj, cG, Vc): it empties the

@@ -42,9 +42,8 @@ type swapCase struct {
 // operators after it act on the same selection from its other end: linewise
 // y, u, U and ~ leave the cursor where it is when it is above the anchor.
 // d and c don't write the clipboard in goeditor yet, so those rows don't
-// check it. Left out because of other bugs: the register after visual p,
-// and the column after y from a line break. o after switching between v
-// and V is in TestVisualSwitchKeepsAnchor.
+// check it. Left out because of another bug: the register after visual p.
+// o after switching between v and V is in TestVisualSwitchKeepsAnchor.
 func TestVisualSwapEnds(t *testing.T) {
 	tests := []swapCase{
 		{"row lvlo", swapRow, "lvlo", VisualMode, Position{0, 1}, Position{0, 2}, 1, "abcdef", "REG"},
@@ -139,6 +138,8 @@ func TestVisualSwapEnds(t *testing.T) {
 		{"lines jv<BS>o", swapLines, "jv<BS>o", VisualMode, Position{1, 0}, Position{0, 3}, 0, "abc\ndef\nghi", "REG"},
 		{"lines jv<BS>o<Esc>", swapLines, "jv<BS>o<Esc>", NormalMode, Position{1, 0}, Position{1, 0}, 0, "abc\ndef\nghi", "REG"},
 		{"lines jv<BS>od", swapLines, "jv<BS>od", NormalMode, Position{0, 3}, Position{0, 3}, 3, "abcef\nghi", ""},
+		{"lines jv<BS>oy", swapLines, "jv<BS>oy", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "\nd"},
+		{"lines jv<BS>ooy", swapLines, "jv<BS>ooy", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "\nd"},
 		{"lines jv<BS>oU", swapLines, "jv<BS>oU", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\nDef\nghi", "REG"},
 		{"lines jv<BS>oj", swapLines, "jv<BS>oj", VisualMode, Position{2, 0}, Position{0, 3}, 0, "abc\ndef\nghi", "REG"},
 		{"lines jv<BS>ok", swapLines, "jv<BS>ok", VisualMode, Position{0, 0}, Position{0, 3}, 0, "abc\ndef\nghi", "REG"},
@@ -157,6 +158,8 @@ func TestVisualSwapEnds(t *testing.T) {
 		{"lines jV<BS>oy", swapLines, "jV<BS>oy", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abc\ndef\nghi", "abc\ndef\n"},
 		{"lines jV<BS>oU", swapLines, "jV<BS>oU", NormalMode, Position{0, 0}, Position{0, 0}, 0, "ABC\nDEF\nghi", "REG"},
 		{"lines jV<BS>od", swapLines, "jV<BS>od", NormalMode, Position{0, 0}, Position{0, 0}, 0, "ghi", ""},
+		{"lines jV<BS>ooy", swapLines, "jV<BS>ooy", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "abc\ndef\n"},
+		{"lines jV<BS>ooyj", swapLines, "jV<BS>ooyj", NormalMode, Position{1, 2}, Position{1, 2}, 2, "abc\ndef\nghi", "abc\ndef\n"},
 		{"lines jV<BS>oo<Esc>", swapLines, "jV<BS>oo<Esc>", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "REG"},
 		{"lines lV<BS>o", swapLines, "lV<BS>o", VisualLineMode, Position{0, 1}, Position{0, 0}, 1, "abc\ndef\nghi", "REG"},
 		{"lines lV<BS>o<Esc>", swapLines, "lV<BS>o<Esc>", NormalMode, Position{0, 1}, Position{0, 1}, 1, "abc\ndef\nghi", "REG"},
@@ -278,8 +281,7 @@ func TestVisualSwapEnds(t *testing.T) {
 // 9.2: the anchor and the column for j and k stay where they were (Vim
 // keeps VIsual), so the selection only changes between charwise and
 // linewise, also after o, from a line break and after $. vip from v puts
-// the anchor on the paragraph's first line. Left out because of open bug 21
-// (the column after y from a line break): jV<BS>vy.
+// the anchor on the paragraph's first line.
 func TestVisualSwitchKeepsAnchor(t *testing.T) {
 	tests := []swapCase{
 		{"six lvjlV", swapSix, "lvjlV", VisualLineMode, Position{1, 2}, Position{0, 1}, 2, "abcdef\nabcdef\nabcdef", "REG"},
@@ -312,8 +314,10 @@ func TestVisualSwitchKeepsAnchor(t *testing.T) {
 		{"six lvjlVd.", swapSix, "lvjlVd.", NormalMode, Position{0, 0}, Position{0, 0}, 0, "", ""},
 		{"six lVjlvd.", swapSix, "lVjlvd.", NormalMode, Position{0, 1}, Position{0, 1}, 1, "adef", ""},
 		{"lines jv<BS>V", swapLines, "jv<BS>V", VisualLineMode, Position{0, 3}, Position{1, 0}, 3, "abc\ndef\nghi", "REG"},
+		{"lines jv<BS>Vy", swapLines, "jv<BS>Vy", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "abc\ndef\n"},
 		{"lines jv<BS>Vd", swapLines, "jv<BS>Vd", NormalMode, Position{0, 0}, Position{0, 0}, 0, "ghi", ""},
 		{"lines jV<BS>v", swapLines, "jV<BS>v", VisualMode, Position{0, 3}, Position{1, 0}, 3, "abc\ndef\nghi", "REG"},
+		{"lines jV<BS>vy", swapLines, "jV<BS>vy", NormalMode, Position{0, 2}, Position{0, 2}, 2, "abc\ndef\nghi", "\nd"},
 		{"lines jV<BS>vd", swapLines, "jV<BS>vd", NormalMode, Position{0, 3}, Position{0, 3}, 3, "abcef\nghi", ""},
 		{"lines jv<BS>Vo<Esc>", swapLines, "jv<BS>Vo<Esc>", NormalMode, Position{1, 0}, Position{1, 0}, 0, "abc\ndef\nghi", ""},
 		{"lines jv<BS>Voy", swapLines, "jv<BS>Voy", NormalMode, Position{0, 0}, Position{0, 0}, 0, "abc\ndef\nghi", "abc\ndef\n"},

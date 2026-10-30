@@ -9,9 +9,10 @@ type normalMode struct {
 	cmd        pendingCmd      // The partly typed command, if any
 	charSearch charSearchState // Character search state (f/F/t/T)
 
-	// The motion after an operator failed without an error (% with no
-	// bracket, j on the last line), so the operator did nothing.
-	motionFailed bool
+	// The key ran no command, so HandleKey leaves Preferred as it is: the
+	// motion after an operator failed without an error (% with no bracket, j
+	// on the last line) or wasn't a motion (dq), or r or . had nothing to do.
+	keepColumn bool
 }
 
 // pendingCmd is the normal-mode command typed so far, before the key that
@@ -97,13 +98,15 @@ func (m *normalMode) Exit(editor Editor, buffer Buffer) {
 func (m *normalMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	// Vim sets curswant after an operator or a change, so j and k go back to
 	// the column the cursor ends on, not to the one before (the line end after
-	// $). Keys that cancel a pending command, and commands that fail, keep it.
+	// $). Keys that cancel a pending command, and commands that fail or do
+	// nothing, keep it. u, U and CTRL-R set it even with nothing to undo.
 	cancels := key.Key == KeyEscape || (key.Modifiers&ModCtrl != 0 && !m.Idle())
 	sets := !cancels && (m.cmd.hasOperator() || m.cmd.hasCaseOp() || m.cmd.literal == literalReplace ||
 		(m.Idle() && setsColumn(key)))
-	m.motionFailed = false
+	undoes := m.Idle() && (key.IsCtrl('r') || key.Modifiers&ModCtrl == 0 && (key.Rune == 'u' || key.Rune == 'U'))
+	m.keepColumn = false
 	err := m.handleKey(editor, buffer, key)
-	if sets && err == nil && !m.motionFailed && m.Idle() {
+	if sets && (err == nil || undoes) && !m.keepColumn && m.Idle() {
 		cursor := buffer.GetCursor()
 		// A delete up to the end of the line (dw, de, dl, diw, ...) leaves the
 		// cursor past it; Vim puts it back on the last character.
@@ -216,7 +219,9 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 		return nil
 	}
 
-	return replaceCharUnderCursor(editor, buffer, key.Rune, count)
+	replaced, err := replaceCharUnderCursor(editor, buffer, key.Rune, count)
+	m.keepColumn = !replaced
+	return err
 }
 
 // handlePrefix runs the key that completes a g or z prefix.
@@ -289,6 +294,7 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		m.cmd.modifier = 0
 		editor.ResetPendingCount()
 		editor.UpdateCommand("")
+		m.keepColumn = true
 		return nil
 	}
 
@@ -356,6 +362,7 @@ func (m *normalMode) handleCaseGKey(editor Editor, buffer Buffer, key KeyEvent) 
 	case op: // gugu / gUgU / g~g~ — same as guu/gUU/g~~
 		return applyCaseToLines(editor, buffer, op, count)
 	}
+	m.keepColumn = true // not a motion (gUgq)
 	return nil
 }
 
@@ -453,6 +460,7 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 		return applyCaseToBufferEnd(editor, buffer, op)
 	}
 
+	m.keepColumn = true // not a motion (gUq)
 	return nil
 }
 
@@ -711,7 +719,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			}
 			err = applyOperatorToLineRange(editor, buffer, op, cursor.Position.Row, endRow)
 		} else {
-			m.motionFailed = true
+			m.keepColumn = true
 		}
 		actionTaken = true
 
@@ -726,7 +734,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			}
 			err = applyOperatorToLineRange(editor, buffer, op, startRow, cursor.Position.Row)
 		} else {
-			m.motionFailed = true
+			m.keepColumn = true
 		}
 		actionTaken = true
 
@@ -753,7 +761,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 
 	case '{', '}': // d{, y}, c{, ... — to the previous/next paragraph boundary
 		// A { or } that fails runs nothing, but unlike other failed motions
-		// it still sets the column (Vim's nv_findpar), so motionFailed stays
+		// it still sets the column (Vim's nv_findpar), so keepColumn stays
 		// false. A } that ends on the last character of the buffer includes it.
 		if end, inclusive, ok := findParagraph(buffer, cursor.Position.Row, count, key.Rune == '}'); ok {
 			if inclusive {
@@ -791,7 +799,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			start, end := NormalizeSelection(cursor.Position, target)
 			err = applyOperatorToRange(editor, buffer, op, start, afterChar(buffer, end))
 		} else {
-			m.motionFailed = true
+			m.keepColumn = true
 		}
 		actionTaken = true
 
@@ -804,6 +812,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid motion after '%c'", firstKeyRune))
 		actionTaken = true         // Consumed the keys, even if invalid combo
 		editor.ResetPendingCount() // Reset count if combo was invalid
+		m.keepColumn = true
 	}
 
 	if err != nil {
@@ -816,8 +825,8 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	} // Sequence handled
 
 	// If we fall through here, it means the second key wasn't a recognized motion
-	// for the pending operator. We just discard the pending op.
-
+	// for the pending operator (dc, yd). We just discard the pending op.
+	m.keepColumn = true
 	return nil
 }
 
@@ -1183,7 +1192,9 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			return nil
 		}
 		if r, ok := editor.(changeRepeater); ok {
-			err = r.repeatChange(n)
+			var repeated bool
+			repeated, err = r.repeatChange(n)
+			m.keepColumn = !repeated
 		}
 		skipCursorUpdate = true
 
@@ -1251,7 +1262,7 @@ type insertStarter interface {
 // changeRepeater is implemented by the editor so that normal mode can run '.'
 // without it being part of the public Editor interface.
 type changeRepeater interface {
-	repeatChange(count int) *EditorError
+	repeatChange(count int) (repeated bool, err *EditorError)
 }
 
 // operatorName maps a d/y/c rune to its operation name string.

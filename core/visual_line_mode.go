@@ -153,10 +153,10 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			if cursor.Position.Row >= m.startPos.Row {
 				other = cursor.Position
 				cursor.Position = Position{Row: m.startPos.Row, Col: 0}
-				cursor.Preferred = 0
 				buffer.SetCursor(cursor)
 			}
 			editor.SetNormalMode()
+			endVisualOperator(buffer) // the cursor can be on a line break
 			state = editor.GetState()
 			state.VisualStart = other
 			state.YankSelection = SelectionLine

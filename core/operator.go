@@ -194,7 +194,7 @@ func (m *normalMode) lineEndTarget(buffer Buffer, count int) (Position, bool) {
 	if target.moveToLineEnd(buffer, count, true) != nil {
 		cursor.Preferred = maxCol
 		buffer.SetCursor(cursor)
-		m.motionFailed = true
+		m.keepColumn = true
 		return Position{}, false
 	}
 	return target.Position, true
