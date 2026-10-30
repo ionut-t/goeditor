@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.0](https://github.com/ionut-t/goeditor/compare/v0.14.2...v0.15.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **motion:** core.SearchOptions.IsWordChar is replaced by CharClass (func(rune) int; nil uses the editor's classes), the Cursor word motions (MoveWordForward, MoveWordToEnd, MoveWordBackward, MoveWordToEndBackward) take a func(rune) int class function instead of func(rune) bool, and core.Editor has a new CharClass method.
+
+### Bug Fixes
+
+* **core:** keep or set j/k's column where Vim does ([#113](https://github.com/ionut-t/goeditor/issues/113)) ([a4a75a5](https://github.com/ionut-t/goeditor/commit/a4a75a5e870fa3194d5c1c610be5336de936c348))
+* **core:** let Esc cancel a pending visual command, not the mode ([#115](https://github.com/ionut-t/goeditor/issues/115)) ([4b1383b](https://github.com/ionut-t/goeditor/commit/4b1383bc50a7ff422132ca0aa6fe44bca31be38b))
+* **core:** take the white space around a" ([#114](https://github.com/ionut-t/goeditor/issues/114)) ([e5b4b5a](https://github.com/ionut-t/goeditor/commit/e5b4b5a0d5801f4bc5953647c1cdb595afff69be))
+* **motion:** split words by Vim's character classes ([#110](https://github.com/ionut-t/goeditor/issues/110)) ([064f0b7](https://github.com/ionut-t/goeditor/commit/064f0b7519db533e0fa1475f1377436a89e1039a))
+* **motion:** treat a letter and its combining marks as one character ([#112](https://github.com/ionut-t/goeditor/issues/112)) ([4932745](https://github.com/ionut-t/goeditor/commit/4932745ea76c4f8426f365eb9e5e827dd79e6599))
+
 ## [0.14.2](https://github.com/ionut-t/goeditor/compare/v0.14.1...v0.14.2) (2026-10-28)
 
 
