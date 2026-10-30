@@ -158,7 +158,7 @@ func TestVisualEscapeCancelsPrefix(t *testing.T) {
 		{"abcdef\nabcdefghij", "lvg<Esc><Esc>", NormalMode, Position{0, 1}, 1},
 		{"abcdef\nabcdefghij", "lVf<Esc><Esc>", NormalMode, Position{0, 1}, 1},
 		{"abcdef\nabcdefghij", "lv2<Esc>", NormalMode, Position{0, 1}, 1},
-		{"abcdcf\nabcdefghij", "fcvF<Esc>;", VisualMode, Position{0, 4}, 4},
+		{"abcdcf\nabcdefghij", "fcvF<Esc>;", VisualMode, Position{0, 4}, 4}, // ; repeats fc, not the cancelled F
 	})
 }
 
