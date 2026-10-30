@@ -485,11 +485,11 @@ func TestDeleteInsideQuotes(t *testing.T) {
 		assert.Equal(t, Position{0, 5}, cursorPos(e))
 	})
 
-	t.Run(`da" deletes including the quote chars`, func(t *testing.T) {
+	t.Run(`da" deletes the quote chars and the space after`, func(t *testing.T) {
 		e := newTestEditor(`say "hello" world`)
 		keys(e, 'w', 'w')
 		keys(e, 'd', 'a', '"')
-		assert.Equal(t, `say  world`, content(e))
+		assert.Equal(t, `say world`, content(e))
 		assert.Equal(t, Position{0, 4}, cursorPos(e))
 	})
 
