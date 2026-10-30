@@ -85,8 +85,9 @@ func findCharOnLine(lineRunes []rune, startCol int, char rune, searchType rune, 
 	}
 }
 
-// performCharSearch executes a character search and moves the cursor.
-// Returns error if character not found.
+// performCharSearch executes a character search and moves the cursor, setting
+// the column j and k go to, as Vim. Returns error if character not found,
+// leaving both as they were.
 func performCharSearch(buffer Buffer, searchType rune, char rune, count int) error {
 	cursor := buffer.GetCursor()
 	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
@@ -98,6 +99,7 @@ func performCharSearch(buffer Buffer, searchType rune, char rune, count int) err
 	}
 
 	cursor.Position.Col = charStart(lineRunes, newCol) // T can stop on a composing char
+	cursor.Preferred = cursor.Position.Col
 	buffer.SetCursor(cursor)
 
 	return nil
