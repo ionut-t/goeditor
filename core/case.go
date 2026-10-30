@@ -349,27 +349,27 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 		endPos = Position{Row: cursor.Position.Row, Col: endCol}
 		found = true
 
-	case '(', ')':
-		startPos, endPos, found = bracketTextObjectRange(buffer, cursor.Position, modifier, '(', ')')
-
-	case 'b':
-		openPos, closePos, _, _, ok := findNearestBracketBounds(buffer, cursor.Position)
-		if ok {
-			if modifier == 'i' {
-				startPos, endPos, found = bracketInnerRange(buffer, openPos, closePos)
-			} else {
-				startPos, endPos, found = openPos, closePos, true
-			}
+	case '(', ')', 'b', '[', ']', '{', '}', 'B', '<', '>':
+		openPos, closePos, ok := caseBlockBounds(buffer, cursor.Position, objectKey)
+		if !ok {
+			return nil
 		}
-
-	case '[', ']':
-		startPos, endPos, found = bracketTextObjectRange(buffer, cursor.Position, modifier, '[', ']')
-
-	case '{', '}', 'B':
-		startPos, endPos, found = bracketTextObjectRange(buffer, cursor.Position, modifier, '{', '}')
-
-	case '<', '>':
-		startPos, endPos, found = bracketTextObjectRange(buffer, cursor.Position, modifier, '<', '>')
+		if modifier == 'a' {
+			startPos, endPos, found = openPos, closePos, true
+			break
+		}
+		startPos, endPos, found = bracketInnerRange(buffer, openPos, closePos)
+		if !found {
+			// As d and c, an empty block changes nothing but moves the
+			// cursor to it, just after the open bracket, and is the change
+			// '.' repeats.
+			cursor.Position, _ = innerBlock(buffer, openPos, closePos)
+			buffer.SetCursor(cursor)
+			if o, ok := editor.(emptyRangeOperator); ok {
+				o.countChange()
+			}
+			return nil
+		}
 	}
 
 	if !found {
@@ -386,6 +386,28 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 	cursor.Position = startPos
 	buffer.SetCursor(cursor)
 	return nil
+}
+
+// caseBlockBounds returns the bracket pair of the block object objectKey
+// (one of ( ) b [ ] { } B < >) at pos; see findBlock. b is the nearest pair
+// of any of ( [ {.
+func caseBlockBounds(buffer Buffer, pos Position, objectKey rune) (openPos, closePos Position, found bool) {
+	var openChar, closeChar rune
+	switch objectKey {
+	case 'b':
+		openPos, closePos, _, _, found = findNearestBracketBounds(buffer, pos)
+		return openPos, closePos, found
+	case '(', ')':
+		openChar, closeChar = '(', ')'
+	case '[', ']':
+		openChar, closeChar = '[', ']'
+	case '{', '}', 'B':
+		openChar, closeChar = '{', '}'
+	default: // '<', '>'
+		openChar, closeChar = '<', '>'
+	}
+	openPos, closePos, _, found = findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
+	return openPos, closePos, found
 }
 
 // applyCaseToWordObject applies a case transform to the iw/aw text object at

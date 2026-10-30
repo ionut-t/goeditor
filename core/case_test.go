@@ -395,6 +395,56 @@ func TestCaseInsideBrackets(t *testing.T) {
 	})
 }
 
+// TestCaseOnEmptyBlock checks gU, gu and g~ on an inner block with nothing
+// in it. As d, y and c, and as Vim 9.2, the text stays as it is and the
+// cursor, and the column j and k go to, move to just after the open
+// bracket: on the close bracket, or at the start of the next line when the
+// open bracket ends its line.
+func TestCaseOnEmptyBlock(t *testing.T) {
+	const (
+		pair     = "x () y\nabcdefghij"
+		ahead    = "f() {\n  x\n}\nabcdefghij"
+		split    = "x (\n)\nabcdefghij"
+		blank    = "x (\n    \n  )\nabcdefghij"
+		indented = "x (\n  )\nabcdefghij"
+	)
+
+	runCurswantCases(t, []curswantCase{
+		{pair, "llgUi(", NormalMode, Position{0, 3}, 3},
+		{pair, "llgui(", NormalMode, Position{0, 3}, 3},
+		{pair, "llg~i(", NormalMode, Position{0, 3}, 3},
+		{pair, "gUi(", NormalMode, Position{0, 3}, 3},
+		{pair, "gUi(j", NormalMode, Position{1, 3}, 3},
+		{pair, "gUi(jk", NormalMode, Position{0, 3}, 3},
+		{pair, "lllgUi(", NormalMode, Position{0, 3}, 3},
+		{pair, "gUi)", NormalMode, Position{0, 3}, 3},
+		{pair, "gUib", NormalMode, Position{0, 3}, 3},
+		{"x [] y\nabcdefghij", "gUi[", NormalMode, Position{0, 3}, 3},
+		{"x [] y\nabcdefghij", "gUi]", NormalMode, Position{0, 3}, 3},
+		{"x [] y\nabcdefghij", "gUib", NormalMode, Position{0, 3}, 3},
+		{"x {} y\nabcdefghij", "gUi{", NormalMode, Position{0, 3}, 3},
+		{"x {} y\nabcdefghij", "gUi}", NormalMode, Position{0, 3}, 3},
+		{"x {} y\nabcdefghij", "gUiB", NormalMode, Position{0, 3}, 3},
+		{"x <> y\nabcdefghij", "gUi<lt>", NormalMode, Position{0, 3}, 3},
+		{"x <> y\nabcdefghij", "gUi>", NormalMode, Position{0, 3}, 3},
+		{ahead, "gUi(", NormalMode, Position{0, 2}, 2},
+		{ahead, "gUi(j", NormalMode, Position{1, 2}, 2},
+		{split, "llgUi(", NormalMode, Position{1, 0}, 0},
+		{split, "llgUi(j", NormalMode, Position{2, 0}, 0},
+		{split, "jgUi(", NormalMode, Position{1, 0}, 0},
+		{blank, "jllgUi(", NormalMode, Position{1, 0}, 0},
+		{blank, "jllgUi(j", NormalMode, Position{2, 0}, 0},
+		{indented, "jlgUi(", NormalMode, Position{1, 0}, 0},
+	})
+
+	// The text doesn't change, but the command is the change '.' repeats.
+	runEmptyRangeCases(t, []emptyRangeCase{
+		{name: "gUi( on an empty pair", content: "x () y", keys: "gUi(", text: "x () y", want: Position{0, 3}, reg: emptyRangeReg},
+		{name: "gUi( is repeated", content: "x () y\nab (c) d", keys: "AQ<Esc>0gUi(jfc.", text: "x () yQ\nab (C) d", want: Position{1, 4}, reg: emptyRangeReg},
+		{name: "g~ib is repeated", content: "x () y\nab (c) d", keys: "AQ<Esc>0g~ibjfc.", text: "x () yQ\nab (C) d", want: Position{1, 4}, reg: emptyRangeReg},
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Visual mode: u / U / ~ on charwise selection
 // ---------------------------------------------------------------------------
