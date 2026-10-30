@@ -63,6 +63,16 @@ func (m *visualMode) Exit(editor Editor, buffer Buffer) {
 	editor.ResetPendingCount()
 }
 
+// cancelPending drops a part typed command (i/a, g/z, f/F/t/T) and its count,
+// as Vim does on Esc, keeping the mode and the selection.
+func (m *visualMode) cancelPending(editor Editor) {
+	m.charSearch.cancel() // keeps the last search for ; and ,
+	m.pendingModifier = 0
+	m.pending.reset()
+	editor.ResetPendingCount()
+	editor.UpdateCommand("")
+}
+
 // NormalizeSelection ensures start is before end, line by line, then column by column.
 func NormalizeSelection(p1, p2 Position) (start, end Position) {
 	if p1.Row < p2.Row || (p1.Row == p2.Row && p1.Col <= p2.Col) {
@@ -74,6 +84,10 @@ func NormalizeSelection(p1, p2 Position) (start, end Position) {
 // HandleKey dispatches each incoming key to the appropriate handler.
 func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
+		if !m.Idle() {
+			m.cancelPending(editor)
+			return nil
+		}
 		exitVisualToNormal(editor, buffer)
 		return nil
 	}

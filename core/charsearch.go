@@ -186,12 +186,6 @@ func handleVisualCharSearchInput(cs *charSearchState, editor Editor, buffer Buff
 	cs.waitingForChar = false
 	editor.UpdateCommand("")
 
-	if key.Key == KeyEscape {
-		cs.cancel()
-		editor.SetNormalMode()
-		return true, nil
-	}
-
 	if key.Rune == 0 {
 		cs.cancel()
 		return true, nil
