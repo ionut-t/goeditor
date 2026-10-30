@@ -109,6 +109,7 @@ func TestVisualTextObjectSetsColumn(t *testing.T) {
 		{"ab \"y\" z\ndefghijkl", "vi\"j", VisualMode, Position{1, 4}, 4},
 		{"ab \"y\" z\ndefghijkl", "$vi\"j", VisualMode, Position{1, 7}, 7},
 		{"ab \"y\" z\ndefghijkl", "$va\"j", VisualMode, Position{1, 7}, 7},
+		{"ab \"y\" z\ndefghijkl", "va\"j", VisualMode, Position{1, 6}, 6},
 		{"ab 'y' z\ndefghijkl", "$vi'j", VisualMode, Position{1, 7}, 7},
 		{"ab `y` z\ndefghijkl", "$vi`j", VisualMode, Position{1, 7}, 7},
 		{"abc de\nfghijklmn", "$hviwj", VisualMode, Position{1, 5}, 5},

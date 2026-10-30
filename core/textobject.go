@@ -585,14 +585,11 @@ func changeParagraphTextObject(editor Editor, buffer Buffer, modifier rune) *Edi
 	return nil
 }
 
-// quoteTextObjectRange finds the quote pair surrounding or nearest to pos on the same line.
+// quotePair finds the quote pair surrounding or nearest to pos on the same line.
 // It collects all positions of quote, pairs them up ([0,1], [2,3], …), and returns the first
 // pair whose closing quote is at or after pos.Col. This matches Vim's behaviour: if the cursor
 // is inside a pair or to the left of a pair, that pair is selected.
-//
-// modifier 'i' → columns of the content between the quotes (exclusive of the quote chars).
-// modifier 'a' → columns of the opening and closing quote chars themselves.
-func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune) (startCol, endCol int, found bool) {
+func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, found bool) {
 	lineRunes := buffer.GetLineRunes(pos.Row)
 
 	var positions []int
@@ -613,46 +610,73 @@ func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune
 		if close < col {
 			continue // cursor is past this pair; try the next one
 		}
-		if modifier == 'i' {
-			if close-open <= 1 {
-				return 0, 0, false // empty quotes: nothing inside
-			}
-			return open + 1, close - 1, true
-		}
 		return open, close, true
 	}
 	return 0, 0, false
 }
 
-// anyQuoteTextObjectRange tries each standard quote character (", ', `) and returns the range
-// for the innermost pair (smallest span) that contains or follows the cursor.
-func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol, endCol int, found bool) {
+// anyQuotePair tries each standard quote character (", ', `) and returns the
+// innermost pair (smallest span) that contains or follows the cursor.
+func anyQuotePair(buffer Buffer, pos Position) (openCol, closeCol int, found bool) {
 	bestSpan := -1
-	bestStart, bestEnd := 0, 0
-
 	for _, q := range []rune{'"', '\'', '`'} {
-		s, e, ok := quoteTextObjectRange(buffer, pos, 'a', q)
+		s, e, ok := quotePair(buffer, pos, q)
 		if !ok {
 			continue
 		}
-		span := e - s
-		if bestSpan == -1 || span < bestSpan {
+		if span := e - s; bestSpan == -1 || span < bestSpan {
 			bestSpan = span
-			bestStart, bestEnd = s, e
+			openCol, closeCol = s, e
 		}
 	}
+	return openCol, closeCol, bestSpan != -1
+}
 
-	if bestSpan == -1 {
+// quoteObjectCols turns the quote pair at openCol, closeCol on row into the
+// columns of the i or a object.
+//
+// modifier 'i' → the content between the quotes; not found when it is empty.
+// modifier 'a' → the quotes and, as Vim (:h a"), the white space after the
+// closing quote or, when there is none, the white space before the opening one.
+// Only spaces and tabs count, as in Vim.
+func quoteObjectCols(buffer Buffer, row, openCol, closeCol int, modifier rune) (startCol, endCol int, found bool) {
+	if modifier == 'i' {
+		if closeCol-openCol <= 1 {
+			return 0, 0, false // empty quotes: nothing inside
+		}
+		return openCol + 1, closeCol - 1, true
+	}
+	lineRunes := buffer.GetLineRunes(row)
+	startCol, endCol = openCol, closeCol
+	for endCol+1 < len(lineRunes) && isWhiteSpace(lineRunes[endCol+1]) {
+		endCol++
+	}
+	if endCol == closeCol {
+		for startCol > 0 && isWhiteSpace(lineRunes[startCol-1]) {
+			startCol--
+		}
+	}
+	return startCol, endCol, true
+}
+
+// quoteTextObjectRange returns the columns of the i or a object for quote
+// around or after pos (see quotePair and quoteObjectCols).
+func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune) (startCol, endCol int, found bool) {
+	openCol, closeCol, ok := quotePair(buffer, pos, quote)
+	if !ok {
 		return 0, 0, false
 	}
+	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier)
+}
 
-	if modifier == 'i' {
-		if bestEnd-bestStart < 2 {
-			return 0, 0, false
-		}
-		return bestStart + 1, bestEnd - 1, true
+// anyQuoteTextObjectRange is quoteTextObjectRange for the innermost pair of
+// any quote character (see anyQuotePair).
+func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol, endCol int, found bool) {
+	openCol, closeCol, ok := anyQuotePair(buffer, pos)
+	if !ok {
+		return 0, 0, false
 	}
-	return bestStart, bestEnd, true
+	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier)
 }
 
 // findMatchingBracket implements the '%' motion: find the first bracket on the
@@ -880,8 +904,9 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 		if cursor.Position.Row >= lineCount {
 			cursor.Position.Row = lineCount - 1
 		}
+		// Insert mode can sit after the last character; Normal mode can't.
 		lineLen = buffer.LineRuneCount(cursor.Position.Row)
-		if cursor.Position.Col >= lineLen && lineLen > 0 {
+		if op == "delete" && cursor.Position.Col >= lineLen && lineLen > 0 {
 			cursor.Position.Col = lineLen - 1
 		}
 		buffer.SetCursor(cursor)
@@ -894,7 +919,7 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 }
 
 // applyOperatorToEmptyQuotes applies op to i" (or i', i`) when the quote
-// pair found by a" (openCol, closeCol) has nothing between it, and does
+// pair (openCol, closeCol) has nothing between it, and does
 // nothing otherwise. As Vim, the operator still runs, on the empty range at
 // the closing quote.
 func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, openCol, closeCol int, op string) *EditorError {
@@ -910,7 +935,7 @@ func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op st
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote)
 	if !found {
-		if openCol, closeCol, ok := quoteTextObjectRange(buffer, cursor.Position, 'a', quote); ok {
+		if openCol, closeCol, ok := quotePair(buffer, cursor.Position, quote); ok {
 			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
 		}
 		return nil
@@ -926,7 +951,7 @@ func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *Ed
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
 	if !found {
-		if openCol, closeCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, 'a'); ok {
+		if openCol, closeCol, ok := anyQuotePair(buffer, cursor.Position); ok {
 			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
 		}
 		return nil

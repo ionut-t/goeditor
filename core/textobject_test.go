@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,12 +26,12 @@ func TestQuoteTextObjectRange(t *testing.T) {
 		assert.Equal(t, 9, e)
 	})
 
-	t.Run("cursor inside double quotes – around", func(t *testing.T) {
+	t.Run("cursor inside double quotes – around takes the space after", func(t *testing.T) {
 		b := buf(`say "hello" world`)
 		s, e, ok := quoteTextObjectRange(b, Position{0, 6}, 'a', '"')
 		assert.True(t, ok)
 		assert.Equal(t, 4, s)
-		assert.Equal(t, 10, e)
+		assert.Equal(t, 11, e)
 	})
 
 	t.Run("cursor on opening quote – inner", func(t *testing.T) {
@@ -99,6 +100,101 @@ func TestQuoteTextObjectRange(t *testing.T) {
 		_, _, ok := quoteTextObjectRange(b, Position{0, 4}, 'i', '"')
 		assert.False(t, ok)
 	})
+}
+
+// TestAroundQuoteWhiteSpace checks a", a', a` and aq against Vim 9.2, which
+// takes the white space after the closing quote or, when there is none, the
+// white space before the opening one (:h a"). Only spaces and tabs count.
+func TestAroundQuoteWhiteSpace(t *testing.T) {
+	tests := []struct {
+		content string
+		col     int
+		keys    string
+		want    string
+		cursor  int
+		reg     string // checked for yanks only
+		mode    Mode
+	}{
+		{`ab "y" z`, 0, `da"`, `ab z`, 3, "", NormalMode},
+		{`ab "y" z`, 4, `da"`, `ab z`, 3, "", NormalMode},
+		{`ab "y" z`, 5, `ya"`, `ab "y" z`, 3, `"y" `, NormalMode},
+		{`ab "y" z`, 4, `ca"`, `ab z`, 3, "", InsertMode},
+		{`ab "y" z`, 3, `va"d`, `ab z`, 3, "", NormalMode},
+		{`ab "y"z`, 4, `da"`, `abz`, 2, "", NormalMode},
+		{`ab "y"z`, 0, `ya"`, `ab "y"z`, 2, ` "y"`, NormalMode},
+		{`ab "y"z`, 5, `va"d`, `abz`, 2, "", NormalMode},
+		{`ab"y"z`, 3, `da"`, `abz`, 2, "", NormalMode},
+		{`ab "y"`, 4, `da"`, `ab`, 1, "", NormalMode},
+		{`ab "y"`, 4, `ya"`, `ab "y"`, 2, ` "y"`, NormalMode},
+		{`ab "y"`, 0, `ca"`, `ab`, 2, "", InsertMode},
+		{`ab"y"`, 3, `ca"`, `ab`, 2, "", InsertMode},
+		{`ab"y"`, 3, `ca"X`, `abX`, 3, "", InsertMode},
+		{`ab"y"`, 3, `da"`, `ab`, 1, "", NormalMode},
+		{`ab "y"   `, 4, `da"`, `ab `, 2, "", NormalMode},
+		{`ab  "y"  z`, 5, `da"`, `ab  z`, 4, "", NormalMode},
+		{"ab\t\"y\"\tz", 4, `da"`, "ab\tz", 3, "", NormalMode},
+		{"ab\t\"y\"z", 4, `ya"`, "ab\t\"y\"z", 2, "\t\"y\"", NormalMode},
+		{`  "y"`, 3, `da"`, ``, 0, "", NormalMode},
+		{`"y" z`, 1, `da"`, `z`, 0, "", NormalMode},
+		{`"y"`, 1, `ya"`, `"y"`, 0, `"y"`, NormalMode},
+		{"ab\u00a0\"y\"\u00a0z", 4, `da"`, "ab\u00a0\u00a0z", 3, "", NormalMode},
+		{"ab\u3000\"y\"z", 4, `ya"`, "ab\u3000\"y\"z", 3, `"y"`, NormalMode},
+		{`ab "y"z`, 4, `g~a"`, `ab "Y"z`, 2, "", NormalMode},
+		{`ab 'y' z`, 4, `da'`, `ab z`, 3, "", NormalMode},
+		{`ab 'y'z`, 0, `va'd`, `abz`, 2, "", NormalMode},
+		{"ab `y`z", 4, "ya`", "ab `y`z", 2, " `y`", NormalMode},
+		// Vim has no aq; it follows a" for the quote it picks.
+		{`ab 'y' z`, 4, `daq`, `ab z`, 3, "", NormalMode},
+		{"ab `y`z", 4, `caq`, `abz`, 2, "", InsertMode},
+		{`ab "y"`, 0, `vaqd`, `ab`, 1, "", NormalMode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" at "+strconv.Itoa(tt.col)+" on "+tt.content, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			cursor := e.GetBuffer().GetCursor()
+			cursor.Position.Col = tt.col
+			e.GetBuffer().SetCursor(cursor)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, Position{0, tt.cursor}, cursorPos(e))
+			assert.Equal(t, tt.mode, e.GetMode().Name())
+			if strings.HasPrefix(tt.keys, "y") {
+				assert.Equal(t, tt.reg, cb.content)
+			}
+		})
+	}
+}
+
+// TestVisualAroundQuoteWhiteSpace checks the selection of va" and vaq.
+func TestVisualAroundQuoteWhiteSpace(t *testing.T) {
+	tests := []struct {
+		content    string
+		col        int
+		keys       string
+		start, end int
+	}{
+		{`ab "y" z`, 0, `va"`, 3, 6},
+		{`ab "y" z`, 5, `va"`, 3, 6},
+		{`ab "y"z`, 4, `va"`, 2, 5},
+		{`ab"y"z`, 4, `va"`, 2, 4},
+		{`ab "y"   `, 4, `va"`, 3, 8},
+		{"ab\t\"y\"z", 4, `va"`, 2, 5},
+		{"ab\u00a0\"y\"\u00a0z", 4, `va"`, 3, 5},
+		{`  "y"`, 0, `va"`, 0, 4},
+		{`ab 'y'z`, 4, `vaq`, 2, 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" at "+strconv.Itoa(tt.col)+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			cursor := e.GetBuffer().GetCursor()
+			cursor.Position.Col = tt.col
+			e.GetBuffer().SetCursor(cursor)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, Position{0, tt.start}, e.GetState().VisualStart)
+			assert.Equal(t, Position{0, tt.end}, cursorPos(e))
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
