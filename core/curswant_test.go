@@ -85,6 +85,60 @@ func TestVisualYankSetsColumn(t *testing.T) {
 	})
 }
 
+// TestVisualEscapeCancelsTextObject checks that Esc after a visual i/a only
+// cancels it and its count, as Vim: the mode, the selection and the column
+// j and k go to stay, and a second Esc leaves visual mode.
+func TestVisualEscapeCancelsTextObject(t *testing.T) {
+	runCurswantCases(t, []curswantCase{
+		{"abcdef\nabcdefghij", "$vi<Esc>", VisualMode, Position{0, 5}, -1},
+		{"abcdef\nabcdefghij", "$vi<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$va<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$vi<Esc>jk", VisualMode, Position{0, 6}, -1},
+		{"abcdef\nabcdefghij", "lvli<Esc>j", VisualMode, Position{1, 2}, 2},
+		{"abcdef\nabcdefghij", "$vi<Esc><Esc>", NormalMode, Position{0, 5}, 5},
+		{"abcdef\nabcdefghij", "$vi<Esc><Esc>j", NormalMode, Position{1, 5}, 5},
+		{"abcdef\nabcdefghij", "$v2i<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "lv2i<Esc>l", VisualMode, Position{0, 2}, 2},
+		{"abcdef\nabcdefghij", "$Vi<Esc>", VisualLineMode, Position{0, 5}, -1},
+		{"abcdef\nabcdefghij", "$Vi<Esc>j", VisualLineMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$Va<Esc>j", VisualLineMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "lVi<Esc>j", VisualLineMode, Position{1, 1}, 1},
+		{"abcdef\nabcdefghij", "$Vi<Esc><Esc>j", NormalMode, Position{1, 5}, 5},
+		{"abcdef\nabcdefghij", "lVa<Esc><Esc>j", NormalMode, Position{1, 1}, 1},
+		{"abcdef\nabcdefghij", "V2i<Esc>j", VisualLineMode, Position{1, 0}, 0},
+		{"abcdef\nabcdefghij", "lVix", VisualLineMode, Position{0, 1}, 1},
+	})
+}
+
+// TestVisualEscapeCancelsPrefix checks that Esc after a visual g, z or
+// f/F/t/T only cancels it and its count, as Vim, and that ; still repeats
+// the search before it.
+func TestVisualEscapeCancelsPrefix(t *testing.T) {
+	runCurswantCases(t, []curswantCase{
+		{"abcdef\nabcdefghij", "$vg<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$vz<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$vf<Esc>j", VisualMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$Vg<Esc>j", VisualLineMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "$VF<Esc>j", VisualLineMode, Position{1, 10}, -1},
+		{"abcdef\nabcdefghij", "lvt<Esc>", VisualMode, Position{0, 1}, 1},
+		{"abcdef\nabcdefghij", "lvT<Esc>", VisualMode, Position{0, 1}, 1},
+		{"abcdef\nabcdefghij", "lVz<Esc>", VisualLineMode, Position{0, 1}, 1},
+		{"abcdef\nabcdefghij", "lv2g<Esc>l", VisualMode, Position{0, 2}, 2},
+		{"abcdef\nabcdefghij", "lv2f<Esc>l", VisualMode, Position{0, 2}, 2},
+		{"abcdef\nabcdefghij", "lV2z<Esc>j", VisualLineMode, Position{1, 1}, 1},
+		{"abcdef\nabcdefghij", "lvg<Esc><Esc>", NormalMode, Position{0, 1}, 1},
+		{"abcdef\nabcdefghij", "lVf<Esc><Esc>", NormalMode, Position{0, 1}, 1},
+		{"abcdef\nabcdefghij", "lv2<Esc>", NormalMode, Position{0, 1}, 1},
+	})
+
+	t.Run("; repeats the search before the cancelled one", func(t *testing.T) {
+		e := newTestEditor("abcdcf\nabcdefghij")
+		typeKeys(t, e, "fcvF<Esc>;")
+		assert.Equal(t, VisualMode, e.GetMode().Name())
+		assert.Equal(t, Position{0, 4}, cursorPos(e))
+	})
+}
+
 // TestVisualTextObjectSetsColumn checks that a text object in visual mode
 // sets the column j and k go to where the cursor ends, as Vim, also when
 // the object isn't found or doesn't exist.
@@ -122,6 +176,9 @@ func TestVisualTextObjectSetsColumn(t *testing.T) {
 		{"abcdef\nabcdefghij", "$vibj", VisualMode, Position{1, 5}, 5},
 		{"abcdef\nabcdefghij", "$vizj", VisualMode, Position{1, 5}, 5},
 		{"abcdef\nabcdefghij", "lvi(j", VisualMode, Position{1, 1}, 1},
+		{"abcdef\nabcdefghij", "$Vixj", VisualLineMode, Position{1, 5}, 5},
+		{"abcdef\nabcdefghij", "$Vizj", VisualLineMode, Position{1, 5}, 5},
+		{"abcdef\nabcdefghij", "$Vi(j", VisualLineMode, Position{1, 5}, 5},
 	})
 }
 

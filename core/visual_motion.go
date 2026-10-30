@@ -18,9 +18,6 @@ func handleVisualPrefix(prefix rune, editor Editor, buffer Buffer, key KeyEvent)
 func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 	count := takeCount(editor)
 	editor.UpdateCommand("")
-	if key.Key == KeyEscape {
-		return
-	}
 	cursor := buffer.GetCursor()
 	switch key.Rune {
 	case 'g':

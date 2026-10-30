@@ -4,9 +4,10 @@ package core
 import "fmt"
 
 type visualLineMode struct {
-	startPos   Position        // Only the Row is relevant for selection extent
-	charSearch charSearchState // Character search state (f/F/t/T)
-	pending    pendingPrefix   // g or z waiting for its second key
+	startPos        Position        // Only the Row is relevant for selection extent
+	charSearch      charSearchState // Character search state (f/F/t/T)
+	pendingModifier rune            // 'i' or 'a' when waiting for text object key
+	pending         pendingPrefix   // g or z waiting for its second key
 }
 
 func NewVisualLineMode() EditorMode {
@@ -32,7 +33,7 @@ func (m *visualLineMode) OperatorPending() bool { return false }
 
 // Idle reports whether no command is part way typed, count aside.
 func (m *visualLineMode) Idle() bool {
-	return !m.charSearch.waitingForChar && m.pending.prefix == 0
+	return !m.charSearch.waitingForChar && m.pendingModifier == 0 && m.pending.prefix == 0
 }
 
 func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
@@ -41,6 +42,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	// Record selection start position (row matters most)
 	m.startPos = buffer.GetCursor().Position
 	m.charSearch.cancel() // keeps the last search for ; and ,
+	m.pendingModifier = 0
 	m.pending.reset()
 	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active (use same flag)
@@ -56,13 +58,28 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 	state.VisualStart = Position{Row: -1, Col: -1} // Mark inactive
 	editor.SetState(state)
 	editor.UpdateStatus("") // Clear status or let normal mode set it
+	m.pendingModifier = 0
 	m.pending.reset()
 	editor.ResetPendingCount()
+}
+
+// cancelPending drops a part typed command (i/a, g/z, f/F/t/T) and its count,
+// as Vim does on Esc, keeping the mode and the selection.
+func (m *visualLineMode) cancelPending(editor Editor) {
+	m.charSearch.cancel() // keeps the last search for ; and ,
+	m.pendingModifier = 0
+	m.pending.reset()
+	editor.ResetPendingCount()
+	editor.UpdateCommand("")
 }
 
 // HandleKey dispatches each incoming key to the appropriate handler.
 func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	if key.Key == KeyEscape {
+		if !m.Idle() {
+			m.cancelPending(editor)
+			return nil
+		}
 		exitVisualToNormal(editor, buffer)
 		return nil
 	}
@@ -80,6 +97,23 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	if accumulateCount(editor, key) {
 		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
+		return nil
+	}
+
+	// The key after i/a is the text object. None are supported here yet, so
+	// it is used up, as Vim does with a key that isn't an object, setting the
+	// column j and k go to as any object does.
+	if m.pendingModifier != 0 {
+		m.pendingModifier = 0
+		takeCount(editor)
+		cursor := buffer.GetCursor()
+		cursor.Preferred = cursor.Position.Col
+		buffer.SetCursor(cursor)
+		return nil
+	}
+
+	if (key.Rune == 'i' || key.Rune == 'a') && key.Modifiers&ModCtrl == 0 {
+		m.pendingModifier = key.Rune // the count stays pending for the text object
 		return nil
 	}
 
