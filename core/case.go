@@ -390,7 +390,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 
 // caseBlockBounds returns the bracket pair of the block object objectKey
 // (one of ( ) b [ ] { } B < >) at pos; see findBlock. b is the nearest pair
-// of any of ( [ {.
+// of any of ( [ {. Any other key finds no block.
 func caseBlockBounds(buffer Buffer, pos Position, objectKey rune) (openPos, closePos Position, found bool) {
 	var openChar, closeChar rune
 	switch objectKey {
@@ -403,8 +403,10 @@ func caseBlockBounds(buffer Buffer, pos Position, objectKey rune) (openPos, clos
 		openChar, closeChar = '[', ']'
 	case '{', '}', 'B':
 		openChar, closeChar = '{', '}'
-	default: // '<', '>'
+	case '<', '>':
 		openChar, closeChar = '<', '>'
+	default:
+		return Position{}, Position{}, false
 	}
 	openPos, closePos, _, found = findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
 	return openPos, closePos, found
