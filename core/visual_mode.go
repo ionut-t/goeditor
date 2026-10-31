@@ -103,14 +103,15 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		return nil
 	}
 
+	// The key after i/a is the text object, even when it is g, z or a digit
+	// (an object Vim doesn't know, so it is used up rather than counted).
+	if m.pendingModifier != 0 {
+		return m.handleTextObject(editor, buffer, key, buffer.GetCursor(), takeCount(editor))
+	}
+
 	if accumulateCount(editor, key) {
 		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
 		return nil
-	}
-
-	// The key after i/a is the text object, even when it is g or z.
-	if m.pendingModifier != 0 {
-		return m.handleTextObject(editor, buffer, key, buffer.GetCursor(), takeCount(editor))
 	}
 
 	if (key.Rune == 'i' || key.Rune == 'a') && key.Modifiers&ModCtrl == 0 {

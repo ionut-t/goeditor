@@ -95,20 +95,20 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
-	if accumulateCount(editor, key) {
-		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
-		return nil
-	}
-
-	// The key after i/a is the text object. None are supported here yet, so
-	// it is used up, as Vim does with a key that isn't an object, setting the
-	// column j and k go to as any object does.
+	// The key after i/a is the text object, even when it is a digit. None are
+	// supported here yet, so it is used up, as Vim does with a key that isn't
+	// an object, setting the column j and k go to as any object does.
 	if m.pendingModifier != 0 {
 		m.pendingModifier = 0
 		takeCount(editor)
 		cursor := buffer.GetCursor()
 		cursor.Preferred = cursor.Position.Col
 		buffer.SetCursor(cursor)
+		return nil
+	}
+
+	if accumulateCount(editor, key) {
+		editor.UpdateCommand(fmt.Sprintf("%d", *editor.GetState().PendingCount))
 		return nil
 	}
 

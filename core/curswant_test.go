@@ -162,6 +162,49 @@ func TestVisualEscapeCancelsPrefix(t *testing.T) {
 	})
 }
 
+// TestVisualTextObjectDigitIsNotACount checks that a digit after a visual i/a
+// is the object key, as Vim: an object that doesn't exist, so it is used up,
+// sets the column j and k go to, and the next key is a command of its own.
+// A count before the i/a still counts (v2iw).
+func TestVisualTextObjectDigitIsNotACount(t *testing.T) {
+	const text = "abcdef\nabcdefghij\nabcdefghijkl"
+	runCurswantCases(t, []curswantCase{
+		{text, "lvi2", VisualMode, Position{0, 1}, 1},
+		{text, "lvi2w", VisualMode, Position{1, 0}, 0},
+		{text, "lva9w", VisualMode, Position{1, 0}, 0},
+		{text, "lvi1l", VisualMode, Position{0, 2}, 2},
+		{text, "lva2j", VisualMode, Position{1, 1}, 1},
+		{text, "lvi2iw", VisualMode, Position{0, 5}, 5},
+		{text, "lvi2wjk", VisualMode, Position{1, 0}, 0},
+		{text, "$vi2j", VisualMode, Position{1, 5}, 5},
+		{text, "$va9j", VisualMode, Position{1, 5}, 5},
+		{text, "$vi0j", VisualMode, Position{1, 5}, 5},
+		{text, "lVi2w", VisualLineMode, Position{1, 0}, 0},
+		{text, "lVa9l", VisualLineMode, Position{0, 2}, 2},
+		{text, "lVi1jjk", VisualLineMode, Position{1, 1}, 1},
+		{text, "$Vi2j", VisualLineMode, Position{1, 5}, 5},
+		{text, "$Va0j", VisualLineMode, Position{1, 5}, 5},
+	})
+
+	for _, c := range []struct {
+		keys        string
+		start, want Position
+	}{
+		{"vi2w", Position{0, 0}, Position{0, 4}},
+		{"va2w", Position{0, 0}, Position{0, 4}},
+		{"v2iw", Position{0, 0}, Position{0, 3}},
+		{"v2aw", Position{0, 0}, Position{0, 7}},
+	} {
+		t.Run(c.keys, func(t *testing.T) {
+			e := newTestEditor("one two three four\nfive six")
+			typeKeys(t, e, c.keys)
+			assert.Equal(t, VisualMode, e.GetMode().Name())
+			assert.Equal(t, c.start, e.GetState().VisualStart)
+			assert.Equal(t, c.want, cursorPos(e))
+		})
+	}
+}
+
 // TestVisualTextObjectSetsColumn checks that a text object in visual mode
 // sets the column j and k go to where the cursor ends, as Vim, also when
 // the object isn't found or doesn't exist.
