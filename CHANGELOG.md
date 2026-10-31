@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.1](https://github.com/ionut-t/goeditor/compare/v0.15.0...v0.15.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **core:** move the cursor for gU, gu and g~ on an empty block ([#118](https://github.com/ionut-t/goeditor/issues/118)) ([0964c90](https://github.com/ionut-t/goeditor/commit/0964c90972fa4602b949e24b76926c6abb14a145))
+* **core:** read a digit after visual i/a as the object, not a count ([#119](https://github.com/ionut-t/goeditor/issues/119)) ([69426f1](https://github.com/ionut-t/goeditor/commit/69426f19a6cf542e16c49faf79c2765fb13f1552))
+* **motion:** let f, t, ; and , set j/k's column ([#116](https://github.com/ionut-t/goeditor/issues/116)) ([98559d5](https://github.com/ionut-t/goeditor/commit/98559d563fa14ce2ff0e2a7250a718bf3b5848ff))
+
 ## [0.15.0](https://github.com/ionut-t/goeditor/compare/v0.14.2...v0.15.0) (2026-10-30)
 
 
