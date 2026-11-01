@@ -156,6 +156,61 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	return nil
 }
 
+// applyCaseToSpan applies a case transform to [start, end) on one line, the
+// range of a characterwise motion (h, l, f, t, ;, ...), and leaves the cursor
+// at start, on the first rune of its character (T can start the range on a
+// composing character). An empty span ($gUTx with the x just before the
+// cursor) changes nothing but is the change '.' repeats, as in Vim.
+func applyCaseToSpan(editor Editor, buffer Buffer, op rune, start, end Position) *EditorError {
+	cursor := buffer.GetCursor()
+	cursor.Position = Position{Row: start.Row, Col: charStart(buffer.GetLineRunes(start.Row), start.Col)}
+	if start == end {
+		buffer.SetCursor(cursor)
+		if o, ok := editor.(emptyRangeOperator); ok {
+			o.countChange()
+		}
+		return nil
+	}
+	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
+		return err
+	}
+	buffer.SetCursor(cursor)
+	return nil
+}
+
+// applyCaseToCharSearch applies a case transform over an f/F/t/T search
+// (gUfx, g~2tx, gu;), as handleCharSearchOperator does for d, y and c. A
+// search that finds nothing changes nothing.
+func applyCaseToCharSearch(editor Editor, buffer Buffer, op, searchType, char rune, count int, skipAdjacent bool) *EditorError {
+	start, end, err := charSearchSpan(buffer, searchType, char, count, skipAdjacent)
+	if err != nil {
+		return err
+	}
+	return applyCaseToSpan(editor, buffer, op, start, end)
+}
+
+// applyCaseToRows applies a case transform to the whole rows startRow to
+// endRow, the range of a linewise motion (gUj, gUk). Rows that are all empty
+// change nothing but are still the change '.' repeats, as in Vim.
+func applyCaseToRows(editor Editor, buffer Buffer, op rune, startRow, endRow int) *EditorError {
+	transform := caseTransformForOp(op)
+	changed := false
+	for r := startRow; r <= endRow; r++ {
+		lineLen := buffer.LineRuneCount(r)
+		if lineLen == 0 {
+			continue
+		}
+		if err := applyCaseInRange(editor, buffer, Position{Row: r}, Position{Row: r, Col: lineLen}, transform); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if o, ok := editor.(emptyRangeOperator); ok && !changed {
+		o.countChange()
+	}
+	return nil
+}
+
 // applyCaseToLines applies a case transform to `count` lines starting from the
 // cursor row (guu / gUU / g~~).
 func applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorError {
