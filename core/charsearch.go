@@ -110,9 +110,20 @@ func performCharSearch(buffer Buffer, searchType rune, char rune, count int) err
 // skipAdjacent starts a t/T search one character further along, so a repeated
 // till-search (d;) doesn't re-match the character the cursor already sits next to.
 func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int, skipAdjacent bool) *EditorError {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	lineRunes := buffer.GetLineRunes(cursor.Position.Row)
+	start, end, err := charSearchSpan(buffer, searchType, char, count, skipAdjacent)
+	if err != nil {
+		return err
+	}
+	return applyOperatorToRange(editor, buffer, op, start, end)
+}
+
+// charSearchSpan returns the range [start, end) an operator acts on over an
+// f/F/t/T search from the cursor, as handleCharSearchOperator: f and t are
+// inclusive, so the range takes the character they stop on; F and T are
+// exclusive, so it stops before the cursor. It fails if the search does.
+func charSearchSpan(buffer Buffer, searchType rune, char rune, count int, skipAdjacent bool) (start, end Position, err *EditorError) {
+	startPos := buffer.GetCursor().Position
+	lineRunes := buffer.GetLineRunes(startPos.Row)
 
 	searchCol := startPos.Col
 	if skipAdjacent {
@@ -124,48 +135,45 @@ func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchTyp
 		}
 	}
 
-	// Find the target position
 	targetCol := findCharOnLine(lineRunes, searchCol, char, searchType, count)
-
 	if targetCol == -1 {
-		// Character not found
-		return &EditorError{
+		return start, end, &EditorError{
 			id:  ErrInvalidMotionId,
 			err: fmt.Errorf("character '%c' not found", char),
 		}
 	}
 
-	// For 'f' and 't', we need to include the character under cursor up to (and possibly including) target
-	// For 'F' and 'T', we go backwards
-	var startCol, endCol int
-
 	switch searchType {
 	case 'f', 't': // Forward search
-		startCol = startPos.Col
 		// Inclusive: f takes the found character, t the one before it.
-		endCol = charEnd(lineRunes, targetCol)
-	case 'F', 'T': // Backward search: exclusive, so the cursor char stays
-		startCol = targetCol
-		endCol = startPos.Col
+		return startPos, Position{Row: startPos.Row, Col: charEnd(lineRunes, targetCol)}, nil
+	default: // F, T: backward search, exclusive, so the cursor char stays
+		return Position{Row: startPos.Row, Col: targetCol}, startPos, nil
 	}
-
-	return applyOperatorToRange(editor, buffer, op,
-		Position{Row: startPos.Row, Col: startCol},
-		Position{Row: startPos.Row, Col: endCol})
 }
 
 // repeatCharSearchOperator implements d;/y;/c; and d,/y,/c, — apply an operator
 // over a repeat of the last f/F/t/T search (reversed for ',').
 func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer, op string, count int, reverse bool) *EditorError {
+	searchType, char, err := cs.repeated(reverse)
+	if err != nil {
+		return err
+	}
+	return handleCharSearchOperator(editor, buffer, op, searchType, char, count, true)
+}
+
+// repeated returns the search ; repeats, or , when reverse is set: the last
+// one, the other way for ','. It fails if there has been no search.
+func (cs *charSearchState) repeated(reverse bool) (searchType, char rune, err *EditorError) {
 	last := *cs.last
 	if last.searchType == 0 || last.char == 0 {
-		return &EditorError{
+		return 0, 0, &EditorError{
 			id:  ErrInvalidMotionId,
 			err: errors.New("no previous character search to repeat"),
 		}
 	}
 
-	searchType := last.searchType
+	searchType = last.searchType
 	if reverse {
 		switch last.searchType {
 		case 'f':
@@ -178,8 +186,7 @@ func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer,
 			searchType = 't'
 		}
 	}
-
-	return handleCharSearchOperator(editor, buffer, op, searchType, last.char, count, true)
+	return searchType, last.char, nil
 }
 
 // handleVisualCharSearchInput encapsulates the repeated waitingForChar block used

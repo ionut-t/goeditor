@@ -200,6 +200,18 @@ func (m *normalMode) handleCharSearchKey(editor Editor, buffer Buffer, key KeyEv
 		}
 	}
 
+	// A case operator: gUfx, g~2tx, ...
+	if m.cmd.hasCaseOp() {
+		op := m.cmd.op
+		m.cmd.op = 0
+		m.charSearch.record(key.Rune)
+		err := applyCaseToCharSearch(editor, buffer, op, m.charSearch.searchType, key.Rune, count, false)
+		if err != nil {
+			m.clearPendingState(editor)
+		}
+		return err
+	}
+
 	// No pending operator - just perform the character search
 	m.charSearch.record(key.Rune)
 	if err := performCharSearch(buffer, m.charSearch.searchType, key.Rune, count); err != nil {
@@ -421,6 +433,15 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 		return nil
 	}
 
+	// f/F/t/T: wait for the target. handleCharSearchKey reads the count.
+	if isCharSearchKey(key) {
+		m.cmd.op = op
+		m.charSearch.searchType = key.Rune
+		m.cmd.literal = literalCharSearch
+		editor.UpdateCommand(fmt.Sprintf("%s%c", editor.GetState().CommandLine, key.Rune))
+		return nil
+	}
+
 	editor.UpdateCommand("")
 	hasPendingCount := state.PendingCount != nil
 	count := 1
@@ -438,6 +459,17 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 		return applyCaseWordEnd(editor, buffer, op, count)
 	case 'b':
 		return applyCaseWordBackward(editor, buffer, op, count)
+	case 'h', 'l':
+		start, end := charMotionSpan(buffer, count, key.Rune == 'l')
+		return applyCaseToSpan(editor, buffer, op, start, end)
+	case 'j', 'k':
+		return m.applyCaseLinewise(editor, buffer, op, count, key.Rune == 'j')
+	case ';', ',':
+		searchType, char, err := m.charSearch.repeated(key.Rune == ',')
+		if err != nil {
+			return err
+		}
+		return applyCaseToCharSearch(editor, buffer, op, searchType, char, count, true)
 	case '0':
 		return applyCaseToLineStart(editor, buffer, op)
 	case '^':
@@ -461,6 +493,45 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	}
 
 	m.keepColumn = true // not a motion (gUq)
+	return nil
+}
+
+// charMotionSpan returns the range [start, end) count characters left of the
+// cursor (h) or from it (right, l), on the cursor line: as far as the line
+// goes, and empty in column 0 for h and on an empty line for l.
+func charMotionSpan(buffer Buffer, count int, right bool) (start, end Position) {
+	pos := buffer.GetCursor().Position
+	line := buffer.GetLineRunes(pos.Row)
+	if right {
+		col, _ := charsForward(line, pos.Col, count)
+		return pos, Position{Row: pos.Row, Col: col}
+	}
+	col, _ := charsBack(line, pos.Col, count)
+	return Position{Row: pos.Row, Col: col}, pos
+}
+
+// applyCaseLinewise applies a case operator over count lines down (gUj) or up
+// (gUk), as many as there are. The cursor stays for j and goes where k goes
+// for k, which is where the change starts. On the last line for j or the
+// first for k the motion fails: nothing changes and the column j and k go to
+// is kept.
+func (m *normalMode) applyCaseLinewise(editor Editor, buffer Buffer, op rune, count int, down bool) *EditorError {
+	cursor := buffer.GetCursor()
+	row := cursor.Position.Row
+	if down && row >= buffer.LineCount()-1 || !down && row == 0 {
+		m.keepColumn = true
+		return nil
+	}
+	startRow, endRow := row, min(row+count, buffer.LineCount()-1)
+	if !down {
+		_ = cursor.MoveUp(buffer, count)
+		startRow, endRow = cursor.Position.Row, row
+	}
+	markChangeStart(editor, cursor.Position)
+	if err := applyCaseToRows(editor, buffer, op, startRow, endRow); err != nil {
+		return err
+	}
+	buffer.SetCursor(cursor)
 	return nil
 }
 
