@@ -122,6 +122,80 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op string, start, end P
 	return applyOperatorToRange(editor, buffer, op, start, end)
 }
 
+// applyOperatorLeft applies a delete/yank/change operator over count
+// characters left of the cursor: dh, yh, ch, and X. They stay on the line
+// unless wrap (the editor's MoveAcrossLines, Vim's 'h' in 'whichwrap') is on.
+// Then from column 0 they go on to the line above, as Vim's nv_left: d and c
+// after its last character, so its line break is deleted and the lines join,
+// y onto its last character, which with the usual exclusive end in column 0
+// (applyOperatorToMotion) leaves the line break out.
+func applyOperatorLeft(editor Editor, buffer Buffer, op string, count int, wrap bool) *EditorError {
+	cursor := buffer.GetCursor().Position
+	start, joins := operatorLeftTarget(buffer, op, cursor, count, wrap)
+	if joins {
+		// Vim doesn't move this end back to the line above (CA_NO_ADJ_OP_END).
+		return applyOperatorToRange(editor, buffer, op, start, cursor)
+	}
+	return applyOperatorToMotion(editor, buffer, op, start, cursor)
+}
+
+// operatorLeftTarget returns where count h's go from pos after operator op
+// (see applyOperatorLeft), and whether a d or c went past the end of a
+// non-empty line above.
+func operatorLeftTarget(buffer Buffer, op string, pos Position, count int, wrap bool) (Position, bool) {
+	joins := false
+	for range count {
+		if pos.Col > 0 {
+			pos.Col, _ = charsBack(buffer.GetLineRunes(pos.Row), pos.Col, 1)
+			continue
+		}
+		if !wrap || pos.Row == 0 {
+			break
+		}
+		pos.Row--
+		if op != "yank" && buffer.LineRuneCount(pos.Row) > 0 {
+			pos.Col = buffer.LineRuneCount(pos.Row)
+			joins = true
+		} else {
+			pos.Col = lastCol(buffer, pos.Row, false)
+		}
+	}
+	return pos, joins
+}
+
+// applyOperatorRight applies a delete/yank/change operator over count
+// characters from the cursor: dl, yl, cl. As Vim's nv_right, the last
+// character of a line counts as one step (the motion becomes inclusive) and,
+// with wrap (MoveAcrossLines), its line break as the next; an empty line's
+// line break is one step. So $d2l still deletes only the last character, as
+// the exclusive end in column 0 goes back to the line above, and dl on an
+// empty line deletes the line.
+func applyOperatorRight(editor Editor, buffer Buffer, op string, count int, wrap bool) *EditorError {
+	start := buffer.GetCursor().Position
+	pos, inclusive := start, false
+	for range count {
+		if pos.Col < lastCol(buffer, pos.Row, false) {
+			pos.Col, _ = charsForward(buffer.GetLineRunes(pos.Row), pos.Col, 1)
+			continue
+		}
+		empty := buffer.LineRuneCount(pos.Row) == 0
+		if !wrap || pos.Row >= buffer.LineCount()-1 {
+			inclusive = !empty
+			break
+		}
+		if !inclusive && !empty {
+			inclusive = true
+		} else {
+			pos = Position{Row: pos.Row + 1}
+			inclusive = false
+		}
+	}
+	if inclusive {
+		pos = afterChar(buffer, pos)
+	}
+	return applyOperatorToMotion(editor, buffer, op, start, pos)
+}
+
 // yankRange yanks the character-wise range [start, last], both inclusive; a
 // last on a line break includes it. The cursor goes to start.
 func yankRange(editor Editor, buffer Buffer, start, last Position) *EditorError {

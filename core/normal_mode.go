@@ -829,14 +829,11 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		actionTaken = true
 
 	case 'h': // dh, yh, ch — count characters left of the cursor
-		tempCursor := cursor
-		_ = tempCursor.MoveLeft(buffer, count)
-		err = applyOperatorToRange(editor, buffer, op, tempCursor.Position, cursor.Position)
+		err = applyOperatorLeft(editor, buffer, op, count, editor.MoveAcrossLines())
 		actionTaken = true
 
 	case 'l': // dl, yl, cl — count characters under/after the cursor
-		endCol, _ := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
-		err = applyOperatorToRange(editor, buffer, op, cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
+		err = applyOperatorRight(editor, buffer, op, count, editor.MoveAcrossLines())
 		actionTaken = true
 
 	case '0': // d0, y0, c0 — back to start of line
@@ -1153,7 +1150,11 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete count characters before cursor (dh)
-		if cursor.Position.Col > 0 {
+		if target, _ := operatorLeftTarget(buffer, "delete", cursor.Position, count, editor.MoveAcrossLines()); target.Row != cursor.Position.Row {
+			// With MoveAcrossLines, X goes on to the lines above as dh.
+			err = applyOperatorLeft(editor, buffer, "delete", count, true)
+			skipCursorUpdate = true
+		} else if cursor.Position.Col > 0 {
 			startCol, _ := charsBack(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
 			start := Position{Row: cursor.Position.Row, Col: startCol}
 			markChangeStart(editor, start)
