@@ -372,7 +372,7 @@ func (m *normalMode) handleCaseGKey(editor Editor, buffer Buffer, key KeyEvent) 
 	case 'g':
 		return applyCaseToBufferStart(editor, buffer, op)
 	case op: // gugu / gUgU / g~g~ — same as guu/gUU/g~~
-		return applyCaseToLines(editor, buffer, op, count)
+		return m.applyCaseToLines(editor, buffer, op, count)
 	}
 	m.keepColumn = true // not a motion (gUgq)
 	return nil
@@ -452,7 +452,7 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 
 	switch key.Rune {
 	case op: // guu / gUU / g~~ — apply to current line (and count more lines)
-		return applyCaseToLines(editor, buffer, op, count)
+		return m.applyCaseToLines(editor, buffer, op, count)
 	case 'w':
 		return applyCaseWord(editor, buffer, op, count)
 	case 'e':
@@ -533,6 +533,25 @@ func (m *normalMode) applyCaseLinewise(editor Editor, buffer Buffer, op rune, co
 	}
 	buffer.SetCursor(cursor)
 	return nil
+}
+
+// applyCaseToLines applies a case operator to count lines from the cursor
+// (gUU, gugu), as many as there are. As in Vim, the cursor stays, or on one
+// line goes back to the first non-blank if it's after it; and a count of 2 or
+// more on the last line fails: nothing changes and the column j and k go to
+// is kept.
+func (m *normalMode) applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorError {
+	to := buffer.GetCursor().Position
+	last := buffer.LineCount() - 1
+	if count > 1 && to.Row == last {
+		m.keepColumn = true
+		return nil
+	}
+	endRow := min(to.Row+count-1, last)
+	if endRow == to.Row {
+		to.Col = min(to.Col, firstNonBlankCol(buffer.GetLineRunes(to.Row)))
+	}
+	return applyCaseToLineRange(editor, buffer, op, endRow, to)
 }
 
 // handleOperatorGG handles dgg / ygg / cgg — operator applied from current line to buffer top.

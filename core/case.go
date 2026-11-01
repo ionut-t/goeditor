@@ -211,44 +211,10 @@ func applyCaseToRows(editor Editor, buffer Buffer, op rune, startRow, endRow int
 	return nil
 }
 
-// applyCaseToLines applies a case transform to `count` lines starting from the
-// cursor row (guu / gUU / g~~).
-func applyCaseToLines(editor Editor, buffer Buffer, op rune, count int) *EditorError {
-	cursor := buffer.GetCursor()
-	startRow := cursor.Position.Row
-	endRow := startRow + count - 1
-	if endRow >= buffer.LineCount() {
-		endRow = buffer.LineCount() - 1
-	}
-
-	transform := caseTransformForOp(op)
-	for r := startRow; r <= endRow; r++ {
-		lineLen := buffer.LineRuneCount(r)
-		if lineLen == 0 {
-			continue
-		}
-		start := Position{Row: r, Col: 0}
-		end := Position{Row: r, Col: lineLen} // exclusive
-		if err := applyCaseInRange(editor, buffer, start, end, transform); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// applyCaseToBufferEnd applies a case transform from the cursor to the end of
-// the buffer (guG / gUG / g~G).
+// applyCaseToBufferEnd applies a case transform to the lines from the cursor
+// to the end of the buffer (guG / gUG / g~G).
 func applyCaseToBufferEnd(editor Editor, buffer Buffer, op rune) *EditorError {
-	cursor := buffer.GetCursor()
-	startPos := cursor.Position
-	lastRow := buffer.LineCount() - 1
-	endPos := Position{Row: lastRow, Col: buffer.LineRuneCount(lastRow)} // exclusive
-
-	if err := applyCaseInRange(editor, buffer, startPos, endPos, caseTransformForOp(op)); err != nil {
-		return err
-	}
-	return nil
+	return applyCaseToLineJump(editor, buffer, op, buffer.LineCount()-1)
 }
 
 // applyCaseToLineStart applies a case transform from the beginning of the current line to
@@ -303,54 +269,41 @@ func applyCaseToFirstNonBlank(editor Editor, buffer Buffer, op rune) *EditorErro
 	return nil
 }
 
-// applyCaseToBufferStart applies a case transform from the beginning of the buffer to
-// the end of the cursor's current line (gugg / gUgg / g~gg), then moves the cursor to (0, 0).
+// applyCaseToBufferStart applies a case transform to the lines from the start
+// of the buffer to the cursor (gugg / gUgg / g~gg).
 func applyCaseToBufferStart(editor Editor, buffer Buffer, op rune) *EditorError {
-	cursor := buffer.GetCursor()
-	endRow := cursor.Position.Row
-	endCol := buffer.LineRuneCount(endRow) // exclusive: full lines up to and including cursor row
-
-	start := Position{Row: 0, Col: 0}
-	end := Position{Row: endRow, Col: endCol}
-
-	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
-		return err
-	}
-
-	cursor.Position = Position{Row: 0, Col: 0}
-	buffer.SetCursor(cursor)
-	return nil
+	return applyCaseToLineJump(editor, buffer, op, 0)
 }
 
-// applyCaseToTargetLine applies a case transform to all lines between the cursor row and
-// targetRow (inclusive), then moves the cursor to targetRow column 0. Used for gu{n}G.
+// applyCaseToTargetLine applies a case transform to the lines between the
+// cursor and targetRow, clamped to the buffer (gu{n}G).
 func applyCaseToTargetLine(editor Editor, buffer Buffer, op rune, targetRow int) *EditorError {
-	if targetRow < 0 {
-		targetRow = 0
-	}
-	if targetRow >= buffer.LineCount() {
-		targetRow = buffer.LineCount() - 1
-	}
+	return applyCaseToLineJump(editor, buffer, op, max(0, min(targetRow, buffer.LineCount()-1)))
+}
 
+// applyCaseToLineJump applies a case transform to the lines between the
+// cursor and targetRow, the range of G or gg. As in Vim, the cursor goes to
+// the first non-blank of targetRow, unless that's a later line, where it
+// stays.
+func applyCaseToLineJump(editor Editor, buffer Buffer, op rune, targetRow int) *EditorError {
+	to := buffer.GetCursor().Position
+	if targetRow <= to.Row {
+		to = Position{Row: targetRow, Col: firstNonBlankCol(buffer.GetLineRunes(targetRow))}
+	}
+	return applyCaseToLineRange(editor, buffer, op, targetRow, to)
+}
+
+// applyCaseToLineRange applies a case transform to the whole lines between
+// the cursor and row, and leaves the cursor at to, where the change starts.
+// An all-empty range is still the change '.' repeats.
+func applyCaseToLineRange(editor Editor, buffer Buffer, op rune, row int, to Position) *EditorError {
 	cursorRow := buffer.GetCursor().Position.Row
-	startRow := min(cursorRow, targetRow)
-	endRow := max(cursorRow, targetRow)
-
-	transform := caseTransformForOp(op)
-	for r := startRow; r <= endRow; r++ {
-		lineLen := buffer.LineRuneCount(r)
-		if lineLen == 0 {
-			continue
-		}
-		start := Position{Row: r, Col: 0}
-		end := Position{Row: r, Col: lineLen}
-		if err := applyCaseInRange(editor, buffer, start, end, transform); err != nil {
-			return err
-		}
+	markChangeStart(editor, to)
+	if err := applyCaseToRows(editor, buffer, op, min(cursorRow, row), max(cursorRow, row)); err != nil {
+		return err
 	}
-
 	cursor := buffer.GetCursor()
-	cursor.Position = Position{Row: targetRow, Col: 0}
+	cursor.Position = to
 	buffer.SetCursor(cursor)
 	return nil
 }

@@ -663,14 +663,14 @@ func TestCaseToTargetLine(t *testing.T) {
 		e := newTestEditor("foo\nbar\nbaz\nqux")
 		keys(e, 'g', 'U', '3', 'G')
 		assert.Equal(t, "FOO\nBAR\nBAZ\nqux", content(e))
-		assert.Equal(t, Position{2, 0}, cursorPos(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e)) // a later line: the cursor stays
 	})
 
 	t.Run("gu2G lowercases from cursor line down to line 2", func(t *testing.T) {
 		e := newTestEditor("FOO\nBAR\nBAZ")
 		keys(e, 'g', 'u', '2', 'G')
 		assert.Equal(t, "foo\nbar\nBAZ", content(e))
-		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assert.Equal(t, Position{0, 0}, cursorPos(e))
 	})
 
 	t.Run("gU2G from row 2 up to line 2 is a single-line op", func(t *testing.T) {
@@ -831,6 +831,111 @@ func TestCaseOperatorMotions(t *testing.T) {
 		{"one Two\nthree Four\nfive Six", "wlgUl0u", "one Two\nthree Four\nfive Six", Position{0, 5}, 5},
 		{"one Two\nthree Four\nfive Six", "$gUFo0u", "one Two\nthree Four\nfive Six", Position{0, 0}, 0},
 		{"one Two\nthree Four\nfive Six", "$gU3h0u", "one Two\nthree Four\nfive Six", Position{0, 3}, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.pos, cursorPos(e))
+			col := e.GetBuffer().GetCursor().Preferred
+			if col == maxCol {
+				col = -1
+			}
+			assert.Equal(t, tt.col, col, "column for j and k")
+		})
+	}
+}
+
+// TestCaseOperatorLines checks gUU, guu, g~~, G, {n}G and gg against Vim
+// 9.2: over empty lines, which change nothing but are still the change '.'
+// repeats (open-bugs 44), and where the cursor ends up. Each case starts with
+// an insert (iQ<Esc>, or GAQ<Esc> when the first line must stay empty) so a
+// '.' that repeats the insert instead shows. Vim got all the keys after it in
+// one feedkeys.
+func TestCaseOperatorLines(t *testing.T) {
+	tests := []caseMotionCase{
+		// gUU, guu, g~~ and gUgU on an empty line: nothing changes, but it is the change . repeats (44).
+		{"aBc\n\naBc", "iQ<Esc>jgUUj.", "QaBc\n\nABC", Position{2, 0}, 0},
+		{"aBc\n\naBc", "iQ<Esc>jguuj.", "QaBc\n\nabc", Position{2, 0}, 0},
+		{"aBc\n\naBc", "iQ<Esc>jg~~j.", "QaBc\n\nAbC", Position{2, 0}, 0},
+		{"aBc\n\naBc", "iQ<Esc>jgUU", "QaBc\n\naBc", Position{1, 0}, 0},
+		{"aBc\n\naBc", "iQ<Esc>jgUgUj.", "QaBc\n\nABC", Position{2, 0}, 0},
+		// Counts over empty and non-empty lines: a range of only empty lines is still repeated; with a count the cursor stays.
+		{"x\n\naBc\n\naBc\naBc", "iQ<Esc>j3gUU", "Qx\n\nABC\n\naBc\naBc", Position{1, 0}, 0},
+		{"x\n\naBc\n\naBc\naBc", "iQ<Esc>j3gUUjjj.", "Qx\n\nABC\n\nABC\nABC", Position{4, 0}, 0},
+		{"x\n\n\naBc\naBc", "iQ<Esc>j2gUU", "Qx\n\n\naBc\naBc", Position{1, 0}, 0},
+		{"x\n\n\naBc\naBc", "iQ<Esc>j2gUUjj.", "Qx\n\n\nABC\nABC", Position{3, 0}, 0},
+		{"x\n\n\n", "iQ<Esc>j5gUU", "Qx\n\n", Position{1, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>j5gUUj.", "Qx\n\n\nABC", Position{2, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>j5gUUjj.", "Qx\n\n\nABC", Position{3, 0}, 0},
+		{"x\naBc\n\naBc", "iQ<Esc>jll2gUU", "Qx\nABC\n\naBc", Position{1, 2}, 2},
+		{"x\naBc\n\naBc", "iQ<Esc>jll2gUUjj.", "Qx\nABC\n\naBc", Position{3, 2}, 2},
+		{"x\n\naBc\naBc", "iQ<Esc>j3g~~", "Qx\n\nAbC\nAbC", Position{1, 0}, 0},
+		{"x\n\n\n\naBc", "iQ<Esc>j3guujjj.", "Qx\n\n\n\naBc", Position{4, 0}, 0},
+		// One line: the cursor goes back to the first non-blank if it is after it.
+		{"x\naBc", "iQ<Esc>jllgUU", "Qx\nABC", Position{1, 0}, 0},
+		{"x\n  aBc", "iQ<Esc>j$gUU", "Qx\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc", "iQ<Esc>jgUU", "Qx\n  ABC", Position{1, 0}, 0},
+		{"x\n  aBc", "iQ<Esc>jlgUU", "Qx\n  ABC", Position{1, 1}, 1},
+		{"x\n  aBc", "iQ<Esc>jlgUUu", "Qx\n  aBc", Position{1, 1}, 1},
+		{"x\n  aBc", "iQ<Esc>GgUG", "Qx\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc", "iQ<Esc>GgUGu", "Qx\n  aBc", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jjgUgg", "QX\n  ABC\n  ABC", Position{0, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jjguggu", "Qx\n  aBc\n  aBc", Position{0, 0}, 0},
+		{"  aBc\n  aBc", "iQ<Esc>jgUgg", "Q  ABC\n  ABC", Position{0, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jj2gUGu", "Qx\n  aBc\n  aBc", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jj$2gUG", "Qx\n  ABC\n  ABC", Position{1, 2}, 2},
+		// A count past the end goes as far as there are lines; 2gUU on the last line fails, so . repeats the insert.
+		{"x\n\n\naBc", "iQ<Esc>j5gUU", "Qx\n\n\nABC", Position{1, 0}, 0},
+		{"aBc\n\n\n", "iQ<Esc>j5gUUk.", "QABC\n\n", Position{0, 0}, 0},
+		{"x\n\n\n", "iQ<Esc>G2gUU", "Qx\n\n", Position{2, 0}, 0},
+		{"aBc\n\n\n", "iQ<Esc>G2gUUk.", "QaBc\nQ\n", Position{1, 0}, 0},
+		{"aBc\n\n\n", "iQ<Esc>GgUUk.", "QaBc\n\n", Position{1, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jl2gUU", "Qx\n  ABC\n  ABC", Position{1, 1}, 1},
+		{"x\n  aBc\n\n\n", "iQ<Esc>j$2gUU", "Qx\n  ABC\n\n", Position{1, 4}, 4},
+		// G and {n}G are linewise (the whole cursor line, wherever the cursor is) and repeat over only empty lines. The cursor goes to the first non-blank of the target line, unless it is below the cursor, where it stays.
+		{"x\n\n\n\n", "iQ<Esc>jgUG", "Qx\n\n\n", Position{1, 0}, 0},
+		{"x\n\n\n\n", "iQ<Esc>jgUGgg.", "QX\n\n\n", Position{0, 0}, 0},
+		{"x\naBc\naBc", "iQ<Esc>jllgUG", "Qx\nABC\nABC", Position{1, 2}, 2},
+		{"x\n\n\naBc", "iQ<Esc>j3gUG", "Qx\n\n\naBc", Position{1, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>j3gUGG.", "Qx\n\n\nABC", Position{2, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>jj2gUG", "Qx\n\n\naBc", Position{1, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>jj2gUGG.", "Qx\n\n\nABC", Position{1, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>jj2gUGG", "Qx\n\n\naBc", Position{3, 0}, 0},
+		{"x\n\n\n\n", "iQ<Esc>jgUGk.", "QX\n\n\n", Position{0, 0}, 0},
+		{"x\n\n\naBc", "iQ<Esc>jjj2gUGgg.", "QX\n\n\nABC", Position{0, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>j$gUG", "Qx\n  ABC\n  ABC", Position{1, 4}, 4},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jj$gugg", "qx\n  abc\n  abc", Position{0, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>G$2gUG", "Qx\n  ABC\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc", "iQ<Esc>G$gUG", "Qx\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc", "iQ<Esc>GlgUG", "Qx\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jl3gUG", "Qx\n  ABC\n  ABC", Position{1, 1}, 1},
+		{"x\n  aBc", "iQ<Esc>G$gUgg", "QX\n  ABC", Position{0, 0}, 0},
+		{"  aBc\n  aBc", "iQ<Esc>j$gugg", "q  abc\n  abc", Position{0, 0}, 0},
+		{"x\n  aBc\n  aBc", "iQ<Esc>j$9gUG", "Qx\n  ABC\n  ABC", Position{1, 4}, 4},
+		{"x\n  aBc\n  aBc", "iQ<Esc>G$2gUGj.", "Qx\n  ABC\n  ABC", Position{1, 2}, 2},
+		{"x\naBc\naBc", "iQ<Esc>G2gUU", "Qx\naBc\naBc", Position{2, 0}, 0},
+		{"x\naBc\naBc", "iQ<Esc>j2gUUj2.", "Qx\nABC\nABC", Position{2, 0}, 0},
+		{"x\naBc\n\n\n", "iQ<Esc>jgUUjj2.", "Qx\nABC\n\n", Position{3, 0}, 0},
+		{"foo\nbar\nbaz\nqux", "iQ<Esc>gU3G", "QFOO\nBAR\nBAZ\nqux", Position{0, 0}, 0},
+		{"FOO\nBAR\nBAZ", "iQ<Esc>gu2G", "qfoo\nbar\nBAZ", Position{0, 0}, 0},
+		// gg likewise.
+		{"\n\naBc", "GAQ<Esc>ggjgugg", "\n\naBcQ", Position{0, 0}, 0},
+		{"\n\naBc", "GAQ<Esc>ggjguggG.", "\n\nabcq", Position{0, 0}, 0},
+		{"x\naBc\naBc", "iQ<Esc>jjllgugg", "qx\nabc\nabc", Position{0, 0}, 0},
+		{"\n\naBc", "GAQ<Esc>ggjgUgUG.", "\n\nABCQ", Position{2, 0}, 0},
+		// u puts the cursor where the case operator left it.
+		{"x\n  aBc", "iQ<Esc>j$gUUu", "Qx\n  aBc", Position{1, 2}, 2},
+		{"x\naBc\naBc", "iQ<Esc>jll2gUUu", "Qx\naBc\naBc", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>G$2gUGu", "Qx\n  aBc\n  aBc", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>jj$guggu", "Qx\n  aBc\n  aBc", Position{0, 0}, 0},
+		{"x\naBc\naBc", "iQ<Esc>jllgUGu", "Qx\naBc\naBc", Position{1, 2}, 2},
+		{"x\n  aBc", "iQ<Esc>jgUUu", "Qx\n  aBc", Position{1, 0}, 0},
+		// The column for j and k is the cursor column after the operator.
+		{"x\n  aBc", "iQ<Esc>j$gUUj", "Qx\n  ABC", Position{1, 2}, 2},
+		{"x\n  aBc\n  aBc", "iQ<Esc>G$2gUGk", "Qx\n  ABC\n  ABC", Position{0, 1}, 2},
+		{"x\naBc\naBcdef", "iQ<Esc>jll2gUUj", "Qx\nABC\nABCDEF", Position{2, 2}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
