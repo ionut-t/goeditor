@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/ionut-t/goeditor/compare/v0.15.1...v0.16.0) (2026-11-02)
+
+
+### Features
+
+* **core:** add h, l, j, k, f, F, t, T, ; and , to gU, gu and g~ ([#120](https://github.com/ionut-t/goeditor/issues/120)) ([afefac0](https://github.com/ionut-t/goeditor/commit/afefac0fe6d790cf42a923581e03482772f1d187))
+
+
+### Bug Fixes
+
+* **case:** align linewise operator behaviour with Vim ([#122](https://github.com/ionut-t/goeditor/issues/122)) ([b1d2bef](https://github.com/ionut-t/goeditor/commit/b1d2bef469bf8327119a5322731d9e2a84736952))
+* **core:** cross lines with dh, dl and X when MoveAcrossLines is on ([#123](https://github.com/ionut-t/goeditor/issues/123)) ([6bae5f8](https://github.com/ionut-t/goeditor/commit/6bae5f8346e2d2130fcfeac2a75aa0c5613ca6ed))
+
 ## [0.15.1](https://github.com/ionut-t/goeditor/compare/v0.15.0...v0.15.1) (2026-10-31)
 
 
