@@ -186,10 +186,10 @@ func (m *normalMode) handleCharSearchKey(editor Editor, buffer Buffer, key KeyEv
 	// Check if there's a pending operator (d/y/c)
 	if m.cmd.hasOperator() {
 		// Operator + character search motion (e.g., df,  yt;)
-		op := operatorName(m.cmd.op)
+		op := operatorFor(m.cmd.op)
 		m.cmd.op = 0
 
-		if op != "" {
+		if op != opNone {
 			// Record the search so ;/, (and d;/d,) can repeat it later.
 			m.charSearch.record(key.Rune)
 			err := handleCharSearchOperator(editor, buffer, op, m.charSearch.searchType, key.Rune, count, false)
@@ -270,7 +270,7 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 	// Operator + ge/gE: dge, yge, cge, dgE, … — back to end of previous word
 	// (inclusive motion; 'E' uses WORD semantics)
 	if m.cmd.hasOperator() && (key.Rune == 'e' || key.Rune == 'E') {
-		op := operatorName(m.cmd.op)
+		op := operatorFor(m.cmd.op)
 		m.cmd.op = 0
 		editor.UpdateCommand("")
 
@@ -593,8 +593,8 @@ func (m *normalMode) handleOperatorGG(editor Editor, buffer Buffer, cursor Curso
 func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	opKey := m.cmd.op
 
-	op := operatorName(opKey)
-	if op == "" {
+	op := operatorFor(opKey)
+	if op == opNone {
 		m.cmd.op = 0
 		m.cmd.modifier = 0
 		return &EditorError{
@@ -664,7 +664,7 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 
 // handleTextObject handles a text object key (w, p, …) after a pending modifier (i/a).
 // count extends word objects over additional words (e.g. d2aw); other objects ignore it.
-func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, op string, count int) *EditorError {
+func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, op operator, count int) *EditorError {
 	var err *EditorError
 	actionTaken := false
 
@@ -683,13 +683,13 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 		actionTaken = true
 	case 'p': // ip or ap = inside/around paragraph
 		switch op {
-		case "yank":
+		case opYank:
 			err = yankParagraphTextObject(editor, buffer, modifier)
 			actionTaken = true
-		case "delete":
+		case opDelete:
 			err = deleteParagraphTextObject(editor, buffer, modifier)
 			actionTaken = true
-		case "change":
+		case opChange:
 			err = changeParagraphTextObject(editor, buffer, modifier)
 			actionTaken = true
 		}
@@ -734,7 +734,7 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 // dispatchOperatorMotion executes the appropriate buffer operation for an operator+motion pair.
 // count is 0 when none was typed; motions treat that as 1, except G, which then
 // goes to the last line.
-func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key KeyEvent, op string, firstKeyRune rune, count int) *EditorError {
+func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key KeyEvent, op operator, firstKeyRune rune, count int) *EditorError {
 	var err *EditorError
 	actionTaken := false
 	lineCount := count
@@ -748,7 +748,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	// Character-wise: w b e W B E ge gE $ 0 ^ h l { } % f F t T ; , and i/a text objects
 	switch key.Rune {
 	case 'd': // dd = delete line
-		if op == "delete" {
+		if op == opDelete {
 			markChangeStart(editor, linesChangeStart(buffer, cursor.Position, count))
 			var deletedContent string
 			deletedContent, err = deleteLines(editor, buffer, count)
@@ -756,22 +756,22 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 			actionTaken = true
 		}
 	case 'y': // yy = yank line
-		if op == "yank" {
+		if op == opYank {
 			err = yankLines(editor, buffer, count)
 			actionTaken = true
 		}
 	case 'c': // cc = change line
-		if op == "change" {
+		if op == opChange {
 			markChangeStart(editor, linesChangeStart(buffer, cursor.Position, count))
 			err = changeLines(editor, buffer, count)
 			actionTaken = true
 		}
 	case 'w': // dw = delete word, yw = yank word forward, cw = change word
 		switch op {
-		case "delete", "yank":
+		case opDelete, opYank:
 			err = applyOperatorToWords(editor, buffer, op, count, editor.CharClass)
 			actionTaken = true
-		case "change":
+		case opChange:
 			err = changeWordsForward(editor, buffer, count, editor.CharClass)
 			actionTaken = true
 		}
@@ -795,7 +795,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		targetRow := gotoLineRow(buffer, lineCount)
 		startRow := min(cursor.Position.Row, targetRow)
 		endRow := max(cursor.Position.Row, targetRow)
-		if op != "yank" {
+		if op != opYank {
 			markChangeStart(editor, lineChangeStart(buffer, cursor.Position, targetRow))
 		}
 		err = applyOperatorToLineRange(editor, buffer, op, startRow, endRow)
@@ -804,7 +804,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'j': // dj, yj, cj — current line and count lines below (line-wise)
 		if cursor.Position.Row < buffer.LineCount()-1 {
 			endRow := min(cursor.Position.Row+count, buffer.LineCount()-1)
-			if op != "yank" {
+			if op != opYank {
 				markChangeStart(editor, cursor.Position)
 			}
 			err = applyOperatorToLineRange(editor, buffer, op, cursor.Position.Row, endRow)
@@ -816,7 +816,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 	case 'k': // dk, yk, ck — current line and count lines above (line-wise)
 		if cursor.Position.Row > 0 {
 			startRow := max(cursor.Position.Row-count, 0)
-			if op != "yank" {
+			if op != opYank {
 				// The change starts where k goes.
 				target := cursor
 				_ = target.MoveUp(buffer, count)
@@ -859,7 +859,7 @@ func (m *normalMode) dispatchOperatorMotion(editor Editor, buffer Buffer, key Ke
 		actionTaken = true
 
 	case 'W': // dW, yW, cW — WORD forward (cW changes to end of WORD, like cE)
-		if op == "change" {
+		if op == opChange {
 			err = changeWordsForward(editor, buffer, count, bigWordClass)
 		} else {
 			err = applyOperatorToWords(editor, buffer, op, count, bigWordClass)
@@ -1150,9 +1150,9 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete count characters before cursor (dh)
-		if target, _ := operatorLeftTarget(buffer, "delete", cursor.Position, count, editor.MoveAcrossLines()); target.Row != cursor.Position.Row {
+		if target, _ := operatorLeftTarget(buffer, opDelete, cursor.Position, count, editor.MoveAcrossLines()); target.Row != cursor.Position.Row {
 			// With MoveAcrossLines, X goes on to the lines above as dh.
-			err = applyOperatorLeft(editor, buffer, "delete", count, true)
+			err = applyOperatorLeft(editor, buffer, opDelete, count, true)
 			skipCursorUpdate = true
 		} else if cursor.Position.Col > 0 {
 			startCol, _ := charsBack(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
@@ -1166,7 +1166,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			}
 		} else {
 			// dh over nothing: still the change '.' repeats, as in Vim
-			_ = applyOperatorToEmptyRange(editor, "delete")
+			_ = applyOperatorToEmptyRange(editor, opDelete)
 			err = &EditorError{
 				id:  ErrStartOfLineId,
 				err: ErrStartOfLine,
@@ -1174,7 +1174,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		}
 
 	case key.Rune == 'D': // Delete to end of line (equivalent to d$)
-		err = m.applyOperatorToLineEnd(editor, buffer, "delete", count)
+		err = m.applyOperatorToLineEnd(editor, buffer, opDelete, count)
 		skipCursorUpdate = true
 
 	case key.Rune == 'r': // Replace character under cursor
@@ -1188,7 +1188,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	case key.Rune == 's': // Substitute character(s) — like 'cl'
 		endCol, _ := charsForward(buffer.GetLineRunes(cursor.Position.Row), cursor.Position.Col, count)
-		err = applyOperatorToRange(editor, buffer, "change", cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
+		err = applyOperatorToRange(editor, buffer, opChange, cursor.Position, Position{Row: cursor.Position.Row, Col: endCol})
 		if err == nil && !editor.IsInsertMode() {
 			editor.SetInsertMode() // empty line: 's' still enters insert mode
 		}
@@ -1204,7 +1204,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)
-		err = m.applyOperatorToLineEnd(editor, buffer, "change", count)
+		err = m.applyOperatorToLineEnd(editor, buffer, opChange, count)
 		skipCursorUpdate = true
 	case key.Rune == 'd': // Start 'delete' operation
 		m.cmd.op = key.Rune
@@ -1356,17 +1356,17 @@ type changeRepeater interface {
 	repeatChange(count int) (repeated bool, err *EditorError)
 }
 
-// operatorName maps a d/y/c rune to its operation name string.
-func operatorName(r rune) string {
+// operatorFor maps a d/y/c rune to its operator, or opNone for any other rune.
+func operatorFor(r rune) operator {
 	switch r {
 	case 'd':
-		return "delete"
+		return opDelete
 	case 'y':
-		return "yank"
+		return opYank
 	case 'c':
-		return "change"
+		return opChange
 	}
-	return ""
+	return opNone
 }
 
 // handleCharSearchRepeat handles repeating (;) or reversing (,) the last character search.

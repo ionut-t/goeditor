@@ -11,7 +11,7 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) 
 	start := cursor.Position
 	line := buffer.GetLineRunes(start.Row)
 	if start.Col >= len(line) || isWhiteSpace(line[start.Col]) {
-		return applyOperatorToWords(editor, buffer, "change", count, cls)
+		return applyOperatorToWords(editor, buffer, opChange, count, cls)
 	}
 
 	// A blank other than space or tab (a no-break space) takes the ce path
@@ -25,7 +25,7 @@ func changeWordsForward(editor Editor, buffer Buffer, count int, cls func(rune) 
 		_ = tempCursor.MoveWordToEnd(buffer, count-1, cls)
 	}
 	_ = tempCursor.MoveRight(buffer, 1) // the end is inclusive
-	return applyOperatorToRange(editor, buffer, "change", start, tempCursor.Position)
+	return applyOperatorToRange(editor, buffer, opChange, start, tempCursor.Position)
 }
 
 // replaceCharUnderCursor is r: it replaces count characters from the cursor

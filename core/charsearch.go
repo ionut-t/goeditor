@@ -109,7 +109,7 @@ func performCharSearch(buffer Buffer, searchType rune, char rune, count int) err
 // like df, (delete until comma), yt; (yank till semicolon), etc.
 // skipAdjacent starts a t/T search one character further along, so a repeated
 // till-search (d;) doesn't re-match the character the cursor already sits next to.
-func handleCharSearchOperator(editor Editor, buffer Buffer, op string, searchType rune, char rune, count int, skipAdjacent bool) *EditorError {
+func handleCharSearchOperator(editor Editor, buffer Buffer, op operator, searchType rune, char rune, count int, skipAdjacent bool) *EditorError {
 	start, end, err := charSearchSpan(buffer, searchType, char, count, skipAdjacent)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func charSearchSpan(buffer Buffer, searchType rune, char rune, count int, skipAd
 
 // repeatCharSearchOperator implements d;/y;/c; and d,/y,/c, — apply an operator
 // over a repeat of the last f/F/t/T search (reversed for ',').
-func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer, op string, count int, reverse bool) *EditorError {
+func repeatCharSearchOperator(cs *charSearchState, editor Editor, buffer Buffer, op operator, count int, reverse bool) *EditorError {
 	searchType, char, err := cs.repeated(reverse)
 	if err != nil {
 		return err

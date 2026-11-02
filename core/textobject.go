@@ -331,7 +331,7 @@ func currentWord(buffer Buffer, cursor, visualStart Position, visual bool, count
 // bigWordClass. When the object runs out at the end of the buffer (d5aw on
 // four words, daw on an empty last line), nothing changes, and as in Vim the
 // cursor stays where the search ended.
-func applyWordTextObject(editor Editor, buffer Buffer, op string, modifier rune, count int, cls func(rune) int) *EditorError {
+func applyWordTextObject(editor Editor, buffer Buffer, op operator, modifier rune, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
 	start, end, inclusive, ok := currentWord(buffer, cursor.Position, cursor.Position, false, count, modifier == 'a', cls)
 	if !ok {
@@ -867,9 +867,9 @@ func blockSearchStart(buffer Buffer, pos Position, openChar rune) Position {
 
 // applyCharRangeOp performs a yank, delete, or change on the inclusive character range
 // [startPos, endPos]. It is the shared implementation used by quote text objects.
-func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, op string) *EditorError {
+func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, op operator) *EditorError {
 	switch op {
-	case "yank":
+	case opYank:
 		state := editor.GetState()
 		state.VisualStart = endPos
 		state.YankSelection = SelectionCharacter
@@ -886,7 +886,7 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 			return &EditorError{id: ErrFailedToYankId, err: err}
 		}
 
-	case "delete", "change":
+	case opDelete, opChange:
 		// deleteRange end is exclusive; convert inclusive endPos.
 		exclusiveEnd := Position{endPos.Row, endPos.Col + 1}
 		lineLen := buffer.LineRuneCount(endPos.Row)
@@ -906,12 +906,12 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 		}
 		// Insert mode can sit after the last character; Normal mode can't.
 		lineLen = buffer.LineRuneCount(cursor.Position.Row)
-		if op == "delete" && cursor.Position.Col >= lineLen && lineLen > 0 {
+		if op == opDelete && cursor.Position.Col >= lineLen && lineLen > 0 {
 			cursor.Position.Col = lineLen - 1
 		}
 		buffer.SetCursor(cursor)
 
-		if op == "change" {
+		if op == opChange {
 			editor.SetInsertMode()
 		}
 	}
@@ -922,7 +922,7 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 // pair (openCol, closeCol) has nothing between it, and does
 // nothing otherwise. As Vim, the operator still runs, on the empty range at
 // the closing quote.
-func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, openCol, closeCol int, op string) *EditorError {
+func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, openCol, closeCol int, op operator) *EditorError {
 	if modifier != 'i' || closeCol != openCol+1 {
 		return nil
 	}
@@ -931,7 +931,7 @@ func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, ope
 }
 
 // applyQuoteOp applies op (yank/delete/change) to the i/a quote text object for the given quote char.
-func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op string) *EditorError {
+func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op operator) *EditorError {
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote)
 	if !found {
@@ -947,7 +947,7 @@ func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op st
 }
 
 // applyAnyQuoteOp applies op to the innermost quote pair of any type (", ', `).
-func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *EditorError {
+func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op operator) *EditorError {
 	cursor := buffer.GetCursor()
 	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
 	if !found {
@@ -964,7 +964,7 @@ func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op string) *Ed
 
 // applyBracketRange is the shared implementation for bracket text object operations.
 // It applies op to the i or a block of the already-found openPos/closePos.
-func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, closePos Position, op string) *EditorError {
+func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, closePos Position, op operator) *EditorError {
 	if modifier == 'a' {
 		return applyOperatorToRange(editor, buffer, op, openPos, Position{Row: closePos.Row, Col: closePos.Col + 1})
 	}
@@ -977,7 +977,7 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 }
 
 // applyBracketOp applies op to the i/a bracket text object for the given open/close chars.
-func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op string) *EditorError {
+func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op operator) *EditorError {
 	pos := blockSearchStart(buffer, buffer.GetCursor().Position, openChar)
 	openPos, closePos, _, found := findBlock(buffer, pos, openChar, closeChar)
 	if !found {
@@ -1081,7 +1081,7 @@ func positionBefore(a, b Position) bool {
 
 // applyAnyBracketOp applies op to the nearest bracket pair of any type (()/[]/{}/)
 // at the cursor (see findNearestBracketBounds). Used by the 'b' text object alias.
-func applyAnyBracketOp(editor Editor, buffer Buffer, modifier rune, op string) *EditorError {
+func applyAnyBracketOp(editor Editor, buffer Buffer, modifier rune, op operator) *EditorError {
 	cursor := buffer.GetCursor()
 	openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor.Position)
 	if !found {
