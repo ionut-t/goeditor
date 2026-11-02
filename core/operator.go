@@ -2,6 +2,17 @@ package core
 
 import "strings"
 
+// operator is a normal-mode operator that takes a motion or text object: d, y
+// or c. The case operators (gU, gu, g~) take a separate path (case.go).
+type operator int
+
+const (
+	opNone operator = iota
+	opDelete
+	opYank
+	opChange
+)
+
 // applyOperatorToRange applies a delete/yank/change operator to the character-wise
 // range [start, end) — end exclusive, matching Vim's exclusive motions. The two
 // positions may be given in either order. For inclusive motions (e.g. ge), the
@@ -11,12 +22,12 @@ import "strings"
 //
 // As Vim's op_delete, a delete over several lines that starts in the indent
 // and leaves only blanks after its end deletes the lines instead.
-func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Position) *EditorError {
+func applyOperatorToRange(editor Editor, buffer Buffer, op operator, start, end Position) *EditorError {
 	// Normalize so start is before end
 	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
 		start, end = end, start
 	}
-	if op != "yank" {
+	if op != opYank {
 		markChangeStart(editor, start)
 	}
 	if start == end {
@@ -27,28 +38,28 @@ func applyOperatorToRange(editor Editor, buffer Buffer, op string, start, end Po
 		buffer.SetCursor(cursor)
 		return applyOperatorToEmptyRange(editor, op)
 	}
-	if op == "delete" && deletesLines(buffer, start, end) {
+	if op == opDelete && deletesLines(buffer, start, end) {
 		return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
 	}
 
 	cursor := buffer.GetCursor()
 
 	switch op {
-	case "delete", "change":
+	case opDelete, opChange:
 		if err := deleteRange(buffer, start, end); err != nil {
 			return err
 		}
 		cursor.Position = start
-		if op == "delete" {
+		if op == opDelete {
 			// A delete up to the end of the line leaves start past it.
 			cursor.Position.Col = min(start.Col, lastCol(buffer, start.Row, false))
 		}
 		buffer.SetCursor(cursor)
-		if op == "change" {
+		if op == opChange {
 			editor.SetInsertMode()
 		}
 
-	case "yank":
+	case opYank:
 		// editor.Copy is inclusive of both ends, so step the exclusive end back
 		// one. From column 0 that is the line break above, which Copy includes.
 		last := Position{Row: end.Row, Col: end.Col - 1}
@@ -75,18 +86,18 @@ type emptyRangeOperator interface {
 // change '.' repeats, a change starts insert mode, and a yank empties the
 // register. A motion that fails (b at the start of the buffer, % with no
 // bracket) must not get here: Vim does nothing then.
-func applyOperatorToEmptyRange(editor Editor, op string) *EditorError {
+func applyOperatorToEmptyRange(editor Editor, op operator) *EditorError {
 	o, ok := editor.(emptyRangeOperator)
 	switch op {
-	case "delete", "change":
+	case opDelete, opChange:
 		if ok {
 			o.countChange()
 		}
-		if op == "change" {
+		if op == opChange {
 			editor.SetInsertMode()
 		}
 
-	case "yank":
+	case opYank:
 		if !ok {
 			return nil
 		}
@@ -102,14 +113,14 @@ func applyOperatorToEmptyRange(editor Editor, op string) *EditorError {
 // (:h exclusive-linewise), an end in column 0 of a later line goes back to
 // the end of the line above, and if the operator started in the indent it
 // acts on the lines instead.
-func applyOperatorToMotion(editor Editor, buffer Buffer, op string, start, end Position) *EditorError {
+func applyOperatorToMotion(editor Editor, buffer Buffer, op operator, start, end Position) *EditorError {
 	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
 		start, end = end, start
 	}
 	if end.Row > start.Row && end.Col == 0 {
 		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
 		if inIndent(buffer, start) {
-			if op != "yank" {
+			if op != opYank {
 				markChangeStart(editor, start)
 			}
 			// As Vim, the cursor goes to the start, where a linewise y leaves it.
@@ -129,7 +140,7 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op string, start, end P
 // after its last character, so its line break is deleted and the lines join,
 // y onto its last character, which with the usual exclusive end in column 0
 // (applyOperatorToMotion) leaves the line break out.
-func applyOperatorLeft(editor Editor, buffer Buffer, op string, count int, wrap bool) *EditorError {
+func applyOperatorLeft(editor Editor, buffer Buffer, op operator, count int, wrap bool) *EditorError {
 	cursor := buffer.GetCursor().Position
 	start, joins := operatorLeftTarget(buffer, op, cursor, count, wrap)
 	if joins {
@@ -142,7 +153,7 @@ func applyOperatorLeft(editor Editor, buffer Buffer, op string, count int, wrap 
 // operatorLeftTarget returns where count h's go from pos after operator op
 // (see applyOperatorLeft), and whether a d or c went past the end of a
 // non-empty line above.
-func operatorLeftTarget(buffer Buffer, op string, pos Position, count int, wrap bool) (Position, bool) {
+func operatorLeftTarget(buffer Buffer, op operator, pos Position, count int, wrap bool) (Position, bool) {
 	joins := false
 	for range count {
 		if pos.Col > 0 {
@@ -153,7 +164,7 @@ func operatorLeftTarget(buffer Buffer, op string, pos Position, count int, wrap 
 			break
 		}
 		pos.Row--
-		if op != "yank" && buffer.LineRuneCount(pos.Row) > 0 {
+		if op != opYank && buffer.LineRuneCount(pos.Row) > 0 {
 			pos.Col = buffer.LineRuneCount(pos.Row)
 			joins = true
 		} else {
@@ -170,7 +181,7 @@ func operatorLeftTarget(buffer Buffer, op string, pos Position, count int, wrap 
 // line break is one step. So $d2l still deletes only the last character, as
 // the exclusive end in column 0 goes back to the line above, and dl on an
 // empty line deletes the line.
-func applyOperatorRight(editor Editor, buffer Buffer, op string, count int, wrap bool) *EditorError {
+func applyOperatorRight(editor Editor, buffer Buffer, op operator, count int, wrap bool) *EditorError {
 	start := buffer.GetCursor().Position
 	pos, inclusive := start, false
 	for range count {
@@ -231,7 +242,7 @@ func yankRange(editor Editor, buffer Buffer, start, last Position) *EditorError 
 // applyOperatorToWords applies a delete/yank/change operator to what w (W
 // with bigWordClass) moves over from the cursor. After an operator the last
 // word stops at the end of its line (:h dw).
-func applyOperatorToWords(editor Editor, buffer Buffer, op string, count int, cls func(rune) int) *EditorError {
+func applyOperatorToWords(editor Editor, buffer Buffer, op operator, count int, cls func(rune) int) *EditorError {
 	cursor := buffer.GetCursor()
 	start := cursor.Position
 	_ = cursor.moveWordForward(buffer, count, cls, true)
@@ -277,13 +288,13 @@ func (m *normalMode) lineEndTarget(buffer Buffer, count int) (Position, bool) {
 // applyOperatorToLineEnd applies a delete/yank/change operator to [count]$
 // (d$, y$, c$, D, C): charwise through the end of the line count-1 lines
 // down, or linewise for a delete from the indent over several lines.
-func (m *normalMode) applyOperatorToLineEnd(editor Editor, buffer Buffer, op string, count int) *EditorError {
+func (m *normalMode) applyOperatorToLineEnd(editor Editor, buffer Buffer, op operator, count int) *EditorError {
 	end, ok := m.lineEndTarget(buffer, count)
 	if !ok {
 		return nil
 	}
 	start := buffer.GetCursor().Position
-	if op != "delete" || deletesLines(buffer, start, end) { // the line delete sends its own DeleteSignal
+	if op != opDelete || deletesLines(buffer, start, end) { // the line delete sends its own DeleteSignal
 		return applyOperatorToRange(editor, buffer, op, start, end)
 	}
 	deleted := rangeText(buffer, start, end)
@@ -315,14 +326,14 @@ func rangeText(buffer Buffer, start, end Position) string {
 
 // applyOperatorToLineRange applies a delete/yank/change operator line-wise to the
 // inclusive row range [startRow, endRow], used by the j/k motions.
-func applyOperatorToLineRange(editor Editor, buffer Buffer, op string, startRow, endRow int) *EditorError {
+func applyOperatorToLineRange(editor Editor, buffer Buffer, op operator, startRow, endRow int) *EditorError {
 	switch op {
-	case "delete":
+	case opDelete:
 		deletedContent, err := deleteLineRange(editor, buffer, startRow, endRow)
 		editor.DispatchSignal(DeleteSignal{content: deletedContent})
 		return err
 
-	case "yank":
+	case opYank:
 		// yankLines starts at the cursor row, so move to the top of the range first
 		// (for yk this also leaves the cursor there, matching Vim).
 		cursor := buffer.GetCursor()
@@ -333,7 +344,7 @@ func applyOperatorToLineRange(editor Editor, buffer Buffer, op string, startRow,
 		}
 		return yankLines(editor, buffer, endRow-startRow+1)
 
-	case "change":
+	case opChange:
 		return changeLineRange(editor, buffer, startRow, endRow)
 	}
 
