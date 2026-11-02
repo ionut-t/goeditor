@@ -142,7 +142,7 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op operator, start, end
 // (applyOperatorToMotion) leaves the line break out.
 func applyOperatorLeft(editor Editor, buffer Buffer, op operator, count int, wrap bool) *EditorError {
 	cursor := buffer.GetCursor().Position
-	start, joins := operatorLeftTarget(buffer, op, cursor, count, wrap)
+	start, joins := charsLeftTarget(buffer, cursor, count, wrap, op == opDelete || op == opChange)
 	if joins {
 		// Vim doesn't move this end back to the line above (CA_NO_ADJ_OP_END).
 		return applyOperatorToRange(editor, buffer, op, start, cursor)
@@ -150,10 +150,11 @@ func applyOperatorLeft(editor Editor, buffer Buffer, op operator, count int, wra
 	return applyOperatorToMotion(editor, buffer, op, start, cursor)
 }
 
-// operatorLeftTarget returns where count h's go from pos after operator op
-// (see applyOperatorLeft), and whether a d or c went past the end of a
-// non-empty line above.
-func operatorLeftTarget(buffer Buffer, op operator, pos Position, count int, wrap bool) (Position, bool) {
+// charsLeftTarget returns where count h's go from pos after an operator (see
+// applyOperatorLeft), and whether a step went past the end of a non-empty
+// line above, which only pastLineEnd (d and c, Vim's nv_left) allows; y and
+// the case operators stop on its last character.
+func charsLeftTarget(buffer Buffer, pos Position, count int, wrap, pastLineEnd bool) (Position, bool) {
 	joins := false
 	for range count {
 		if pos.Col > 0 {
@@ -164,7 +165,7 @@ func operatorLeftTarget(buffer Buffer, op operator, pos Position, count int, wra
 			break
 		}
 		pos.Row--
-		if op != opYank && buffer.LineRuneCount(pos.Row) > 0 {
+		if pastLineEnd && buffer.LineRuneCount(pos.Row) > 0 {
 			pos.Col = buffer.LineRuneCount(pos.Row)
 			joins = true
 		} else {
@@ -183,6 +184,12 @@ func operatorLeftTarget(buffer Buffer, op operator, pos Position, count int, wra
 // empty line deletes the line.
 func applyOperatorRight(editor Editor, buffer Buffer, op operator, count int, wrap bool) *EditorError {
 	start := buffer.GetCursor().Position
+	return applyOperatorToMotion(editor, buffer, op, start, charsRightEnd(buffer, start, count, wrap))
+}
+
+// charsRightEnd returns the exclusive end of count l's from start after an
+// operator (see applyOperatorRight), before the exclusive-motion adjustment.
+func charsRightEnd(buffer Buffer, start Position, count int, wrap bool) Position {
 	pos, inclusive := start, false
 	for range count {
 		if pos.Col < lastCol(buffer, pos.Row, false) {
@@ -204,7 +211,7 @@ func applyOperatorRight(editor Editor, buffer Buffer, op operator, count int, wr
 	if inclusive {
 		pos = afterChar(buffer, pos)
 	}
-	return applyOperatorToMotion(editor, buffer, op, start, pos)
+	return pos
 }
 
 // yankRange yanks the character-wise range [start, last], both inclusive; a

@@ -109,3 +109,85 @@ func TestOperatorHLAcrossLines(t *testing.T) {
 		})
 	}
 }
+
+// TestCaseHLAcrossLines checks gU, gu and g~ with h and l and
+// SetMoveAcrossLines against Vim 9.2 with 'set whichwrap+=h,l'. They take
+// the same steps as dh and dl, except that h stops on the last character of
+// the line above, as y does; an end in column 0 of a later line goes back to
+// the end of the line above, so a range over only line breaks changes
+// nothing. The cursor goes to the start of the range.
+func TestCaseHLAcrossLines(t *testing.T) {
+	const (
+		two    = "abc\ndef"
+		blank  = "abc\n\ndef"
+		three  = "abc\ndef\nghi"
+		indent = "  abc\ndef"
+	)
+	tests := []struct {
+		keys, content, text string
+		pos                 Position
+	}{
+		{"$gU3l", two, "abC\nDef", Position{0, 2}},
+		{"$gUl", two, "abC\ndef", Position{0, 2}},
+		{"$gU2l", two, "abC\ndef", Position{0, 2}},
+		{"lgU5l", two, "aBC\nDEf", Position{0, 1}},
+		{"lgU9l", two, "aBC\nDEF", Position{0, 1}},
+		{"jgUh", two, "abC\ndef", Position{0, 2}},
+		{"jgU2h", two, "aBC\ndef", Position{0, 1}},
+		{"jlgU3h", two, "aBC\nDef", Position{0, 1}},
+		{"jgU9h", two, "ABC\ndef", Position{0, 0}},
+		{"j$gU9h", two, "ABC\nDEf", Position{0, 0}},
+		{"$gUl", blank, "abC\n\ndef", Position{0, 2}},
+		{"$gU2l", blank, "abC\n\ndef", Position{0, 2}},
+		{"$gU3l", blank, "abC\n\ndef", Position{0, 2}},
+		{"jgUl", blank, blank, Position{1, 0}},
+		{"jgU2l", blank, "abc\n\nDef", Position{1, 0}},
+		{"jgUh", blank, "abC\n\ndef", Position{0, 2}},
+		{"jgU2h", blank, "aBC\n\ndef", Position{0, 1}},
+		{"2jgUh", blank, blank, Position{1, 0}},
+		{"2jgU2h", blank, "abC\n\ndef", Position{0, 2}},
+		{"2jgU3h", blank, "aBC\n\ndef", Position{0, 1}},
+		{"jgU3h", indent, "  ABC\ndef", Position{0, 2}},
+		{"jgU9h", indent, "  ABC\ndef", Position{0, 0}},
+		{"llgU9l", indent, "  ABC\nDEF", Position{0, 2}},
+		{"gU9l", indent, "  ABC\nDEF", Position{0, 0}},
+		{"Gg~9l", two, "abc\nDEF", Position{1, 0}},
+		{"$g~3l", two, "abC\nDef", Position{0, 2}},
+		{"jg~h", "ABC\ndef", "ABc\ndef", Position{0, 2}},
+		{"$gu3l", "ABC\nDEF", "ABc\ndEF", Position{0, 2}},
+		{"$gU2lj.", three, "abC\ndeF\nghi", Position{1, 2}},
+		{"jgU2hj.", three, "aBC\nDef\nghi", Position{0, 2}},
+		{"lgU5lu", three, three, Position{0, 1}},
+		{"jgU2hu", three, three, Position{0, 1}},
+		{"lgU5luj", three, three, Position{1, 1}},
+		{"lgU5lj", three, "aBC\nDEf\nghi", Position{1, 1}},
+		{"$gU3lj", three, "abC\nDef\nghi", Position{1, 2}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			e.SetMoveAcrossLines(true)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.pos, cursorPos(e))
+		})
+	}
+
+	// Without the option they stay on the line, as with Vim's default.
+	for _, tt := range []struct {
+		keys, content, text string
+		pos                 Position
+	}{
+		{"$gU3l", two, "abC\ndef", Position{0, 2}},
+		{"jlgU3h", two, "abc\nDef", Position{1, 0}},
+		{"lgU5l", two, "aBC\ndef", Position{0, 1}},
+		{"jgUl", blank, blank, Position{1, 0}},
+	} {
+		t.Run("default "+tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.pos, cursorPos(e))
+		})
+	}
+}

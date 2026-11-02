@@ -156,8 +156,8 @@ func applyCaseWordBackward(editor Editor, buffer Buffer, op rune, count int) *Ed
 	return nil
 }
 
-// applyCaseToSpan applies a case transform to [start, end) on one line, the
-// range of a characterwise motion (h, l, f, t, ;, ...), and leaves the cursor
+// applyCaseToSpan applies a case transform to [start, end), the range of a
+// characterwise motion (h, l, f, t, ;, ...), and leaves the cursor
 // at start, on the first rune of its character (T can start the range on a
 // composing character). An empty span ($gUTx with the x just before the
 // cursor) changes nothing but is the change '.' repeats, as in Vim.
@@ -176,6 +176,28 @@ func applyCaseToSpan(editor Editor, buffer Buffer, op rune, start, end Position)
 	}
 	buffer.SetCursor(cursor)
 	return nil
+}
+
+// applyCaseToChars applies a case transform over count characters left of
+// the cursor (gUh) or from it (right, gUl). With wrap (MoveAcrossLines) they
+// cross lines as dh and dl do (applyOperatorLeft, applyOperatorRight), except
+// that h stops on the last character of the line above, as y does: Vim's
+// nv_left goes past it only for d and c. As for any exclusive motion, an end
+// in column 0 of a later line goes back to the end of the line above, so
+// $gU3l on abc, def changes the c and the d but jgUl on an empty line
+// changes nothing.
+func applyCaseToChars(editor Editor, buffer Buffer, op rune, count int, right, wrap bool) *EditorError {
+	cursor := buffer.GetCursor().Position
+	start, end := cursor, cursor
+	if right {
+		end = charsRightEnd(buffer, cursor, count, wrap)
+	} else {
+		start, _ = charsLeftTarget(buffer, cursor, count, wrap, false)
+	}
+	if end.Row > start.Row && end.Col == 0 {
+		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
+	}
+	return applyCaseToSpan(editor, buffer, op, start, end)
 }
 
 // applyCaseToCharSearch applies a case transform over an f/F/t/T search
