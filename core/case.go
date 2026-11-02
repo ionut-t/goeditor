@@ -192,11 +192,9 @@ func applyCaseToChars(editor Editor, buffer Buffer, op rune, count int, right, w
 	if right {
 		end = charsRightEnd(buffer, cursor, count, wrap)
 	} else {
-		start, _ = charsLeftTarget(buffer, cursor, count, wrap, false)
+		start, _ = charsLeftTarget(buffer, cursor, count, wrap, stopOnLastChar)
 	}
-	if end.Row > start.Row && end.Col == 0 {
-		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
-	}
+	end, _ = exclusiveEnd(buffer, start, end)
 	return applyCaseToSpan(editor, buffer, op, start, end)
 }
 
@@ -457,9 +455,8 @@ func applyCaseToWordObject(editor Editor, buffer Buffer, op rune, include bool, 
 	}
 	if inclusive {
 		end = afterWordObject(buffer, end)
-	} else if end.Col == 0 && end.Row > start.Row {
-		// The end is column 0 of the next line: stop at the line break before it.
-		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
+	} else {
+		end, _ = exclusiveEnd(buffer, start, end)
 	}
 	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
 		return err

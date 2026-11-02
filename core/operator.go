@@ -117,20 +117,29 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op operator, start, end
 	if start.Row > end.Row || (start.Row == end.Row && start.Col > end.Col) {
 		start, end = end, start
 	}
-	if end.Row > start.Row && end.Col == 0 {
-		end = Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}
-		if inIndent(buffer, start) {
-			if op != opYank {
-				markChangeStart(editor, start)
-			}
-			// As Vim, the cursor goes to the start, where a linewise y leaves it.
-			cursor := buffer.GetCursor()
-			cursor.Position = start
-			buffer.SetCursor(cursor)
-			return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
+	end, adjusted := exclusiveEnd(buffer, start, end)
+	if adjusted && inIndent(buffer, start) {
+		if op != opYank {
+			markChangeStart(editor, start)
 		}
+		// As Vim, the cursor goes to the start, where a linewise y leaves it.
+		cursor := buffer.GetCursor()
+		cursor.Position = start
+		buffer.SetCursor(cursor)
+		return applyOperatorToLineRange(editor, buffer, op, start.Row, end.Row)
 	}
 	return applyOperatorToRange(editor, buffer, op, start, end)
+}
+
+// exclusiveEnd applies Vim's rule for an exclusive motion (:h exclusive): an
+// end in column 0 of a later line than start goes back to the end of the
+// line above, so the range doesn't take that line break. It reports whether
+// it moved the end. start must not be after end.
+func exclusiveEnd(buffer Buffer, start, end Position) (Position, bool) {
+	if end.Row > start.Row && end.Col == 0 {
+		return Position{Row: end.Row - 1, Col: buffer.LineRuneCount(end.Row - 1)}, true
+	}
+	return end, false
 }
 
 // applyOperatorLeft applies a delete/yank/change operator over count
@@ -142,7 +151,11 @@ func applyOperatorToMotion(editor Editor, buffer Buffer, op operator, start, end
 // (applyOperatorToMotion) leaves the line break out.
 func applyOperatorLeft(editor Editor, buffer Buffer, op operator, count int, wrap bool) *EditorError {
 	cursor := buffer.GetCursor().Position
-	start, joins := charsLeftTarget(buffer, cursor, count, wrap, op == opDelete || op == opChange)
+	stop := stopOnLastChar
+	if op == opDelete || op == opChange {
+		stop = stopPastLineEnd
+	}
+	start, joins := charsLeftTarget(buffer, cursor, count, wrap, stop)
 	if joins {
 		// Vim doesn't move this end back to the line above (CA_NO_ADJ_OP_END).
 		return applyOperatorToRange(editor, buffer, op, start, cursor)
@@ -150,11 +163,24 @@ func applyOperatorLeft(editor Editor, buffer Buffer, op operator, count int, wra
 	return applyOperatorToMotion(editor, buffer, op, start, cursor)
 }
 
+// leftStop says where an operator's h lands when it steps from column 0 onto
+// a non-empty line above. Vim's nv_left decides it inside its step loop, so
+// it changes where every later step of the count lands, not only the last.
+type leftStop int
+
+const (
+	// stopOnLastChar: y and the case operators (gU, gu, g~) land on the
+	// last character, leaving the line break out.
+	stopOnLastChar leftStop = iota
+	// stopPastLineEnd: d, c and X land after the last character, so the
+	// line break is in the range and the lines join.
+	stopPastLineEnd
+)
+
 // charsLeftTarget returns where count h's go from pos after an operator (see
 // applyOperatorLeft), and whether a step went past the end of a non-empty
-// line above, which only pastLineEnd (d and c, Vim's nv_left) allows; y and
-// the case operators stop on its last character.
-func charsLeftTarget(buffer Buffer, pos Position, count int, wrap, pastLineEnd bool) (Position, bool) {
+// line above, which only stopPastLineEnd allows.
+func charsLeftTarget(buffer Buffer, pos Position, count int, wrap bool, stop leftStop) (Position, bool) {
 	joins := false
 	for range count {
 		if pos.Col > 0 {
@@ -165,7 +191,7 @@ func charsLeftTarget(buffer Buffer, pos Position, count int, wrap, pastLineEnd b
 			break
 		}
 		pos.Row--
-		if pastLineEnd && buffer.LineRuneCount(pos.Row) > 0 {
+		if stop == stopPastLineEnd && buffer.LineRuneCount(pos.Row) > 0 {
 			pos.Col = buffer.LineRuneCount(pos.Row)
 			joins = true
 		} else {

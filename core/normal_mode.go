@@ -1135,7 +1135,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete count characters before cursor (dh)
-		if target, _ := charsLeftTarget(buffer, cursor.Position, count, editor.MoveAcrossLines(), true); target.Row != cursor.Position.Row {
+		if target, _ := charsLeftTarget(buffer, cursor.Position, count, editor.MoveAcrossLines(), stopPastLineEnd); target.Row != cursor.Position.Row {
 			// With MoveAcrossLines, X goes on to the lines above as dh.
 			err = applyOperatorLeft(editor, buffer, opDelete, count, true)
 			skipCursorUpdate = true
