@@ -460,8 +460,7 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 	case 'b':
 		return applyCaseWordBackward(editor, buffer, op, count)
 	case 'h', 'l':
-		start, end := charMotionSpan(buffer, count, key.Rune == 'l')
-		return applyCaseToSpan(editor, buffer, op, start, end)
+		return applyCaseToChars(editor, buffer, op, count, key.Rune == 'l', editor.MoveAcrossLines())
 	case 'j', 'k':
 		return m.applyCaseLinewise(editor, buffer, op, count, key.Rune == 'j')
 	case ';', ',':
@@ -494,20 +493,6 @@ func (m *normalMode) handleCaseMotionKey(editor Editor, buffer Buffer, key KeyEv
 
 	m.keepColumn = true // not a motion (gUq)
 	return nil
-}
-
-// charMotionSpan returns the range [start, end) count characters left of the
-// cursor (h) or from it (right, l), on the cursor line: as far as the line
-// goes, and empty in column 0 for h and on an empty line for l.
-func charMotionSpan(buffer Buffer, count int, right bool) (start, end Position) {
-	pos := buffer.GetCursor().Position
-	line := buffer.GetLineRunes(pos.Row)
-	if right {
-		col, _ := charsForward(line, pos.Col, count)
-		return pos, Position{Row: pos.Row, Col: col}
-	}
-	col, _ := charsBack(line, pos.Col, count)
-	return Position{Row: pos.Row, Col: col}, pos
 }
 
 // applyCaseLinewise applies a case operator over count lines down (gUj) or up
@@ -1150,7 +1135,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 			buffer.SetCursor(cursor)
 		}
 	case key.Rune == 'X': // Delete count characters before cursor (dh)
-		if target, _ := operatorLeftTarget(buffer, opDelete, cursor.Position, count, editor.MoveAcrossLines()); target.Row != cursor.Position.Row {
+		if target, _ := charsLeftTarget(buffer, cursor.Position, count, editor.MoveAcrossLines(), stopPastLineEnd); target.Row != cursor.Position.Row {
 			// With MoveAcrossLines, X goes on to the lines above as dh.
 			err = applyOperatorLeft(editor, buffer, opDelete, count, true)
 			skipCursorUpdate = true
