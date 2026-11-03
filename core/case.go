@@ -333,9 +333,9 @@ func applyCaseToLineRange(editor Editor, buffer Buffer, op rune, row int, to Pos
 func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos, endPos Position) *EditorError {
 	startSel, endSel := NormalizeSelection(startPos, endPos)
 	// Visual selection end is inclusive; convert to exclusive.
-	exclusiveEnd := afterChar(buffer, endSel)
+	end := afterChar(buffer, endSel)
 
-	if err := applyCaseInRange(editor, buffer, startSel, exclusiveEnd, caseTransformForOp(op)); err != nil {
+	if err := applyCaseInRange(editor, buffer, startSel, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 	return nil
@@ -405,8 +405,8 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 	}
 
 	// endPos is inclusive; convert to exclusive for applyCaseInRange.
-	exclusiveEnd := afterChar(buffer, endPos)
-	if err := applyCaseInRange(editor, buffer, startPos, exclusiveEnd, caseTransformForOp(op)); err != nil {
+	end := afterChar(buffer, endPos)
+	if err := applyCaseInRange(editor, buffer, startPos, end, caseTransformForOp(op)); err != nil {
 		return err
 	}
 

@@ -888,13 +888,13 @@ func applyCharRangeOp(editor Editor, buffer Buffer, startPos, endPos Position, o
 
 	case opDelete, opChange:
 		// deleteRange end is exclusive; convert inclusive endPos.
-		exclusiveEnd := Position{endPos.Row, endPos.Col + 1}
+		end := Position{endPos.Row, endPos.Col + 1}
 		lineLen := buffer.LineRuneCount(endPos.Row)
-		if exclusiveEnd.Col > lineLen {
-			exclusiveEnd = Position{endPos.Row, lineLen}
+		if end.Col > lineLen {
+			end = Position{endPos.Row, lineLen}
 		}
 
-		if err := deleteRange(buffer, startPos, exclusiveEnd); err != nil {
+		if err := deleteRange(buffer, startPos, end); err != nil {
 			return err
 		}
 
