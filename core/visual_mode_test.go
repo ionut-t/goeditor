@@ -1,6 +1,7 @@
 package core
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -385,6 +386,80 @@ func TestVisualLineModeEnterExit(t *testing.T) {
 		keys(e, 'V', 'v')
 		assert.True(t, e.IsVisualMode())
 	})
+}
+
+// TestCountV checks [count]V: it selects count lines, as far as the last
+// one, going down as j does (the column j and k use is kept), as Vim does
+// when there was no earlier Visual operation. A count typed in visual mode
+// before V is dropped. Expected results are from Vim 9.2 (`-u NONE`). The
+// clipboard starts as "REG"; after d and p, Vim's unnamed register gets the
+// deleted or replaced text where goeditor's clipboard keeps what it held (the
+// registers gap); those rows give Vim's register in a comment.
+func TestCountV(t *testing.T) {
+	const (
+		four  = "abc\ndef\nghi\njkl"
+		short = "abc\nd\nefg"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		col     int
+		text    string
+		reg     string
+		mode    Mode
+	}{
+		{four, "yl2Vp", Position{0, 0}, 0, "a\nghi\njkl", "a", NormalMode}, // Vim: "abc\ndef\n"
+		{four, "yl2VP", Position{0, 0}, 0, "a\nghi\njkl", "a", NormalMode},
+		{four, "yl2Vpu", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "a", NormalMode}, // Vim: "abc\ndef\n"
+		{four, "2Vd", Position{0, 0}, 0, "ghi\njkl", "REG", NormalMode},            // Vim: "abc\ndef\n"
+		{four, "2Vy", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "abc\ndef\n", NormalMode},
+		{four, "3Vd", Position{0, 0}, 0, "jkl", "REG", NormalMode},        // Vim: "abc\ndef\nghi\n"
+		{four, "j3Vd", Position{0, 0}, 0, "abc", "REG", NormalMode},       // Vim: "def\nghi\njkl\n"
+		{four, "jj3Vd", Position{1, 0}, 0, "abc\ndef", "REG", NormalMode}, // Vim: "ghi\njkl\n"
+		{four, "2Vj", Position{2, 0}, 0, "abc\ndef\nghi\njkl", "REG", VisualLineMode},
+		{four, "2Vk", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "REG", VisualLineMode},
+		{four, "2Vo", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "REG", VisualLineMode},
+		{four, "2Vd.", Position{0, 0}, 0, "", "REG", NormalMode},     // Vim: "ghi\njkl\n"
+		{four, "2Vdj.", Position{0, 0}, 0, "ghi", "REG", NormalMode}, // Vim: "jkl\n"
+		{four, "v2V", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "REG", VisualLineMode},
+		{four, "V2V", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "REG", NormalMode},
+		{four, "v2Vd", Position{0, 0}, 0, "def\nghi\njkl", "REG", NormalMode}, // Vim: "abc\n"
+		{four, "2V", Position{1, 0}, 0, "abc\ndef\nghi\njkl", "REG", VisualLineMode},
+		{four, "j2V<Esc>", Position{2, 0}, 0, "abc\ndef\nghi\njkl", "REG", NormalMode},
+		{four, "yl2V2p", Position{0, 0}, 0, "a\na\nghi\njkl", "a", NormalMode}, // Vim: "abc\ndef\n"
+		{four, "2Vjd", Position{0, 0}, 0, "jkl", "REG", NormalMode},            // Vim: "abc\ndef\nghi\n"
+		{four, "G2Vd", Position{2, 0}, 0, "abc\ndef\nghi", "REG", NormalMode},  // Vim: "jkl\n"
+		{four, "G2V<Esc>", Position{3, 0}, 0, "abc\ndef\nghi\njkl", "REG", NormalMode},
+		{four, "Gl2Vd", Position{2, 0}, 0, "abc\ndef\nghi", "REG", NormalMode}, // Vim: "jkl\n"
+		{four, "ll2V<Esc>", Position{1, 2}, 2, "abc\ndef\nghi\njkl", "REG", NormalMode},
+		{four, "ll2Vy", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "abc\ndef\n", NormalMode},
+		{four, "5Vd", Position{0, 0}, 0, "", "REG", NormalMode},               // Vim: "abc\ndef\nghi\njkl\n"
+		{four, "G5Vd", Position{2, 0}, 0, "abc\ndef\nghi", "REG", NormalMode}, // Vim: "jkl\n"
+		{four, "2Vd.u", Position{0, 0}, 0, "ghi\njkl", "REG", NormalMode},     // Vim: "ghi\njkl\n"
+		{four, "l2V<Esc>j", Position{2, 1}, 1, "abc\ndef\nghi\njkl", "REG", NormalMode},
+		{four, "ll3Vd", Position{0, 0}, 0, "jkl", "REG", NormalMode}, // Vim: "abc\ndef\nghi\n"
+		{short, "ll2V<Esc>", Position{1, 0}, 0, "abc\nd\nefg", "REG", NormalMode},
+		{short, "ll2V<Esc>j", Position{2, 0}, 0, "abc\nd\nefg", "REG", NormalMode},
+		{short, "ll3V<Esc>", Position{2, 2}, 2, "abc\nd\nefg", "REG", NormalMode},
+		{short, "$2V<Esc>j", Position{2, 0}, 0, "abc\nd\nefg", "REG", NormalMode},
+		{short, "ll2Vj", Position{2, 2}, 2, "abc\nd\nefg", "REG", VisualLineMode},
+		{short, "$2Vj", Position{2, 3}, math.MaxInt, "abc\nd\nefg", "REG", VisualLineMode},
+		{short, "ll2V", Position{1, 1}, 2, "abc\nd\nefg", "REG", VisualLineMode},
+		{short, "$2V", Position{1, 1}, math.MaxInt, "abc\nd\nefg", "REG", VisualLineMode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.mode, e.GetState().Mode)
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+			assert.Equal(t, tt.reg, cb.content)
+		})
+	}
 }
 
 // TestVisualLineModeDelete tests 'd' in visual line mode.

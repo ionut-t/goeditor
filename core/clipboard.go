@@ -27,6 +27,7 @@ type paster interface {
 	paste(before bool, count int) (string, *EditorError)
 	pasteLines(before bool, count int) (string, *EditorError)
 	pasteSplit(count int) (string, *EditorError)
+	putTooLong(count int, lines bool) *EditorError
 }
 
 func (e *editor) PasteAfter() (string, error) {
@@ -88,11 +89,17 @@ func (e *editor) pasteLines(before bool, count int) (string, *EditorError) {
 	if err != nil {
 		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
-	text := []rune(content)
+	return content, e.put(asLines([]rune(content)), placeFor(before), count)
+}
+
+// asLines returns text as pasteLines puts it: ending in a line break, which
+// text within a line or spanning lines doesn't have. Linewise text is
+// returned as it is.
+func asLines(text []rune) []rune {
 	if len(text) > 0 && text[len(text)-1] != '\n' {
 		text = append(text, '\n')
 	}
-	return content, e.put(text, placeFor(before), count)
+	return text
 }
 
 // pasteSplit is paste for p and P over a charwise selection, with the cursor
@@ -115,8 +122,8 @@ func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 		return nil
 	}
 	count = max(count, 1)
-	if count > 1 && len(text) > maxRepeatedInsert/count {
-		return textTooLong(count, len(text), "rune")
+	if err := repeatLimit(len(text), count); err != nil {
+		return err
 	}
 	all := slices.Repeat(text, count)
 
@@ -169,6 +176,43 @@ func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 	}
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
+	return nil
+}
+
+// repeatLimit returns ErrTextTooLong when count copies of size runes are more
+// than maxRepeatedInsert runes.
+func repeatLimit(size, count int) *EditorError {
+	if count > 1 && size > maxRepeatedInsert/count {
+		return textTooLong(count, size, "rune")
+	}
+	return nil
+}
+
+// putTooLong returns the error put would return for count copies of the
+// clipboard, as pasteLines puts them when lines is set and as pasteSplit
+// does otherwise, so visual p and P can fail before deleting the selection.
+// A clipboard that can't be read is left for the paste to report.
+func (e *editor) putTooLong(count int, lines bool) *EditorError {
+	if count <= 1 {
+		return nil
+	}
+	content, err := e.readClipboard()
+	if err != nil {
+		return nil
+	}
+	text := []rune(content)
+	if lines {
+		text = asLines(text)
+	}
+	return repeatLimit(len(text), count)
+}
+
+// checkPutCount returns the paster's putTooLong error for an Editor that has
+// one; any other pastes one copy, which has no limit.
+func checkPutCount(editor Editor, count int, lines bool) *EditorError {
+	if p, ok := editor.(paster); ok {
+		return p.putTooLong(count, lines)
+	}
 	return nil
 }
 

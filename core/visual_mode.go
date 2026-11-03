@@ -132,7 +132,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 
 	count := takeCount(editor)
 
-	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
+	if actionTaken, err := m.handleAction(editor, buffer, key, count); actionTaken {
 		return err
 	}
 
@@ -276,8 +276,9 @@ func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 }
 
 // handleAction handles keys that perform an operation on the visual selection (d/y/p/c/v/V/…).
+// count is 0 when none was typed; only p and P use it, for the copies they put.
 // Returns (actionTaken, err); actionTaken=true signals HandleKey to return immediately.
-func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
+func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent, count int) (bool, *EditorError) {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	var err *EditorError
@@ -335,6 +336,9 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 		if !state.WithInsertMode {
 			return true, nil
 		}
+		if tooLong := checkPutCount(editor, count, false); tooLong != nil {
+			return true, tooLong // nothing changes; the selection stays
+		}
 		repeatAsDelete(editor)
 		var finalPos Position
 		_, finalPos, err = deleteVisualSelection(editor, buffer, m.startPos, cursor.Position)
@@ -346,7 +350,7 @@ func (m *visualMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (b
 			cursor.Position = finalPos
 			buffer.SetCursor(cursor)
 		}
-		content, pasteErr := pasteSplit(editor)
+		content, pasteErr := pasteSplit(editor, count)
 		if pasteErr != nil {
 			err = &EditorError{
 				id:  ErrFailedToPasteId,
@@ -434,11 +438,12 @@ func (m *visualMode) handleMovement(editor Editor, buffer Buffer, key KeyEvent, 
 	return nil
 }
 
-// pasteSplit pastes the clipboard where a deleted charwise selection was:
-// lines go in between the halves of the line split there, not joined into it.
-func pasteSplit(editor Editor) (string, error) {
+// pasteSplit pastes count copies of the clipboard where a deleted charwise
+// selection was: lines go in between the halves of the line split there, not
+// joined into it. An Editor that isn't the core one pastes one copy.
+func pasteSplit(editor Editor, count int) (string, error) {
 	if p, ok := editor.(paster); ok {
-		content, err := p.pasteSplit(1)
+		content, err := p.pasteSplit(count)
 		if err != nil {
 			return "", err.err
 		}
