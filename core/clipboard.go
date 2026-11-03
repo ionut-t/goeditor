@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode/utf8"
 )
 
 // readClipboard returns the clipboard's content, or an error if there is no
@@ -90,11 +89,17 @@ func (e *editor) pasteLines(before bool, count int) (string, *EditorError) {
 	if err != nil {
 		return "", &EditorError{id: ErrFailedToPasteId, err: err}
 	}
-	text := []rune(content)
+	return content, e.put(asLines([]rune(content)), placeFor(before), count)
+}
+
+// asLines returns text as pasteLines puts it: ending in a line break, which
+// text within a line or spanning lines doesn't have. Linewise text is
+// returned as it is.
+func asLines(text []rune) []rune {
 	if len(text) > 0 && text[len(text)-1] != '\n' {
 		text = append(text, '\n')
 	}
-	return content, e.put(text, placeFor(before), count)
+	return text
 }
 
 // pasteSplit is paste for p and P over a charwise selection, with the cursor
@@ -195,16 +200,16 @@ func (e *editor) putTooLong(count int, lines bool) *EditorError {
 	if err != nil {
 		return nil
 	}
-	size := utf8.RuneCountInString(content)
-	if lines && size > 0 && !strings.HasSuffix(content, "\n") {
-		size++ // pasteLines ends the text with a line break
+	text := []rune(content)
+	if lines {
+		text = asLines(text)
 	}
-	return repeatLimit(size, count)
+	return repeatLimit(len(text), count)
 }
 
-// putTooLong is the paster's putTooLong for an Editor that has one; any other
-// pastes one copy, which has no limit.
-func putTooLong(editor Editor, count int, lines bool) *EditorError {
+// checkPutCount returns the paster's putTooLong error for an Editor that has
+// one; any other pastes one copy, which has no limit.
+func checkPutCount(editor Editor, count int, lines bool) *EditorError {
 	if p, ok := editor.(paster); ok {
 		return p.putTooLong(count, lines)
 	}

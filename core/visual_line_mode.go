@@ -203,7 +203,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if !state.WithInsertMode {
 			return true, nil
 		}
-		if tooLong := putTooLong(editor, count, true); tooLong != nil {
+		if tooLong := checkPutCount(editor, count, true); tooLong != nil {
 			return true, tooLong // nothing changes; the selection stays
 		}
 		repeatAsDelete(editor)
