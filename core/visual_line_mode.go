@@ -95,15 +95,10 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
-	// The key after i/a is the text object, even when it is a digit. None are
-	// supported here yet, so it is used up, as Vim does with a key that isn't
-	// an object, setting the column j and k go to as any object does.
+	// The key after i/a is the text object, even when it is a digit (an object
+	// Vim doesn't know, so it is used up rather than counted).
 	if m.pendingModifier != 0 {
-		m.pendingModifier = 0
-		takeCount(editor)
-		cursor := buffer.GetCursor()
-		cursor.Preferred = cursor.Position.Col
-		buffer.SetCursor(cursor)
+		m.handleTextObject(editor, buffer, key.Rune, takeCount(editor))
 		return nil
 	}
 
@@ -135,6 +130,22 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	return m.handleMovement(editor, buffer, key, count)
+}
+
+// handleTextObject applies the text object key after an 'i'/'a' modifier. As
+// in Vim, ip/ap keep the selection linewise and every other object found
+// switches to charwise visual mode, selecting what it would there (Viw, Vi().
+// An object that isn't found keeps visual line mode; a word object that runs
+// out of words (V9aw) still moves the cursor as far as the search went.
+func (m *visualLineMode) handleTextObject(editor Editor, buffer Buffer, key rune, count int) {
+	modifier := m.pendingModifier
+	m.pendingModifier = 0
+	sel := visualTextObject(editor, buffer, modifier, key, m.startPos, buffer.GetCursor().Position, count)
+	m.setAnchor(editor, sel.anchor)
+	setObjectCursor(buffer, sel.cursor)
+	if sel.found && !sel.linewise {
+		editor.SetVisualMode() // keeps the anchor
+	}
 }
 
 // handleAction handles keys that operate on the line selection (d/y/p/c/v/V/…).

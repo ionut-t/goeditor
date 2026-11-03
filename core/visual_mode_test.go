@@ -536,6 +536,158 @@ func TestVisualLineModeChange(t *testing.T) {
 	})
 }
 
+// TestVisualLineTextObjectSelects checks text objects after V against Vim 9.2:
+// ip/ap keep the selection linewise; every other object that is found switches
+// to charwise visual mode and selects what it would there, from V's anchor
+// (column included, so 2lViw selects the whole word and Vjiw extends). An
+// object that isn't found keeps V; a word count that runs out still moves the
+// cursor (V9aw). The column j and k go to is where the cursor ends.
+func TestVisualLineTextObjectSelects(t *testing.T) {
+	const (
+		words  = "abc def\nghi jkl"
+		blanks = "abc   def\nghi jkl"
+		empty  = "abc\n\ndef"
+		big    = "a.b c.d\nxy zw"
+		parens = "f(a, b) x\nyz"
+		pairs  = "f(a[b]c) {d} <e>\nz"
+		block  = "f(\n  a\n  b\n)\nz"
+		quotes = "a \"b c\" d\nx"
+		paras  = "a b\nc d\n\ne f\ng h\n\ni"
+		none   = "abc def\nghijklmn"
+	)
+	tests := []struct {
+		content, keys  string
+		mode           Mode
+		anchor, cursor Position
+		preferred      int
+	}{
+		{words, "Viw", VisualMode, Position{0, 0}, Position{0, 2}, 2},
+		{words, "Vaw", VisualMode, Position{0, 0}, Position{0, 3}, 3},
+		{words, "4lViw", VisualMode, Position{0, 4}, Position{0, 6}, 6},
+		{words, "4lVaw", VisualMode, Position{0, 3}, Position{0, 6}, 6},
+		{words, "2lViw", VisualMode, Position{0, 0}, Position{0, 2}, 2},
+		{words, "$Viw", VisualMode, Position{0, 4}, Position{0, 6}, 6},
+		{words, "$Vaw", VisualMode, Position{0, 3}, Position{0, 6}, 6},
+		{words, "V2aw", VisualMode, Position{0, 0}, Position{0, 6}, 6},
+		{words, "V4iw", VisualMode, Position{0, 0}, Position{1, 2}, 2},
+		{words, "V9aw", VisualLineMode, Position{0, 0}, Position{1, 7}, 7},
+		{words, "Vjiw", VisualMode, Position{0, 0}, Position{1, 2}, 2},
+		{words, "4lVjiw", VisualMode, Position{0, 4}, Position{1, 6}, 6},
+		{words, "j$Vkiw", VisualMode, Position{1, 6}, Position{0, 4}, 4},
+		{words, "jVkiw", VisualLineMode, Position{1, 0}, Position{0, 0}, 0},
+		{words, "$Vjiw", VisualLineMode, Position{0, 6}, Position{1, 7}, 7},
+		{words, "Vjiwiw", VisualMode, Position{0, 0}, Position{1, 3}, 3},
+		{words, "ViwV", VisualLineMode, Position{0, 0}, Position{0, 2}, 2},
+		{words, "4lViwj", VisualMode, Position{0, 4}, Position{1, 6}, 6},
+		{blanks, "3lViw", VisualMode, Position{0, 3}, Position{0, 5}, 5},
+		{blanks, "3lVaw", VisualMode, Position{0, 3}, Position{0, 8}, 8},
+		{empty, "jViw", VisualMode, Position{1, 0}, Position{1, 0}, 0},
+		{empty, "jVaw", VisualMode, Position{1, 0}, Position{2, 2}, 2},
+		{big, "ViW", VisualMode, Position{0, 0}, Position{0, 2}, 2},
+		{big, "4lVaW", VisualMode, Position{0, 3}, Position{0, 6}, 6},
+
+		{parens, "2lVi(", VisualMode, Position{0, 2}, Position{0, 5}, 5},
+		{parens, "2lVa)", VisualMode, Position{0, 1}, Position{0, 6}, 6},
+		{parens, "2lVab", VisualMode, Position{0, 1}, Position{0, 6}, 6},
+		{parens, "Vi(", VisualMode, Position{0, 2}, Position{0, 5}, 5},
+		{pairs, "4lVa[", VisualMode, Position{0, 3}, Position{0, 5}, 5},
+		{pairs, "10lVaB", VisualMode, Position{0, 9}, Position{0, 11}, 11},
+		{pairs, "14lVa>", VisualMode, Position{0, 13}, Position{0, 15}, 15},
+		{block, "jVi(", VisualMode, Position{1, 0}, Position{2, 3}, 3},
+		{block, "jVa(", VisualMode, Position{0, 1}, Position{3, 0}, 0},
+		{quotes, "3lVi\"", VisualMode, Position{0, 3}, Position{0, 5}, 5},
+		{quotes, "3lVa\"", VisualMode, Position{0, 2}, Position{0, 7}, 7},
+		{quotes, "lVi\"", VisualMode, Position{0, 3}, Position{0, 5}, 5},
+		{"a 'b c' d\nx", "3lVi'", VisualMode, Position{0, 3}, Position{0, 5}, 5},
+		{"a ``\nx", "2lVi`", VisualMode, Position{0, 3}, Position{0, 2}, 2},
+		{quotes, "3lViq", VisualMode, Position{0, 3}, Position{0, 5}, 5}, // iq isn't in Vim
+
+		{paras, "Vip", VisualLineMode, Position{0, 0}, Position{1, 0}, 0},
+		{paras, "Vap", VisualLineMode, Position{0, 0}, Position{2, 0}, 0},
+		{paras, "jVip", VisualLineMode, Position{0, 0}, Position{1, 0}, 0},
+		{paras, "$Vip", VisualLineMode, Position{0, 2}, Position{1, 0}, 0},
+		{paras, "$Vipj", VisualLineMode, Position{0, 2}, Position{2, 0}, 0},
+		{paras, "$vip", VisualLineMode, Position{0, 2}, Position{1, 0}, 0},
+		{paras, "3jVap", VisualLineMode, Position{3, 0}, Position{5, 0}, 0},
+		{paras, "6jVap", VisualLineMode, Position{5, 0}, Position{6, 0}, 0},
+		{"x\nabcdef\n\ny", "j$Vip", VisualLineMode, Position{0, 0}, Position{1, 0}, 0},
+
+		{none, "2lVi(", VisualLineMode, Position{0, 2}, Position{0, 2}, 2},
+		{none, "$Va\"", VisualLineMode, Position{0, 6}, Position{0, 6}, 6},
+		{none, "2lVib", VisualLineMode, Position{0, 2}, Position{0, 2}, 2},
+		{"f()\nz", "lVi(", VisualLineMode, Position{0, 1}, Position{0, 1}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.mode, e.GetMode().Name())
+			assert.Equal(t, tt.anchor, e.GetState().VisualStart, "anchor")
+			assert.Equal(t, tt.cursor, cursorPos(e), "cursor")
+			assert.Equal(t, tt.preferred, e.GetBuffer().GetCursor().Preferred, "column for j/k")
+		})
+	}
+}
+
+// TestVisualLineTextObjectThenOperator checks the edits after a text object
+// typed in V against Vim 9.2: they are charwise, as after v, including undo
+// and the size . repeats, except after ip/ap or an object that isn't found.
+func TestVisualLineTextObjectThenOperator(t *testing.T) {
+	const (
+		text  = "abc def ghi\njkl mno pqr\nstu"
+		calls = "f(a, b) x\ng(c, d) y"
+		block = "f(\n  a\n  b\n)\nz"
+		paras = "a b\nc d\n\ne f\ng h\n\ni"
+	)
+	tests := []struct {
+		content, keys, want string
+		cursor              Position
+	}{
+		{text, "4lViwd", "abc  ghi\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwy", text, Position{0, 4}},
+		{text, "4lViwcX<Esc>", "abc X ghi\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwp", "abc REG ghi\njkl mno pqr\nstu", Position{0, 6}},
+		{text, "4lVawd", "abc ghi\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwU", "abc DEF ghi\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwdu", text, Position{0, 4}},
+		{text, "4lViwdu<C-r>", "abc  ghi\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwd.", "abc i\njkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwdj.", "abc  ghi\njkl  pqr\nstu", Position{1, 4}},
+		{text, "4lViwdj0.", "abc  ghi\n mno pqr\nstu", Position{1, 0}},
+		{text, "4lVawd.", "abc jkl mno pqr\nstu", Position{0, 4}},
+		{text, "4lViwjd", "abc  pqr\nstu", Position{0, 4}},
+		{text, "4lViwVd", "jkl mno pqr\nstu", Position{0, 0}},
+		{text, "Vjiwd", " mno pqr\nstu", Position{0, 0}},
+		{text, "Vjiwd.", "", Position{0, 0}},
+		{"abc def\nghi jkl", "V9awd", "", Position{0, 0}},
+		{calls, "2lVi(d", "f() x\ng(c, d) y", Position{0, 2}},
+		{calls, "2lVi(dj.", "f() x\ng() y", Position{1, 2}},
+		{calls, "2lVi(cQ<Esc>j.", "f(Q) x\ng(Q) y", Position{1, 2}},
+		{block, "jVi(d", "f(\n)\nz", Position{1, 0}},
+		{block, "jVa(d", "f\nz", Position{0, 0}},
+		{paras, "Vipd", "\ne f\ng h\n\ni", Position{0, 0}},
+		{paras, "Vipd.", "g h\n\ni", Position{0, 0}},
+		{paras, "jVapd", "e f\ng h\n\ni", Position{0, 0}},
+		{"abc def\nghijklmn", "lVi(d", "ghijklmn", Position{0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, NormalMode, e.GetMode().Name())
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.cursor, cursorPos(e))
+		})
+	}
+
+	t.Run("yank puts the object in the register", func(t *testing.T) {
+		e, cb := newTestEditorWithClipboard(text)
+		typeKeys(t, e, "4lViwy")
+		assert.Equal(t, "def", cb.content)
+	})
+}
+
 // TestVisualModeMovementSequences tests that navigation keys work after shared-motion keys.
 func TestVisualModeMovementSequences(t *testing.T) {
 	t.Run("v+j+l: j then l both move cursor", func(t *testing.T) {

@@ -144,135 +144,97 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor, count int) *EditorError {
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
-	// Vim sets curswant after any object, even one that isn't found, so j and
-	// k go back to the column the cursor ends on.
-	defer func() {
-		cursor := buffer.GetCursor()
-		cursor.Preferred = cursor.Position.Col
-		buffer.SetCursor(cursor)
-	}()
-	switch key.Rune {
-	case 'w', 'W': // viw / vaw, viW / vaW — adjust selection to cover the word or WORD
+	sel := visualTextObject(editor, buffer, modifier, key.Rune, m.startPos, cursor.Position, count)
+	m.setAnchor(editor, sel.anchor)
+	setObjectCursor(buffer, sel.cursor)
+	if sel.found && sel.linewise {
+		editor.SetVisualLineMode() // keeps the anchor
+	}
+	return nil
+}
+
+// objectSelection is the selection a text object gives in visual mode.
+type objectSelection struct {
+	anchor, cursor Position
+	linewise       bool // ip/ap: the selection is whole lines
+	found          bool // false: no object; anchor and cursor are where the search left them
+}
+
+// visualTextObject finds the selection the object key (after modifier i or a)
+// gives in visual mode, from the selection anchor to cursor. count extends word
+// objects over additional words (v2aw); other objects ignore it. When the object
+// isn't found the selection is unchanged, except for word objects, which, as in
+// Vim, move as far as the search went (v9aw).
+func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, cursor Position, count int) objectSelection {
+	sel := objectSelection{anchor: anchor, cursor: cursor}
+	set := func(start, end Position, found bool) objectSelection {
+		if found {
+			sel.anchor, sel.cursor, sel.found = start, end, true
+		}
+		return sel
+	}
+	switch key {
+	case 'w', 'W': // iw / aw, iW / aW — the word or WORD
 		cls := editor.CharClass
-		if key.Rune == 'W' {
+		if key == 'W' {
 			cls = bigWordClass
 		}
-		// As in Vim, a count that runs out still moves the selection as far
-		// as the search went.
-		start, end, _, _ := currentWord(buffer, cursor.Position, m.startPos, true, count, modifier == 'a', cls)
-		m.startPos = start
-		state := editor.GetState()
-		state.VisualStart = m.startPos
-		editor.SetState(state)
-		cursor.Position = end
-		buffer.SetCursor(cursor)
-	case 'p': // vip / vap — expand to paragraph and switch to visual line mode
-		startRow, endRow, found := paragraphRows(buffer, cursor.Position, modifier)
-		if found {
-			cursor.Position = Position{Row: startRow, Col: 0}
-			buffer.SetCursor(cursor)
-			// The switch keeps the anchor, so put it on startRow first.
-			m.setAnchor(editor, cursor.Position)
-			editor.SetVisualLineMode()
-			// Now move cursor to endRow to define the selection end.
-			cursor = buffer.GetCursor()
-			cursor.Position.Row = endRow
-			buffer.SetCursor(cursor)
+		start, end, _, ok := currentWord(buffer, cursor, anchor, true, count, modifier == 'a', cls)
+		sel.anchor, sel.cursor, sel.found = start, end, ok
+		return sel
+	case 'p': // ip / ap — whole lines of the paragraph
+		startRow, endRow, found := paragraphRows(buffer, cursor, modifier)
+		if !found {
+			return sel
 		}
-	case '"', '\'', '`': // vi"/va", vi'/va', vi`/va` — select inside/around quote
-		startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, key.Rune)
+		// As Vim, the anchor keeps its column when it stays on its line.
+		start := Position{Row: startRow, Col: 0}
+		if startRow == anchor.Row {
+			start = anchor
+		}
+		sel.linewise = true
+		return set(start, Position{Row: endRow, Col: 0}, true)
+	case '"', '\'', '`': // i" / a", i' / a', i` / a` — inside/around quotes
+		startCol, endCol, found := quoteTextObjectRange(buffer, cursor, modifier, key)
 		if !found && modifier == 'i' {
-			if openCol, closeCol, ok := quotePair(buffer, cursor.Position, key.Rune); ok && closeCol == openCol+1 {
-				// As Vim, vi" on empty quotes selects both quotes, from
+			if openCol, closeCol, ok := quotePair(buffer, cursor, key); ok && closeCol == openCol+1 {
+				// As Vim, i" on empty quotes selects both quotes, from
 				// the closing one back to the opening one.
 				startCol, endCol, found = closeCol, openCol, true
 			}
 		}
-		if found {
-			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position.Col = endCol
-			buffer.SetCursor(cursor)
-		}
-	case 'q': // viq/vaq — select inside/around any quote
-		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
+		return set(Position{Row: cursor.Row, Col: startCol}, Position{Row: cursor.Row, Col: endCol}, found)
+	case 'q': // iq / aq — inside/around any quote
+		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor, modifier)
 		if !found && modifier == 'i' {
-			if openCol, closeCol, ok := anyQuotePair(buffer, cursor.Position); ok && closeCol == openCol+1 {
-				startCol, endCol, found = closeCol, openCol, true // empty quotes, as vi"
+			if openCol, closeCol, ok := anyQuotePair(buffer, cursor); ok && closeCol == openCol+1 {
+				startCol, endCol, found = closeCol, openCol, true // empty quotes, as i"
 			}
 		}
-		if found {
-			m.startPos = Position{Row: cursor.Position.Row, Col: startCol}
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position.Col = endCol
-			buffer.SetCursor(cursor)
+		return set(Position{Row: cursor.Row, Col: startCol}, Position{Row: cursor.Row, Col: endCol}, found)
+	case 'b': // ib / ab — inside/around the nearest bracket of any type (()/[]/{})
+		openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor)
+		if found && modifier == 'i' {
+			openPos, closePos, found = bracketInnerRange(buffer, openPos, closePos)
 		}
-	case '(', ')': // vi(/va(, vi)/va) — select inside/around parentheses
-		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '(', ')')
-		if found {
-			m.startPos = startPos
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position = endPos
-			buffer.SetCursor(cursor)
-		}
-	case 'b': // vib/vab — select inside/around nearest bracket of any type (()/[]/{}/)
-		openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor.Position)
-		if found {
-			startPos, endPos := openPos, closePos
-			if modifier == 'i' {
-				if s, e, ok := bracketInnerRange(buffer, openPos, closePos); ok {
-					startPos, endPos = s, e
-				} else {
-					found = false
-				}
-			}
-			if found {
-				m.startPos = startPos
-				state := editor.GetState()
-				state.VisualStart = m.startPos
-				editor.SetState(state)
-				cursor.Position = endPos
-				buffer.SetCursor(cursor)
-			}
-		}
-	case '[', ']': // vi[/va[, vi]/va] — select inside/around square brackets
-		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '[', ']')
-		if found {
-			m.startPos = startPos
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position = endPos
-			buffer.SetCursor(cursor)
-		}
-	case '{', '}', 'B': // vi{/va{, vi}/va}, viB/vaB — select inside/around curly braces
-		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '{', '}')
-		if found {
-			m.startPos = startPos
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position = endPos
-			buffer.SetCursor(cursor)
-		}
-	case '<', '>': // vi</va<, vi>/va> — select inside/around angle brackets
-		startPos, endPos, found := bracketTextObjectRange(buffer, cursor.Position, modifier, '<', '>')
-		if found {
-			m.startPos = startPos
-			state := editor.GetState()
-			state.VisualStart = m.startPos
-			editor.SetState(state)
-			cursor.Position = endPos
-			buffer.SetCursor(cursor)
+		return set(openPos, closePos, found)
+	}
+	for _, pair := range [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}, {'<', '>'}} {
+		if key == pair[0] || key == pair[1] || (key == 'B' && pair[0] == '{') {
+			start, end, found := bracketTextObjectRange(buffer, cursor, modifier, pair[0], pair[1])
+			return set(start, end, found)
 		}
 	}
-	return nil
+	return sel // not an object
+}
+
+// setObjectCursor puts the cursor where a text object left it. Vim sets curswant
+// after any object, even one that isn't found, so j and k go back to that column.
+func setObjectCursor(buffer Buffer, pos Position) {
+	cursor := buffer.GetCursor()
+	cursor.Position = pos
+	cursor.Preferred = pos.Col
+	buffer.SetCursor(cursor)
 }
 
 // handleAction handles keys that perform an operation on the visual selection (d/y/p/c/v/V/…).
