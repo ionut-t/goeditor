@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.0](https://github.com/ionut-t/goeditor/compare/v0.16.0...v0.17.0) (2026-11-03)
+
+
+### Features
+
+* **core:** allow case-change h/l motions to wrap across lines ([#125](https://github.com/ionut-t/goeditor/issues/125)) ([7948bf0](https://github.com/ionut-t/goeditor/commit/7948bf0b825111d8d5a10bf9e460c6a0dca000ca))
+* **visual:** implement counted paste and line selection ([#128](https://github.com/ionut-t/goeditor/issues/128)) ([fe13503](https://github.com/ionut-t/goeditor/commit/fe135030ea47e0edd2e2ac0571839f93bd433450))
+* **visual:** implement text objects in visual line mode ([#129](https://github.com/ionut-t/goeditor/issues/129)) ([9531e5b](https://github.com/ionut-t/goeditor/commit/9531e5b77238e1e96e52ecff179a34a4dfcebe75))
+
 ## [0.16.0](https://github.com/ionut-t/goeditor/compare/v0.15.1...v0.16.0) (2026-11-02)
 
 
