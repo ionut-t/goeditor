@@ -130,7 +130,7 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	count := takeCount(editor)
 
-	if actionTaken, err := m.handleAction(editor, buffer, key); actionTaken {
+	if actionTaken, err := m.handleAction(editor, buffer, key, count); actionTaken {
 		return err
 	}
 
@@ -138,8 +138,9 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 }
 
 // handleAction handles keys that operate on the line selection (d/y/p/c/v/V/…).
+// count is 0 when none was typed; only p and P use it, for the copies they put.
 // Returns (actionTaken, err); actionTaken=true signals HandleKey to return immediately.
-func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent) (bool, *EditorError) {
+func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent, count int) (bool, *EditorError) {
 	cursor := buffer.GetCursor()
 	state := editor.GetState()
 	var err *EditorError
@@ -202,6 +203,9 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if !state.WithInsertMode {
 			return true, nil
 		}
+		if tooLong := putTooLong(editor, count, true); tooLong != nil {
+			return true, tooLong // nothing changes; the selection stays
+		}
 		repeatAsDelete(editor)
 		startRow, endRow := m.selectionRows(cursor.Position.Row)
 		wholeBuffer := startRow == 0 && endRow == buffer.LineCount()-1
@@ -219,7 +223,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		if startRow < buffer.LineCount() {
 			// Lines still exist at startRow — insert clipboard before that line so
 			// the pasted content lands exactly where the selection was.
-			pastedContent, pasteErr = pasteLines(editor, true)
+			pastedContent, pasteErr = pasteLines(editor, true, count)
 			if pasteErr == nil && wholeBuffer && err == nil {
 				err = removeEmptyLastLine(buffer)
 			}
@@ -235,7 +239,7 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 			cur.Position.Row = buffer.LineCount() - 1
 			cur.Position.Col = 0
 			buffer.SetCursor(cur)
-			pastedContent, pasteErr = pasteLines(editor, false)
+			pastedContent, pasteErr = pasteLines(editor, false, count)
 		}
 		if pasteErr != nil {
 			// The selection stays deleted; the cursor stays where the
@@ -385,11 +389,12 @@ func removeEmptyLastLine(buffer Buffer) *EditorError {
 	return nil
 }
 
-// pasteLines pastes the clipboard over a deleted line selection: text within
-// a line goes in as a line of its own, not joined onto the next one.
-func pasteLines(editor Editor, before bool) (string, error) {
+// pasteLines pastes count copies of the clipboard over a deleted line
+// selection: text within a line goes in as a line of its own, not joined onto
+// the next one. An Editor that isn't the core one pastes one copy.
+func pasteLines(editor Editor, before bool, count int) (string, error) {
 	if p, ok := editor.(paster); ok {
-		content, err := p.pasteLines(before, 1)
+		content, err := p.pasteLines(before, count)
 		if err != nil {
 			return "", err.err
 		}

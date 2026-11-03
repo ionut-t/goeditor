@@ -1075,6 +1075,14 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 
 	case key.Rune == 'V': // Enter visual line mode
 		editor.SetVisualLineMode()
+		if count > 1 {
+			// [count]V selects count lines, as Vim does when there was no
+			// earlier Visual operation: j count-1 times, as far as the
+			// last line, keeping the column j uses.
+			cursor = buffer.GetCursor()
+			_ = cursor.moveDown(buffer, count-1, true)
+			buffer.SetCursor(cursor)
+		}
 
 	case key.Key == KeyEscape:
 		// If pending count or op, clear them

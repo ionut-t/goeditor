@@ -259,6 +259,47 @@ func TestPasteCountLimit(t *testing.T) {
 	})
 }
 
+// TestVisualPutCountLimit checks that a count on visual p or P that would put
+// more than maxRepeatedInsert runes fails with ErrTextTooLong, as p does,
+// before deleting anything: the text and the selection stay. Charwise text
+// over a linewise selection is put with a line break, which counts.
+func TestVisualPutCountLimit(t *testing.T) {
+	tests := []struct {
+		name, keys, msg string
+		mode            Mode
+	}{
+		{"charwise", "ylvl10000001p", "resulting text too long: 10000001 copies of 1 rune", VisualMode},
+		{"charwise P", "ylvl10000001P", "resulting text too long: 10000001 copies of 1 rune", VisualMode},
+		{"linewise text over characters", "yyvl1666667p", "resulting text too long: 1666667 copies of 6 runes", VisualMode},
+		{"linewise", "yyV1666667p", "resulting text too long: 1666667 copies of 6 runes", VisualLineMode},
+		{"linewise P", "yyV1666667P", "resulting text too long: 1666667 copies of 6 runes", VisualLineMode},
+		{"characters over lines", "ylV5000001p", "resulting text too long: 5000001 copies of 2 runes", VisualLineMode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard("hello\nworld")
+			typeKeys(t, e, tt.keys[:len(tt.keys)-1])
+			cursor, anchor := cursorPos(e), e.GetState().VisualStart
+			err := e.HandleKey(KeyEvent{Rune: rune(tt.keys[len(tt.keys)-1])})
+			require.NotNil(t, err)
+			assert.Equal(t, ErrTextTooLongId, err.ID())
+			assert.True(t, errors.Is(err, ErrTextTooLong))
+			assert.Equal(t, tt.msg, err.Error())
+			assert.Equal(t, "hello\nworld", content(e))
+			assert.Equal(t, tt.mode, e.GetState().Mode)
+			assert.Equal(t, cursor, cursorPos(e))
+			assert.Equal(t, anchor, e.GetState().VisualStart)
+		})
+	}
+
+	t.Run("up to the limit puts", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("hello")
+		typeKeys(t, e, "ylvl10000000p")
+		assert.Equal(t, 10_000_003, e.GetBuffer().LineRuneCount(0))
+		assert.True(t, e.IsNormalMode())
+	})
+}
+
 // TestPasteCharacterWiseBefore tests 'P' after a character-wise yank.
 // Content is inserted at the cursor position (same column) — the cursor lands on the last pasted character.
 func TestPasteCharacterWiseBefore(t *testing.T) {
@@ -410,8 +451,8 @@ func TestPasteLinewiseOverSelection(t *testing.T) {
 // instead of being joined onto the next line, and the cursor, u and <C-r>
 // go to column 0 of the first pasted line. Replacing every line leaves no
 // empty line behind, with linewise text too. Expected results are from Vim
-// 9.2; counts and . after visual p are left out (they differ from Vim on
-// their own).
+// 9.2; counts are in TestVisualPutCount and . after visual p in
+// TestRepeatVisualPaste.
 func TestPasteCharwiseOverLines(t *testing.T) {
 	const (
 		three    = "abcdef\nabcdef\nabcdef"
@@ -673,6 +714,97 @@ func TestRepeatVisualPaste(t *testing.T) {
 			assert.Equal(t, tt.text, content(e))
 			assert.Equal(t, tt.want, cursorPos(e))
 			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+		})
+	}
+}
+
+// TestVisualPutCount checks [count]p and [count]P over a charwise or linewise
+// selection: count copies of the clipboard replace it, put as one copy is,
+// with the cursor where Vim puts it, one undo step, and . repeating only the
+// delete of the selection. Expected results are from Vim 9.2 (`-u NONE`):
+// text, cursor, the column j and k use, and the mode. The clipboard starts as
+// "REG". After p, Vim's unnamed register gets the replaced text where
+// goeditor's clipboard keeps what it held (the registers gap, a feature of
+// its own); those rows assert goeditor's clipboard and give Vim's register in
+// a comment. After P they agree.
+func TestVisualPutCount(t *testing.T) {
+	const (
+		three = "abcdef\nabcdef\nabcdef"
+		four  = "abc\ndef\nghi\njkl"
+		one   = "abcdef"
+	)
+	tests := []struct {
+		content string
+		keys    string
+		want    Position
+		col     int
+		text    string
+		reg     string
+		mode    Mode
+	}{
+		{three, "ylv2p", Position{0, 1}, 1, "aabcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylv2P", Position{0, 1}, 1, "aabcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylllv2p", Position{0, 3}, 3, "abaadef\nabcdef\nabcdef", "a", NormalMode}, // Vim: "c"
+		{three, "ylllv2P", Position{0, 3}, 3, "abaadef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylvl3p", Position{0, 2}, 2, "aaacdef\nabcdef\nabcdef", "a", NormalMode}, // Vim: "ab"
+		{three, "ylvl3P", Position{0, 2}, 2, "aaacdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylvj2p", Position{0, 1}, 1, "aabcdef\nabcdef", "a", NormalMode},         // Vim: "abcdef\na"
+		{three, "yl$v2p", Position{0, 6}, 6, "abcdeaa\nabcdef\nabcdef", "a", NormalMode}, // Vim: "f"
+		{three, "ylGv2p", Position{2, 1}, 1, "abcdef\nabcdef\naabcdef", "a", NormalMode},
+		{three, "ylv2pu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylv2pu<C-r>", Position{0, 0}, 0, "aabcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylvl2pj.", Position{1, 1}, 1, "aacdef\nadef\nabcdef", "a", NormalMode}, // Vim: "bc"
+		{three, "ylv2p.", Position{0, 1}, 1, "abcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "yyv2p", Position{1, 0}, 0, "\nabcdef\nabcdef\nbcdef\nabcdef\nabcdef", "abcdef\n", NormalMode}, // Vim: "a"
+		{three, "yyv2P", Position{1, 0}, 0, "\nabcdef\nabcdef\nbcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},
+		{three, "yyvl2p", Position{1, 0}, 0, "\nabcdef\nabcdef\ncdef\nabcdef\nabcdef", "abcdef\n", NormalMode},       // Vim: "ab"
+		{three, "yyv2pu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},                       // Vim: "a"
+		{three, "yyv2pu<C-r>", Position{0, 0}, 0, "\nabcdef\nabcdef\nbcdef\nabcdef\nabcdef", "abcdef\n", NormalMode}, // Vim: "a"
+		{three, "lvjyv2p", Position{0, 1}, 1, "abcdef\nabbcdef\nabcdef\nabcdef\nabcdef", "bcdef\nab", NormalMode},    // Vim: "b"
+		{three, "lvjyvl2p", Position{0, 1}, 1, "abcdef\nabbcdef\nabdef\nabcdef\nabcdef", "bcdef\nab", NormalMode},    // Vim: "bc"
+		{three, "lvjyv2pu", Position{0, 1}, 1, "abcdef\nabcdef\nabcdef", "bcdef\nab", NormalMode},                    // Vim: "b"
+		{three, "yev2p", Position{0, 11}, 11, "abcdefabcdefbcdef\nabcdef\nabcdef", "abcdef", NormalMode},             // Vim: "a"
+		{three, "ylv10p", Position{0, 9}, 9, "aaaaaaaaaabcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylv2pj", Position{1, 1}, 1, "aabcdef\nabcdef\nabcdef", "a", NormalMode},
+		{three, "ylV2p", Position{0, 0}, 0, "a\na\nabcdef\nabcdef", "a", NormalMode}, // Vim: "abcdef\n"
+		{three, "ylV2P", Position{0, 0}, 0, "a\na\nabcdef\nabcdef", "a", NormalMode},
+		{three, "yyV2p", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},
+		{three, "yyV2P", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},
+		{three, "lvjyV2p", Position{0, 0}, 0, "bcdef\nab\nbcdef\nab\nabcdef\nabcdef", "bcdef\nab", NormalMode}, // Vim: "abcdef\n"
+		{three, "ylVj2p", Position{0, 0}, 0, "a\na\nabcdef", "a", NormalMode},                                  // Vim: "abcdef\nabcdef\n"
+		{three, "ylGV2p", Position{2, 0}, 0, "abcdef\nabcdef\na\na", "a", NormalMode},                          // Vim: "abcdef\n"
+		{three, "ylVG2p", Position{0, 0}, 0, "a\na", "a", NormalMode},                                          // Vim: "abcdef\nabcdef\nabcdef\n"
+		{three, "yyVG2p", Position{0, 0}, 0, "abcdef\nabcdef", "abcdef\n", NormalMode},                         // Vim: "abcdef\nabcdef\nabcdef\n"
+		{three, "ylV2pu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "a", NormalMode},                        // Vim: "abcdef\n"
+		{three, "ylV2pu<C-r>", Position{0, 0}, 0, "a\na\nabcdef\nabcdef", "a", NormalMode},                     // Vim: "abcdef\n"
+		{three, "ylV2pj.", Position{1, 0}, 0, "a\nabcdef\nabcdef", "a", NormalMode},                            // Vim: "a\n"
+		{three, "ylV2pk.", Position{0, 0}, 0, "a\nabcdef\nabcdef", "a", NormalMode},                            // Vim: "a\n"
+		{three, "yyjV3p", Position{1, 0}, 0, "abcdef\nabcdef\nabcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},
+		{three, "ylV2pj", Position{1, 0}, 0, "a\na\nabcdef\nabcdef", "a", NormalMode},     // Vim: "abcdef\n"
+		{three, "ylllV2pu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "a", NormalMode}, // Vim: "abcdef\n"
+		{three, "yyV2Pu", Position{0, 0}, 0, "abcdef\nabcdef\nabcdef", "abcdef\n", NormalMode},
+		{four, "lvjyV2p", Position{0, 0}, 0, "bc\nde\nbc\nde\ndef\nghi\njkl", "bc\nde", NormalMode}, // Vim: "abc\n"
+		{four, "lvjyV2P", Position{0, 0}, 0, "bc\nde\nbc\nde\ndef\nghi\njkl", "bc\nde", NormalMode},
+		{four, "lvjyGV2p", Position{3, 0}, 0, "abc\ndef\nghi\nbc\nde\nbc\nde", "bc\nde", NormalMode}, // Vim: "jkl\n"
+		{four, "lvjyVj2pu", Position{0, 0}, 0, "abc\ndef\nghi\njkl", "bc\nde", NormalMode},           // Vim: "abc\ndef\n"
+		{four, "ylV2p", Position{0, 0}, 0, "a\na\ndef\nghi\njkl", "a", NormalMode},                   // Vim: "abc\n"
+		{four, "yyV2p", Position{0, 0}, 0, "abc\nabc\ndef\nghi\njkl", "abc\n", NormalMode},
+		{one, "ylV2p", Position{0, 0}, 0, "a\na", "a", NormalMode}, // Vim: "abcdef\n"
+		{one, "yyV2p", Position{0, 0}, 0, "abcdef\nabcdef", "abcdef\n", NormalMode},
+		{one, "ylv2p", Position{0, 1}, 1, "aabcdef", "a", NormalMode},
+		{one, "yyv2p", Position{1, 0}, 0, "\nabcdef\nabcdef\nbcdef", "abcdef\n", NormalMode}, // Vim: "a"
+		{one, "yl$v2p", Position{0, 6}, 6, "abcdeaa", "a", NormalMode},                       // Vim: "f"
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+"/"+tt.keys, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.mode, e.GetState().Mode)
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, tt.want, cursorPos(e))
+			assert.Equal(t, tt.col, e.GetBuffer().GetCursor().Preferred, "column for j and k")
+			assert.Equal(t, tt.reg, cb.content)
 		})
 	}
 }

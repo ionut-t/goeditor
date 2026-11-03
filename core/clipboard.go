@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // readClipboard returns the clipboard's content, or an error if there is no
@@ -27,6 +28,7 @@ type paster interface {
 	paste(before bool, count int) (string, *EditorError)
 	pasteLines(before bool, count int) (string, *EditorError)
 	pasteSplit(count int) (string, *EditorError)
+	putTooLong(count int, lines bool) *EditorError
 }
 
 func (e *editor) PasteAfter() (string, error) {
@@ -115,8 +117,8 @@ func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 		return nil
 	}
 	count = max(count, 1)
-	if count > 1 && len(text) > maxRepeatedInsert/count {
-		return textTooLong(count, len(text), "rune")
+	if err := repeatLimit(len(text), count); err != nil {
+		return err
 	}
 	all := slices.Repeat(text, count)
 
@@ -169,6 +171,43 @@ func (e *editor) put(text []rune, place putPlace, count int) *EditorError {
 	}
 	cursor.Preferred = cursor.Position.Col
 	e.buffer.SetCursor(cursor)
+	return nil
+}
+
+// repeatLimit returns ErrTextTooLong when count copies of size runes are more
+// than maxRepeatedInsert runes.
+func repeatLimit(size, count int) *EditorError {
+	if count > 1 && size > maxRepeatedInsert/count {
+		return textTooLong(count, size, "rune")
+	}
+	return nil
+}
+
+// putTooLong returns the error put would return for count copies of the
+// clipboard, as pasteLines puts them when lines is set and as pasteSplit
+// does otherwise, so visual p and P can fail before deleting the selection.
+// A clipboard that can't be read is left for the paste to report.
+func (e *editor) putTooLong(count int, lines bool) *EditorError {
+	if count <= 1 {
+		return nil
+	}
+	content, err := e.readClipboard()
+	if err != nil {
+		return nil
+	}
+	size := utf8.RuneCountInString(content)
+	if lines && size > 0 && !strings.HasSuffix(content, "\n") {
+		size++ // pasteLines ends the text with a line break
+	}
+	return repeatLimit(size, count)
+}
+
+// putTooLong is the paster's putTooLong for an Editor that has one; any other
+// pastes one copy, which has no limit.
+func putTooLong(editor Editor, count int, lines bool) *EditorError {
+	if p, ok := editor.(paster); ok {
+		return p.putTooLong(count, lines)
+	}
 	return nil
 }
 
