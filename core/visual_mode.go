@@ -219,13 +219,21 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		}
 		return set(openPos, closePos, found)
 	}
-	for _, pair := range [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}, {'<', '>'}} {
-		if key == pair[0] || key == pair[1] || (key == 'B' && pair[0] == '{') {
-			start, end, found := bracketTextObjectRange(buffer, cursor, modifier, pair[0], pair[1])
-			return set(start, end, found)
-		}
+	var openChar, closeChar rune
+	switch key {
+	case '(', ')': // i( / a(, i) / a)
+		openChar, closeChar = '(', ')'
+	case '[', ']': // i[ / a[, i] / a]
+		openChar, closeChar = '[', ']'
+	case '{', '}', 'B': // i{ / a{, i} / a}, iB / aB
+		openChar, closeChar = '{', '}'
+	case '<', '>': // i< / a<, i> / a>
+		openChar, closeChar = '<', '>'
+	default:
+		return sel // not an object
 	}
-	return sel // not an object
+	start, end, found := bracketTextObjectRange(buffer, cursor, modifier, openChar, closeChar)
+	return set(start, end, found)
 }
 
 // setObjectCursor puts the cursor where a text object left it. Vim sets curswant
