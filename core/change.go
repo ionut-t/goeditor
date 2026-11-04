@@ -1,6 +1,9 @@
 package core
 
-import "errors"
+import (
+	"errors"
+	"slices"
+)
 
 // changeWordsForward implements cw (cW with bigWordClass). On a word Vim
 // changes to its end, as ce, except that from the word's last character it
@@ -56,6 +59,63 @@ func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) (r
 	cursor.Position.Col += count - 1
 	buffer.SetCursor(cursor)
 	return true, nil
+}
+
+// replaceSelection is r{ch} on a visual selection from start to end, both
+// inclusive (end on a line break leaves the break alone). Every character
+// becomes one ch: a tab, a wide character, or a letter with its composing
+// characters alike. Line breaks stay. Linewise, whole lines are replaced. The
+// cursor goes to start, and undo puts it back at changeStart. A selection of
+// only empty lines changes nothing but is still the change '.' repeats, as in
+// Vim.
+func replaceSelection(editor Editor, buffer Buffer, start, end Position, linewise bool, changeStart Position, ch rune) *EditorError {
+	markChangeStart(editor, changeStart)
+	replaced := false
+	for row := start.Row; row <= end.Row; row++ {
+		line := buffer.GetLineRunes(row)
+		from, to := 0, len(line)
+		if !linewise && row == start.Row {
+			from = min(start.Col, len(line))
+		}
+		if !linewise && row == end.Row {
+			to = min(charEnd(line, end.Col), len(line))
+		}
+		n := charCount(line, from, to)
+		if n == 0 {
+			continue
+		}
+		if err := buffer.DeleteRunesAt(row, from, to-from); err != nil {
+			return err
+		}
+		if err := buffer.InsertRunesAt(row, from, slices.Repeat([]rune{ch}, n)); err != nil {
+			return &EditorError{id: ErrInvalidPositionId, err: err}
+		}
+		replaced = true
+	}
+	if !replaced {
+		countAsChange(editor)
+	}
+	cursor := buffer.GetCursor()
+	cursor.Position = start
+	buffer.SetCursor(cursor)
+	editor.SetNormalMode()
+	endVisualOperator(buffer)
+	return nil
+}
+
+// visualReplaceChar returns the character the key after a visual r replaces
+// the selection with, or false if the key cancels r instead. Esc and
+// Backspace cancel, as in Vim. Enter and Ctrl keys cancel too: Vim puts them
+// in literally (^M, ^H), but the editor can't show control characters yet.
+func visualReplaceChar(key KeyEvent) (rune, bool) {
+	if key.Rune == 0 || key.Modifiers&ModCtrl != 0 {
+		return 0, false
+	}
+	switch key.Key {
+	case KeyUnknown, KeySpace, KeyTab:
+		return key.Rune, true
+	}
+	return 0, false
 }
 
 // changeLineRange is the linewise change (cc, S, cj, cG, Vc): it empties the

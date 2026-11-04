@@ -343,6 +343,17 @@ func (m *normalMode) handleGKey(editor Editor, buffer Buffer, key KeyEvent) *Edi
 		if target := openTargetUnderCursor(buffer); target != "" {
 			editor.DispatchSignal(OpenSignal{target: target})
 		}
+	case 'J': // gJ — join lines without adding or removing spaces
+		if !editor.GetState().WithInsertMode {
+			return nil
+		}
+		if err := joinLines(editor, buffer, gCount, false); err != nil {
+			return err
+		}
+		// As after J, j and k go back to the column the cursor ends on.
+		cursor = buffer.GetCursor()
+		cursor.Preferred = cursor.Position.Col
+		buffer.SetCursor(cursor)
 	}
 	return nil
 }
@@ -1193,7 +1204,7 @@ func (m *normalMode) handleBaseKey(editor Editor, buffer Buffer, key KeyEvent) *
 		skipCursorUpdate = true
 
 	case key.Rune == 'J': // Join lines
-		err = joinLines(editor, buffer, count)
+		err = joinLines(editor, buffer, count, true)
 		skipCursorUpdate = true
 
 	case key.Rune == 'C': // Change to end of line (equivalent to c$)

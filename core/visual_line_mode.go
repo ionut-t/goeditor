@@ -8,6 +8,7 @@ type visualLineMode struct {
 	charSearch      charSearchState // Character search state (f/F/t/T)
 	pendingModifier rune            // 'i' or 'a' when waiting for text object key
 	pending         pendingPrefix   // g or z waiting for its second key
+	replacing       bool            // r waiting for its character
 }
 
 func NewVisualLineMode() EditorMode {
@@ -26,14 +27,14 @@ func newVisualLineMode(last *lastCharSearch) *visualLineMode {
 func (m *visualLineMode) Name() Mode { return VisualLineMode }
 
 // AwaitingLiteral reports whether the next key is the character argument of a
-// character search (f/F/t/T), which mappings must not rewrite.
-func (m *visualLineMode) AwaitingLiteral() bool { return m.charSearch.waitingForChar }
+// character search (f/F/t/T) or of r, which mappings must not rewrite.
+func (m *visualLineMode) AwaitingLiteral() bool { return m.charSearch.waitingForChar || m.replacing }
 
 func (m *visualLineMode) OperatorPending() bool { return false }
 
 // Idle reports whether no command is part way typed, count aside.
 func (m *visualLineMode) Idle() bool {
-	return !m.charSearch.waitingForChar && m.pendingModifier == 0 && m.pending.prefix == 0
+	return !m.charSearch.waitingForChar && m.pendingModifier == 0 && m.pending.prefix == 0 && !m.replacing
 }
 
 func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
@@ -44,6 +45,7 @@ func (m *visualLineMode) Enter(editor Editor, buffer Buffer) {
 	m.charSearch.cancel() // keeps the last search for ; and ,
 	m.pendingModifier = 0
 	m.pending.reset()
+	m.replacing = false
 	editor.ResetPendingCount()
 	// Update editor state to reflect visual mode is active (use same flag)
 	state := editor.GetState()
@@ -60,15 +62,17 @@ func (m *visualLineMode) Exit(editor Editor, buffer Buffer) {
 	editor.UpdateStatus("") // Clear status or let normal mode set it
 	m.pendingModifier = 0
 	m.pending.reset()
+	m.replacing = false
 	editor.ResetPendingCount()
 }
 
-// cancelPending drops a part typed command (i/a, g/z, f/F/t/T) and its count,
+// cancelPending drops a part typed command (i/a, g/z, f/F/t/T, r) and its count,
 // as Vim does on Esc, keeping the mode and the selection.
 func (m *visualLineMode) cancelPending(editor Editor) {
 	m.charSearch.cancel() // keeps the last search for ; and ,
 	m.pendingModifier = 0
 	m.pending.reset()
+	m.replacing = false
 	editor.ResetPendingCount()
 	editor.UpdateCommand("")
 }
@@ -84,6 +88,18 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 		return nil
 	}
 
+	if m.replacing {
+		m.replacing = false
+		editor.UpdateCommand("")
+		ch, ok := visualReplaceChar(key)
+		if !ok {
+			return nil // the selection stays, as after Esc
+		}
+		cursor := buffer.GetCursor().Position
+		startRow, endRow := m.selectionRows(cursor.Row)
+		return replaceSelection(editor, buffer, Position{Row: startRow}, Position{Row: endRow}, true, m.changeStart(cursor), ch)
+	}
+
 	if m.charSearch.waitingForChar {
 		if handled, err := handleVisualCharSearchInput(&m.charSearch, editor, buffer, key); handled {
 			return err
@@ -91,6 +107,11 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	if prefix := m.pending.take(); prefix != 0 {
+		if prefix == 'g' && key.Rune == 'J' && key.Modifiers&ModCtrl == 0 {
+			takeCount(editor) // ignored, as by J
+			editor.UpdateCommand("")
+			return m.join(editor, buffer, false)
+		}
 		handleVisualPrefix(prefix, editor, buffer, key)
 		return nil
 	}
@@ -297,6 +318,16 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 		}
 		return true, err
 
+	case 'J': // Join the selected lines; the count is ignored, as in Vim
+		return true, m.join(editor, buffer, true)
+
+	case 'r': // Replace every character of the selected lines with the next key
+		if state.WithInsertMode {
+			m.replacing = true
+			editor.UpdateCommand("r")
+		}
+		return true, nil
+
 	case 'o', 'O': // Go to the other end of the selection
 		m.startPos = swapVisualEnds(editor, buffer, m.startPos)
 		return true, nil
@@ -311,6 +342,17 @@ func (m *visualLineMode) handleAction(editor Editor, buffer Buffer, key KeyEvent
 	}
 
 	return false, nil
+}
+
+// join is J (spaces on) and gJ on the selected lines; undo goes back to
+// where the change starts (changeStart).
+func (m *visualLineMode) join(editor Editor, buffer Buffer, spaces bool) *EditorError {
+	if !editor.GetState().WithInsertMode {
+		return nil
+	}
+	cursor := buffer.GetCursor().Position
+	startRow, endRow := m.selectionRows(cursor.Row)
+	return joinSelection(editor, buffer, Position{Row: startRow}, endRow, m.changeStart(cursor), spaces)
 }
 
 // selectionRows returns the normalised (startRow, endRow) of the current line selection.

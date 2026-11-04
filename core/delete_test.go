@@ -1264,3 +1264,93 @@ func TestDeleteCharBeforeCount(t *testing.T) {
 		})
 	}
 }
+
+// TestVisualJoin checks J and gJ after v and V against Vim 9.2: the lines the
+// selection touches are joined, at least two, the count is ignored, and the
+// cursor ends where [count]J leaves it. With only the last line selected
+// nothing is joined but visual mode ends, the cursor goes to the selection
+// start (column 0 after V), and '.' repeats it. Undo goes back to the
+// selection start, or after V with the cursor above the anchor to the cursor,
+// as after Vd; '.' joins as many lines from the cursor.
+func TestVisualJoin(t *testing.T) {
+	const (
+		words   = "abc def\nghi jkl\nmno pqr"
+		letters = "a\nb\nc\nd\ne\nf\ng"
+		long    = "abcdefgh\nabcdefgh\nabcdefgh"
+	)
+	runVisualEditCases(t, []visualEditCase{
+		{words, "VJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "vJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "vlJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "VjJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "VjjJ", "abc def ghi jkl mno pqr", Position{0, 15}, 15},
+		{words, "vjjJ", "abc def ghi jkl mno pqr", Position{0, 15}, 15},
+		{words, "V3J", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "v3J", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "3VJ", "abc def ghi jkl mno pqr", Position{0, 15}, 15},
+		{words, "jVkJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "4lvjJ", "abc def ghi jkl\nmno pqr", Position{0, 7}, 7},
+		{"abc\n   def\nghi", "VjjJ", "abc def ghi", Position{0, 7}, 7},
+		{"abc\n\tdef", "VJ", "abc def", Position{0, 3}, 3},
+		{"  abc\n  def", "VJ", "  abc def", Position{0, 5}, 5},
+		{"abc  \n  def", "VJ", "abc  def", Position{0, 5}, 5},
+		{"abc\n\ndef", "VjjJ", "abc def", Position{0, 3}, 3},
+		{"abc\n\ndef", "VJ", "abc\ndef", Position{0, 2}, 2},
+		{"\nabc", "VJ", "abc", Position{0, 0}, 0},
+		{"abc\n   \ndef", "VjjJ", "abc def", Position{0, 3}, 3},
+		{"abc\n  )def", "VJ", "abc)def", Position{0, 3}, 3},
+		{long, "4lVJj", "abcdefgh abcdefgh\nabcdefgh", Position{1, 7}, 8},
+
+		// Only the last line: nothing to join.
+		{"abc", "VJ", "abc", Position{0, 0}, 0},
+		{words, "jj2lvlJ", words, Position{2, 2}, 2},
+		{words, "jj2lVJ", words, Position{2, 0}, 0},
+		{words, "jj2lvlgJ", words, Position{2, 2}, 2},
+		{"abc\nb\nc", "xjjVJgg.", "bc b\nc", Position{0, 2}, 2},
+
+		{letters, "jjVjJu", letters, Position{2, 0}, 0},
+		{words, "4lvjJu", words, Position{0, 4}, 4},
+		{words, "jVkJu", words, Position{0, 0}, 0},
+		{words, "j4lVkJu", words, Position{0, 4}, 4},
+		{words, "j4lVkgJu", words, Position{0, 4}, 4},
+		{words, "4lVjJu", words, Position{0, 0}, 0},
+		{letters, "VJu<C-r>", "a b\nc\nd\ne\nf\ng", Position{0, 0}, 0},
+		{letters, "VJ.", "a b c\nd\ne\nf\ng", Position{0, 3}, 3},
+		{letters, "VJj.", "a b\nc d\ne\nf\ng", Position{1, 1}, 1},
+		{letters, "VjjJj.", "a b c\nd e f\ng", Position{1, 3}, 3},
+		{letters, "vjjJj.", "a b c\nd e f\ng", Position{1, 3}, 3},
+		{letters, "VjjJuj.", "a\nb c d\ne\nf\ng", Position{1, 3}, 3},
+		{letters, "jjVjJgg.", "a b\nc d\ne\nf\ng", Position{0, 1}, 1},
+
+		{words, "VgJ", "abc defghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "vgJ", "abc defghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "V3gJ", "abc defghi jkl\nmno pqr", Position{0, 7}, 7},
+		{words, "VjjgJ", "abc defghi jklmno pqr", Position{0, 14}, 14},
+		{"abc\n   def", "VgJ", "abc   def", Position{0, 3}, 3},
+		{"abc \ndef", "VgJ", "abc def", Position{0, 4}, 4},
+		{"abc\n)def", "VgJ", "abc)def", Position{0, 3}, 3},
+		{"abc\n\ndef", "VjjgJ", "abcdef", Position{0, 3}, 3},
+		{"abc\ndef", "jVgJ", "abc\ndef", Position{1, 0}, 0},
+		{letters, "VjgJj.", "ab\ncd\ne\nf\ng", Position{1, 1}, 1},
+		{"abc\ndef\nghi", "vjgJu", "abc\ndef\nghi", Position{0, 0}, 0},
+	})
+}
+
+// TestNormalGJ checks gJ in normal mode against Vim 9.2: [count] lines are
+// joined (at least two) with no spaces added or removed, and the cursor goes
+// to the last join point.
+func TestNormalGJ(t *testing.T) {
+	const letters = "a\nb\nc\nd\ne\nf\ng"
+	runVisualEditCases(t, []visualEditCase{
+		{"abc def\nghi jkl\nmno pqr", "gJ", "abc defghi jkl\nmno pqr", Position{0, 7}, 7},
+		{"abc def\nghi jkl\nmno pqr", "3gJ", "abc defghi jklmno pqr", Position{0, 14}, 14},
+		{"abc\n   def", "gJ", "abc   def", Position{0, 3}, 3},
+		{"abc \n  def", "gJ", "abc   def", Position{0, 4}, 4},
+		{"abc\n\n", "3gJ", "abc", Position{0, 2}, 2},
+		{"abc\ndef", "5gJ", "abcdef", Position{0, 3}, 3},
+		{"abc\ndef", "jgJ", "abc\ndef", Position{1, 0}, 0},
+		{letters, "2gJ", "ab\nc\nd\ne\nf\ng", Position{0, 1}, 1},
+		{letters, "3gJj.", "abc\ndef\ng", Position{1, 2}, 2},
+		{letters, "gJu", letters, Position{0, 0}, 0},
+	})
+}
