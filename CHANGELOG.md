@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.0](https://github.com/ionut-t/goeditor/compare/v0.17.0...v0.18.0) (2026-11-04)
+
+
+### Features
+
+* **core:** implement r&lt;Enter&gt; to replace characters with a line break ([#132](https://github.com/ionut-t/goeditor/issues/132)) ([35a01f3](https://github.com/ionut-t/goeditor/commit/35a01f383f698cb5d10c77dde12206e3fbd1ec71))
+* **textobject:** implement Vim-like block object behaviour on selections ([#133](https://github.com/ionut-t/goeditor/issues/133)) ([805e7cb](https://github.com/ionut-t/goeditor/commit/805e7cb5d91cc901ffbf69a9249ede5b016dd3da))
+* **visual:** implement join and replace operators ([#130](https://github.com/ionut-t/goeditor/issues/130)) ([5d1f13f](https://github.com/ionut-t/goeditor/commit/5d1f13fbfa346b148af2940fcc13e0a7bc76fc37))
+
 ## [0.17.0](https://github.com/ionut-t/goeditor/compare/v0.16.0...v0.17.0) (2026-11-03)
 
 
