@@ -166,9 +166,7 @@ func applyCaseToSpan(editor Editor, buffer Buffer, op rune, start, end Position)
 	cursor.Position = Position{Row: start.Row, Col: charStart(buffer.GetLineRunes(start.Row), start.Col)}
 	if start == end {
 		buffer.SetCursor(cursor)
-		if o, ok := editor.(emptyRangeOperator); ok {
-			o.countChange()
-		}
+		countAsChange(editor)
 		return nil
 	}
 	if err := applyCaseInRange(editor, buffer, start, end, caseTransformForOp(op)); err != nil {
@@ -393,9 +391,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 			// '.' repeats.
 			cursor.Position, _ = innerBlock(buffer, openPos, closePos)
 			buffer.SetCursor(cursor)
-			if o, ok := editor.(emptyRangeOperator); ok {
-				o.countChange()
-			}
+			countAsChange(editor)
 			return nil
 		}
 	}

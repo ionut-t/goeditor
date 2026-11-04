@@ -141,10 +141,11 @@ func deleteLines(editor Editor, buffer Buffer, count int) (string, *EditorError)
 	return deleteLineRange(editor, buffer, startRow, endRow)
 }
 
-// joinLines implements 'J': join the current line with the line(s) below,
-// replacing the newline and the next line's leading whitespace with a single
-// space. A count of 1 or 2 joins two lines; larger counts join count lines.
-func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
+// joinLines implements 'J' and, with spaces off, 'gJ': join the current line
+// with the line(s) below. J replaces the newline and the next line's leading
+// whitespace with a single space; gJ only removes the newline. A count of 1
+// or 2 joins two lines; larger counts join count lines.
+func joinLines(editor Editor, buffer Buffer, count int, spaces bool) *EditorError {
 	cursor := buffer.GetCursor()
 	row := cursor.Position.Row
 	joins := max(count-1, 1)
@@ -158,7 +159,7 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 		nextRunes := buffer.GetLineRunes(row + 1)
 
 		lead := 0
-		for lead < len(nextRunes) && isWhiteSpace(nextRunes[lead]) {
+		for spaces && lead < len(nextRunes) && isWhiteSpace(nextRunes[lead]) {
 			lead++
 		}
 
@@ -175,7 +176,7 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 		// Insert a single space unless the first half is empty or already ends
 		// in whitespace, the joined part is empty, or it starts with ')'.
 		merged := buffer.GetLineRunes(row)
-		needSpace := lineLen > 0 && lineLen < len(merged) &&
+		needSpace := spaces && lineLen > 0 && lineLen < len(merged) &&
 			!isWhiteSpace(merged[lineLen-1]) && merged[lineLen] != ')'
 		if needSpace {
 			if err := buffer.InsertRunesAt(row, lineLen, []rune{' '}); err != nil {
@@ -198,6 +199,29 @@ func joinLines(editor Editor, buffer Buffer, count int) *EditorError {
 	}
 
 	return nil
+}
+
+// joinSelection is J (spaces on) and gJ (spaces off) on a visual selection
+// over rows start.Row to endRow: it joins those lines, at least two, as
+// [count]J does with the line count. With only the last line selected there
+// is nothing to join: as in Vim, the text stays, the cursor goes to start,
+// visual mode ends, and the command is still the change '.' repeats. start is
+// the selection's start (column 0 linewise), and changeStart where undo puts
+// the cursor back.
+func joinSelection(editor Editor, buffer Buffer, start Position, endRow int, changeStart Position, spaces bool) *EditorError {
+	var err *EditorError
+	cursor := buffer.GetCursor()
+	cursor.Position = start
+	buffer.SetCursor(cursor)
+	if start.Row == endRow && endRow == buffer.LineCount()-1 {
+		countAsChange(editor)
+	} else {
+		markChangeStart(editor, changeStart)
+		err = joinLines(editor, buffer, endRow-start.Row+1, spaces)
+	}
+	editor.SetNormalMode()
+	endVisualOperator(buffer)
+	return err
 }
 
 // deleteVisualSelection deletes the text covered by a charwise visual selection.

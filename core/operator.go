@@ -80,6 +80,14 @@ type emptyRangeOperator interface {
 	yankNothing() error
 }
 
+// countAsChange makes the command in progress the change '.' repeats, though
+// it changed no text.
+func countAsChange(editor Editor) {
+	if o, ok := editor.(emptyRangeOperator); ok {
+		o.countChange()
+	}
+}
+
 // applyOperatorToEmptyRange applies an operator whose motion succeeded
 // without moving: d0 in column 0, dl on an empty line, $dTx with x just
 // before the cursor. Vim still runs it: a delete or a change becomes the
