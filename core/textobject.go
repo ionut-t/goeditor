@@ -733,20 +733,35 @@ func findEnclosingOpen(buffer Buffer, pos Position, openChar, closeChar rune) (P
 		return pos, true
 	}
 
-	depth := 0
-	startC := col
 	// If cursor is ON the close bracket, scan backward from just before it (depth stays 0
 	// so we find its direct match, not an enclosing one).
 	if col < len(lineRunes) && lineRunes[col] == closeChar {
-		startC = col - 1
+		return findOpenBefore(buffer, pos, openChar, closeChar)
 	}
+	return scanOpenBackward(buffer, pos, openChar, closeChar)
+}
+
+// findOpenBefore returns the open bracket of the innermost pair around pos
+// with the character at pos not counted, as Vim's findmatch: on an open
+// bracket it is the pair around that one, on a close bracket the pair it
+// closes. The open bracket doesn't need to be closed.
+func findOpenBefore(buffer Buffer, pos Position, openChar, closeChar rune) (Position, bool) {
+	pos.Col--
+	return scanOpenBackward(buffer, pos, openChar, closeChar)
+}
+
+// scanOpenBackward scans back from pos (included; a column before the line
+// or past its end is clamped) for an open bracket that no close bracket
+// between them cancels.
+func scanOpenBackward(buffer Buffer, pos Position, openChar, closeChar rune) (Position, bool) {
+	depth := 0
 	for r := pos.Row; r >= 0; r-- {
 		line := buffer.GetLineRunes(r)
 		endC := len(line) - 1
 		if r == pos.Row {
-			endC = startC
+			endC = pos.Col
 		}
-		// Clamp to avoid OOB on empty lines or when startC < 0.
+		// Clamp to avoid OOB on empty lines or past the line end.
 		if endC >= len(line) {
 			endC = len(line) - 1
 		}
@@ -823,8 +838,23 @@ func findCloseBracket(buffer Buffer, op Position, openChar, closeChar rune) (Pos
 // ahead reports the second case. An enclosing open bracket that is never
 // closed is no block, and Vim doesn't search forward then.
 func findBlock(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, ahead, found bool) {
-	openPos, found = findEnclosingOpen(buffer, pos, openChar, closeChar)
-	if !found {
+	return searchBlock(buffer, pos, openChar, closeChar, findEnclosingOpen, true)
+}
+
+// findBlockBefore is findBlock with the character at pos not counted (see
+// findOpenBefore), as Vim's search for a block from a selection over more
+// than one character. It searches forward only when forward is true.
+func findBlockBefore(buffer Buffer, pos Position, openChar, closeChar rune, forward bool) (openPos, closePos Position, ahead, found bool) {
+	return searchBlock(buffer, pos, openChar, closeChar, findOpenBefore, forward)
+}
+
+// searchBlock finds the block at pos whose open bracket enclosing finds
+// or, when there is none and forward is true, the first pair after pos.
+func searchBlock(buffer Buffer, pos Position, openChar, closeChar rune,
+	enclosing func(Buffer, Position, rune, rune) (Position, bool), forward bool,
+) (openPos, closePos Position, ahead, found bool) {
+	openPos, found = enclosing(buffer, pos, openChar, closeChar)
+	if !found && forward {
 		openPos, found = findNextOpen(buffer, pos, openChar, closeChar)
 		ahead = true
 	}
@@ -853,6 +883,79 @@ func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar
 		return openPos, closePos, true
 	}
 	return bracketInnerRange(buffer, openPos, closePos)
+}
+
+// blockFinder finds the block for a selection over more than one character
+// from pos, the character at pos not counted (see findBlockBefore).
+type blockFinder func(pos Position, forward bool) (openPos, closePos Position, found bool)
+
+// bracketFinder is the blockFinder for one bracket type.
+func bracketFinder(buffer Buffer, openChar, closeChar rune) blockFinder {
+	return func(pos Position, forward bool) (Position, Position, bool) {
+		openPos, closePos, _, found := findBlockBefore(buffer, pos, openChar, closeChar, forward)
+		return openPos, closePos, found
+	}
+}
+
+// anyBracketFinder is the blockFinder for ib/ab: the nearest block of any
+// type (see nearestBlock).
+func anyBracketFinder(buffer Buffer) blockFinder {
+	return func(pos Position, forward bool) (Position, Position, bool) {
+		openPos, closePos, _, _, found := nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
+			return findBlockBefore(buffer, pos, openChar, closeChar, forward)
+		})
+		return openPos, closePos, found
+	}
+}
+
+// selectionBlockRange returns the selection a block object (modifier i or
+// a) gives from a selection over more than one character, start to end, as
+// Vim's current_block in Visual mode:
+//   - the block is searched from the start of the selection, the character
+//     there not counted: on an open bracket it is the pair around that one,
+//     and with none around it the first pair after it;
+//   - "a" takes the pair found, even when it is smaller than the selection;
+//   - "i" that doesn't make the selection bigger at either end (and is more
+//     than one character) goes out a level: the block around the character
+//     before the start, that character not counted, with no forward search.
+//     When that character is a close bracket, its pair is the block
+//     ("(a)b c(de)f" v3l…7l i( selects "a"), as Vim.
+//
+// An empty block, or no block, isn't found and the selection is kept.
+func selectionBlockRange(buffer Buffer, start, end Position, modifier rune, find blockFinder) (newStart, newEnd Position, found bool) {
+	openPos, closePos, found := find(start, true)
+	for found {
+		if modifier == 'a' {
+			return openPos, closePos, true
+		}
+		newStart, newEnd, found = bracketInnerRange(buffer, openPos, closePos)
+		if !found {
+			break
+		}
+		// Vim compares the end before taking in the line break.
+		cmpEnd := newEnd
+		if cmpEnd.Col > 0 && cmpEnd.Col == buffer.LineRuneCount(cmpEnd.Row) {
+			cmpEnd.Col--
+		}
+		if positionBefore(newStart, start) || positionBefore(end, cmpEnd) || newStart == cmpEnd {
+			return newStart, newEnd, true
+		}
+		openPos, closePos, found = find(charBefore(buffer, start), false)
+	}
+	return Position{}, Position{}, false
+}
+
+// charBefore returns the position of the character before pos, as Vim's
+// decl: the last character of the line above from column 0 (its column 0
+// when it is empty), and pos itself at the start of the buffer.
+func charBefore(buffer Buffer, pos Position) Position {
+	switch {
+	case pos.Col > 0:
+		return Position{Row: pos.Row, Col: pos.Col - 1}
+	case pos.Row == 0:
+		return pos
+	}
+	return Position{Row: pos.Row - 1, Col: max(buffer.LineRuneCount(pos.Row-1)-1, 0)}
 }
 
 // blockSearchStart returns where to look for the block around pos. As Vim,
@@ -1041,6 +1144,14 @@ func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position)
 // closest to the cursor when scanning backward. With none, it is the pair that opens first after
 // pos. Returns the open/close positions and the bracket characters used.
 func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Position, openChar, closeChar rune, found bool) {
+	return nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
+		return findBlock(buffer, pos, openChar, closeChar)
+	})
+}
+
+// nearestBlock picks, from the block find gives for each standard bracket
+// type, the innermost enclosing one, else the first one ahead.
+func nearestBlock(find func(openChar, closeChar rune) (openPos, closePos Position, ahead, found bool)) (openPos, closePos Position, openChar, closeChar rune, found bool) {
 	type candidate struct {
 		openPos  Position
 		closePos Position
@@ -1051,7 +1162,7 @@ func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Po
 	// The innermost enclosing pair, else the first pair after pos.
 	var enclosing, next *candidate
 	for _, pair := range [][2]rune{{'(', ')'}, {'[', ']'}, {'{', '}'}} {
-		op, cp, ahead, ok := findBlock(buffer, pos, pair[0], pair[1])
+		op, cp, ahead, ok := find(pair[0], pair[1])
 		if !ok {
 			continue
 		}
