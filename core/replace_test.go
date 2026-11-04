@@ -71,6 +71,102 @@ func TestReplaceChar(t *testing.T) {
 	})
 }
 
+// TestReplaceLineBreak checks r<CR> and r CTRL-J against Vim 9.2 (without
+// 'autoindent'): count characters (a wide or composing character counts as
+// one) become a single line break, no white space around it is removed, and
+// the cursor goes to the start of the new line. With too few characters left,
+// or on an empty line, nothing changes and the column kept for j and k stays
+// (the line end after $). Undo goes back to where r was, redo to the end of
+// the first line, and '.' repeats the count unless given a new one.
+func TestReplaceLineBreak(t *testing.T) {
+	runVisualEditCases(t, []visualEditCase{
+		{"", "r<CR>", "", Position{0, 0}, 0},
+		{"abc def", "r<CR>", "\nbc def", Position{1, 0}, 0},
+		{"abc def", "lr<CR>", "a\nc def", Position{1, 0}, 0},
+		{"abc def", "3lr<CR>", "abc\ndef", Position{1, 0}, 0},
+		{"abc def", "$r<CR>", "abc de\n", Position{1, 0}, 0},
+		{"abc def\nxyz", "$r<CR>", "abc de\n\nxyz", Position{1, 0}, 0},
+		{"a", "r<CR>", "\n", Position{1, 0}, 0},
+		{"x\n\ny", "jr<CR>", "x\n\ny", Position{1, 0}, 0},
+		{"abc\nlast", "jlr<CR>", "abc\nl\nst", Position{2, 0}, 0},
+		{"abc\nlast", "j$r<CR>", "abc\nlas\n", Position{2, 0}, 0},
+		{"abc def", "2r<CR>", "\nc def", Position{1, 0}, 0},
+		{"abc def", "l2r<CR>", "a\n def", Position{1, 0}, 0},
+		{"abc", "5r<CR>", "abc", Position{0, 0}, 0},
+		{"abc", "l3r<CR>", "abc", Position{0, 1}, 1},
+		{"abc", "l2r<CR>", "a\n", Position{1, 0}, 0},
+		{"abc def", "$3r<CR>", "abc def", Position{0, 6}, maxCol},
+		{"abc def", "7r<CR>", "\n", Position{1, 0}, 0},
+		{"abc def", "8r<CR>", "abc def", Position{0, 0}, 0},
+		{"abc   def", "2lr<CR>", "ab\n   def", Position{1, 0}, 0},
+		{"abc \t def", "2lr<CR>", "ab\n \t def", Position{1, 0}, 0},
+		{"abc   def", "3lr<CR>", "abc\n  def", Position{1, 0}, 0},
+		{"abc   def", "4lr<CR>", "abc \n def", Position{1, 0}, 0},
+		{"abc \t def", "4lr<CR>", "abc \n def", Position{1, 0}, 0},
+		{"abc   ", "2lr<CR>", "ab\n   ", Position{1, 0}, 0},
+		{"abc   ", "$r<CR>", "abc  \n", Position{1, 0}, 0},
+		{"abc   ", "3lr<CR>", "abc\n  ", Position{1, 0}, 0},
+		{"abc  def", "3l2r<CR>", "abc\ndef", Position{1, 0}, 0},
+		{"abc   def", "2l2r<CR>", "ab\n  def", Position{1, 0}, 0},
+		{"    abc def", "^r<CR>", "    \nbc def", Position{1, 0}, 0},
+		{"    abc def", "wwr<CR>", "    abc \nef", Position{1, 0}, 0},
+		{"    abc def", "r<CR>", "\n   abc def", Position{1, 0}, 0},
+		{"\t\tabc def", "wwr<CR>", "\t\tabc \nef", Position{1, 0}, 0},
+		{"aéb", "lr<CR>", "a\nb", Position{1, 0}, 0},
+		{"a日b", "lr<CR>", "a\nb", Position{1, 0}, 0},
+		{"a日b", "l2r<CR>", "a\n", Position{1, 0}, 0},
+		{"ae\u0301b", "lr<CR>", "a\nb", Position{1, 0}, 0},
+		{"a😀b c", "lr<CR>", "a\nb c", Position{1, 0}, 0},
+		{"a日b", "r<CR>", "\n日b", Position{1, 0}, 0},
+		{"abc def", "lr<C-j>", "a\nc def", Position{1, 0}, 0},
+		{"abc def", "l2r<C-j>", "a\n def", Position{1, 0}, 0},
+		{"abc def", "lr<CR>u", "abc def", Position{0, 1}, 1},
+		{"abc def", "lr<CR>u<C-r>", "a\nc def", Position{0, 0}, 0},
+		{"abc def", "l2r<CR>u", "abc def", Position{0, 1}, 1},
+		{"abc def", "l2r<CR>u<C-r>", "a\n def", Position{0, 0}, 0},
+		{"abc def ghi", "lr<CR>.", "a\n\n def ghi", Position{2, 0}, 0},
+		{"abc def ghi", "lr<CR>l.", "a\nc\ndef ghi", Position{2, 0}, 0},
+		{"abc def ghi", "lr<CR>j.", "a\n\n def ghi", Position{2, 0}, 0},
+		{"abc def ghi", "lr<CR>3.", "a\n\nef ghi", Position{2, 0}, 0},
+		{"abc def ghi", "l2r<CR>.", "a\n\nef ghi", Position{2, 0}, 0},
+		{"abc def ghi", "l2r<CR>3.", "a\n\nf ghi", Position{2, 0}, 0},
+		{"abc def ghi", "l2r<CR>w.", "a\n \nf ghi", Position{2, 0}, 0},
+		{"abc def ghi\nxyz uvw", "lr<CR>jj.", "a\nc def ghi\n\nyz uvw", Position{3, 0}, 0},
+		{"abc def ghi\nxyz uvw", "lr<CR>j.u", "a\nc def ghi\nxyz uvw", Position{2, 0}, 0},
+		{"abc def ghi", "lr<CR>.u", "a\nc def ghi", Position{1, 0}, 0},
+		{"abc def ghi", "lr<CR>3.u", "a\nc def ghi", Position{1, 0}, 0},
+		{"abc def ghi", "l2r<CR>3.u", "a\n def ghi", Position{1, 0}, 0},
+		{"abc def ghi", "lr<CR>uu", "abc def ghi", Position{0, 1}, 1},
+		{"ab\ncd", "lr<CR>j.", "a\n\n\nd", Position{3, 0}, 0},
+		{"abc\ndef", "jlr<CR>ku", "abc\ndef", Position{1, 1}, 1},
+		{"abc def\nxyzwvu", "lr<CR>k", "a\nc def\nxyzwvu", Position{0, 0}, 0},
+		{"abc def\nxyzwvu", "lr<CR>j", "a\nc def\nxyzwvu", Position{2, 0}, 0},
+		{"abc def\nxyzwvu", "lr<CR>uj", "abc def\nxyzwvu", Position{1, 1}, 1},
+		{"abc def\nxyz", "lr<CR>u<C-r>j", "a\nc def\nxyz", Position{1, 0}, 0},
+		{"abc def", "lr<CR>u.", "a\nc def", Position{1, 0}, 0},
+		{"abc def", "l2r<CR>u.", "a\n def", Position{1, 0}, 0},
+		{"abc def", "l2r<CR>0.", "a\n\nef", Position{2, 0}, 0},
+		{"abc def", "lrx0r<CR>u", "axc def", Position{0, 0}, 0},
+		{"abc def", "lr<CR>ix<Esc>u", "a\nc def", Position{1, 0}, 0},
+		{"a", "2r<CR>", "a", Position{0, 0}, 0},
+		{"a b", "2lr<CR>", "a \n", Position{1, 0}, 0},
+		{"abc def", "lr<CR>ix<Esc>.", "a\nxxc def", Position{1, 0}, 0},
+		{"  abc def", "4lr<CR>u<C-r>", "  ab\n def", Position{0, 3}, 3},
+		{"abc def\nxy", "$3r<CR>j", "abc def\nxy", Position{1, 1}, maxCol},
+		{"  abc def", "4lr<CR>u", "  abc def", Position{0, 4}, 4},
+	})
+}
+
+// TestReplaceLineBreakReadOnly checks that r<CR> changes nothing with insert
+// mode disabled.
+func TestReplaceLineBreakReadOnly(t *testing.T) {
+	e := newTestEditor("abc def")
+	e.DisableInsertMode(true)
+	typeKeys(t, e, "lr<CR>")
+	assert.Equal(t, "abc def", content(e))
+	assert.Equal(t, Position{0, 1}, cursorPos(e))
+}
+
 // TestVisualReplace checks r{char} after v and V against Vim 9.2: every
 // selected character becomes one {char} (a tab, a wide character, a letter
 // with its composing characters alike), line breaks stay, the count is
