@@ -61,6 +61,33 @@ func replaceCharUnderCursor(editor Editor, buffer Buffer, ch rune, count int) (r
 	return true, nil
 }
 
+// replaceWithLineBreak is r<CR> (and r CTRL-J): it replaces count characters
+// from the cursor with one line break, and reports whether it did. As in Vim
+// without 'autoindent', no white space around the break is removed. The
+// cursor goes to the start of the new line, and undo puts it back where r was.
+func replaceWithLineBreak(editor Editor, buffer Buffer, count int) (replaced bool, err *EditorError) {
+	cursor := buffer.GetCursor()
+	pos := cursor.Position
+
+	endCol, n := charsForward(buffer.GetLineRunes(pos.Row), pos.Col, count)
+	if n < count {
+		return false, nil
+	}
+
+	markChangeStart(editor, pos)
+	if err := buffer.DeleteRunesAt(pos.Row, pos.Col, endCol-pos.Col); err != nil {
+		return false, err
+	}
+	if err := buffer.InsertRunesAt(pos.Row, pos.Col, []rune{'\n'}); err != nil {
+		return false, &EditorError{id: ErrInvalidPositionId, err: err}
+	}
+
+	cursor.Position = Position{Row: pos.Row + 1, Col: 0}
+	cursor.Preferred = 0
+	buffer.SetCursor(cursor)
+	return true, nil
+}
+
 // replaceSelection is r{ch} on a visual selection from start to end, both
 // inclusive (end on a line break leaves the break alone). Every character
 // becomes one ch: a tab, a wide character, or a letter with its composing

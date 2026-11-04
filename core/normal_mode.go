@@ -227,6 +227,11 @@ func (m *normalMode) handleReplaceKey(editor Editor, buffer Buffer, key KeyEvent
 	editor.UpdateCommand("")
 
 	count := max(takeCount(editor), 1)
+	if key.Key == KeyEnter || key.IsCtrl('j') {
+		replaced, err := replaceWithLineBreak(editor, buffer, count)
+		m.keepColumn = !replaced
+		return err
+	}
 	if key.Key == KeyEscape || key.Rune == 0 {
 		return nil
 	}
