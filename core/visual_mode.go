@@ -233,6 +233,10 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		}
 		return set(Position{Row: cursor.Row, Col: startCol}, Position{Row: cursor.Row, Col: endCol}, found)
 	case 'b': // ib / ab — inside/around the nearest bracket of any type (()/[]/{})
+		if anchor != cursor {
+			start, end := NormalizeSelection(anchor, cursor)
+			return set(selectionBlockRange(buffer, start, end, modifier, anyBracketFinder(buffer)))
+		}
 		openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor)
 		if found && modifier == 'i' {
 			openPos, closePos, found = bracketInnerRange(buffer, openPos, closePos)
@@ -251,6 +255,12 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		openChar, closeChar = '<', '>'
 	default:
 		return sel // not an object
+	}
+	if anchor != cursor {
+		// As Vim, a selection over more than one character is searched
+		// from its start and may grow out a level (see selectionBlockRange).
+		start, end := NormalizeSelection(anchor, cursor)
+		return set(selectionBlockRange(buffer, start, end, modifier, bracketFinder(buffer, openChar, closeChar)))
 	}
 	start, end, found := bracketTextObjectRange(buffer, cursor, modifier, openChar, closeChar)
 	return set(start, end, found)

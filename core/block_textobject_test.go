@@ -1,6 +1,10 @@
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 // The rows below come from Vim 9.2 (current_block in textobject.c). The
 // clipboard starts as emptyRangeReg; normal-mode d and c don't write it yet,
@@ -476,4 +480,164 @@ func TestAroundBlockOverLines(t *testing.T) {
 		{name: "line after the block: jca{", content: "  {\n    x\n  }\nend", keys: "jca{Z", text: "  Z\nend", want: Position{0, 3}, insert: true, reg: anyReg},
 		{name: "line after the block: jva{d", content: "  {\n    x\n  }\nend", keys: "jva{d", text: "  \nend", want: Position{0, 1}, reg: anyReg},
 	})
+}
+
+// selectionBlockCase is a block object typed on a selection over more than
+// one character, and the selection it leaves (anchor and cursor, charwise).
+type selectionBlockCase struct {
+	content, keys  string
+	anchor, cursor Position
+}
+
+// TestBlockObjectFromSelection checks i(/a( and the other block objects on a
+// selection over more than one character, as Vim 9.2's current_block: the
+// block is searched from the selection start, the character there not
+// counted; i( that doesn't grow the selection goes out a level; a( takes the
+// block found even when smaller; with no block the selection is kept.
+func TestBlockObjectFromSelection(t *testing.T) {
+	const nest = "x(ab(cd)ef)y"
+	const lines = "a(bc\nde\nfg)h"
+	const curly = "{\n  a {\n    b\n  }\n}"
+	tests := []selectionBlockCase{
+		// From inside the inner block: i( that doesn't grow goes out a level.
+		{nest, "5lvli(", Position{0, 2}, Position{0, 9}},
+		{nest, "6lvhi(", Position{0, 2}, Position{0, 9}},
+		{nest, "5lvli)", Position{0, 2}, Position{0, 9}},
+		{nest, "5lvi(i(", Position{0, 2}, Position{0, 9}},
+		{nest, "5lvi(i(i(", Position{0, 2}, Position{0, 9}}, // no third level: kept
+		{nest, "5lva(i(", Position{0, 2}, Position{0, 9}},
+		{nest, "5lv3li(", Position{0, 2}, Position{0, 9}},
+		{nest, "5lvla(", Position{0, 4}, Position{0, 7}},
+		{nest, "5lva(a(", Position{0, 1}, Position{0, 10}},
+		{nest, "5lva(a(a(", Position{0, 4}, Position{0, 7}}, // from the outer (: the next ( after it
+		{nest, "5lv3la(", Position{0, 4}, Position{0, 7}},   // a( may shrink
+		// Searched from the start, not the cursor.
+		{nest, "2lv3li(", Position{0, 2}, Position{0, 9}},
+		{nest, "8lv4hi(", Position{0, 2}, Position{0, 9}},
+		{nest, "2lv3la(", Position{0, 1}, Position{0, 10}},
+		{nest, "7lvli(", Position{0, 5}, Position{0, 6}}, // from ): the block it closes, i( may shrink
+		{nest, "10lvli(", Position{0, 2}, Position{0, 9}},
+		// The bracket under the start isn't counted.
+		{nest, "4lvli(", Position{0, 2}, Position{0, 9}},
+		{nest, "4lv3la(", Position{0, 1}, Position{0, 10}},
+		{nest, "lvli(", Position{0, 5}, Position{0, 6}}, // on the outer (: the next ( after it
+		{nest, "2lvhi(", Position{0, 5}, Position{0, 6}},
+		{nest, "lv9la(", Position{0, 4}, Position{0, 7}},
+		{nest, "vli(", Position{0, 2}, Position{0, 9}},
+		// No bigger block: kept.
+		{nest, "lv9li(", Position{0, 1}, Position{0, 10}},
+		{nest, "10lv9hi(", Position{0, 10}, Position{0, 1}},
+		{"abc def", "lvli(", Position{0, 1}, Position{0, 2}},
+		{"x()y", "vli(", Position{0, 0}, Position{0, 1}},
+		{"ab ()", "vli(", Position{0, 0}, Position{0, 1}}, // an empty block isn't found
+		{"a(b()c)", "4lvli(", Position{0, 4}, Position{0, 5}},
+		{"x(()z)y", "2lvli(", Position{0, 2}, Position{0, 4}},
+		{"a(b)c(d)e", "2lvlli(", Position{0, 2}, Position{0, 2}}, // one character: not grown
+		{"a(b)c(d)e", "3lvli(", Position{0, 2}, Position{0, 2}},
+		// As Vim, going out from the character before the start skips a ) there.
+		{"(a)b c(de)f", "3lv7li(", Position{0, 1}, Position{0, 1}},
+		{"(a)b c(de)f", "3lv7la(", Position{0, 6}, Position{0, 9}},
+		// Over lines.
+		{"f(x)\nz", "vji(", Position{0, 2}, Position{0, 2}},
+		{"a(b\nc)d", "lvji(", Position{0, 1}, Position{1, 1}},
+		{"a(b\nc)d", "jvki(", Position{1, 0}, Position{0, 0}},
+		{lines, "2lvji(", Position{0, 2}, Position{2, 1}},
+		{lines, "2jvki(", Position{0, 2}, Position{2, 1}},
+		{lines, "2lvja(", Position{0, 1}, Position{2, 2}},
+		{lines, "2jllvkki(", Position{2, 2}, Position{0, 2}},
+		{lines, "vjjllli(", Position{0, 0}, Position{2, 3}},
+		{lines, "vjjllla(", Position{0, 1}, Position{2, 2}},
+		{lines, "lvjjli(", Position{0, 1}, Position{2, 2}},
+		{"x(ab)\n\ncd(ef)", "3lv2jli(", Position{0, 2}, Position{0, 3}},
+		{"x(ab)\n\n(ef)", "2jv3li(", Position{2, 0}, Position{2, 3}},
+		{"f(\n  x\n)", "jvli(", Position{1, 0}, Position{1, 3}},
+		{"f(\n  x\n)", "jvla(", Position{0, 1}, Position{2, 0}},
+		{"f(\n  x\n)", "jllvhhi(", Position{1, 2}, Position{1, 0}},
+		{"f(\n\n)x", "jjvhi(", Position{1, 0}, Position{1, 0}},
+		{"g(f(\n  x\n))", "2jvli(", Position{1, 0}, Position{1, 3}},
+		{"g(f(\n  x\n))", "2jvi(i(", Position{0, 2}, Position{2, 0}},
+		{curly, "2jvli{", Position{2, 0}, Position{2, 5}},
+		{curly, "2jvi{i{", Position{1, 0}, Position{3, 3}},
+		{curly, "2jvi{i{i{", Position{1, 0}, Position{3, 3}},
+		{curly, "2jva{a{", Position{0, 0}, Position{4, 0}},
+		{curly, "jvjli{", Position{1, 0}, Position{3, 3}},
+		{curly, "jvjla{", Position{0, 0}, Position{4, 0}},
+		// The other brackets.
+		{"x[ab[cd]ef]y", "5lvli[", Position{0, 2}, Position{0, 9}},
+		{"x[ab[cd]ef]y", "5lvli]", Position{0, 2}, Position{0, 9}},
+		{"x[ab[cd]ef]y", "5lvi[i[", Position{0, 2}, Position{0, 9}},
+		{"a[bc\nde\nfg]h", "lvjjli[", Position{0, 1}, Position{2, 2}},
+		{"x{ab{cd}ef}y", "5lvli{", Position{0, 2}, Position{0, 9}},
+		{"x{ab{cd}ef}y", "5lvliB", Position{0, 2}, Position{0, 9}},
+		{"x{ab{cd}ef}y", "5lvi{a{", Position{0, 4}, Position{0, 7}},
+		{"x{ab{cd}ef}y", "5lva{aB", Position{0, 1}, Position{0, 10}},
+		{"a{bc\nde\nfg}h", "lvjjli{", Position{0, 1}, Position{2, 2}},
+		{"x<ab<cd>ef>y", "5lvli<lt>", Position{0, 2}, Position{0, 9}},
+		{"x<ab<cd>ef>y", "5lvli>", Position{0, 2}, Position{0, 9}},
+		{"x<ab<cd>ef>y", "5lvi<lt>i<lt>", Position{0, 2}, Position{0, 9}},
+		{"a<bc\nde\nfg>h", "lvjjli<lt>", Position{0, 1}, Position{2, 2}},
+		// ib/ab: the same rules, with blocks of any type (a divergence).
+		{nest, "5lvlib", Position{0, 2}, Position{0, 9}},
+		{nest, "5lvlab", Position{0, 4}, Position{0, 7}},
+		{"x(ab[cd]ef)y", "5lvlib", Position{0, 2}, Position{0, 9}},
+		{"x(ab[cd]ef)y", "5lvlab", Position{0, 4}, Position{0, 7}},
+		{"x(ab[cd]ef)y", "5lvab", Position{0, 4}, Position{0, 7}},
+		{"x(ab[cd]ef)y", "5lvabab", Position{0, 1}, Position{0, 10}},
+		{"(a)b c[de]f", "3lv7lib", Position{0, 1}, Position{0, 1}},
+		// From V, once the selection is more than one character.
+		{nest, "5lVi(i(", Position{0, 2}, Position{0, 9}},
+		{lines, "jVji(", Position{0, 2}, Position{2, 1}},
+		{lines, "2jVki(", Position{0, 2}, Position{2, 1}},
+		{curly, "2jVi{i{", Position{1, 0}, Position{3, 3}},
+		{curly, "jVji{", Position{1, 0}, Position{3, 3}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.content, content(e))
+			assert.Equal(t, VisualMode, e.GetMode().Name())
+			assert.Equal(t, tt.anchor, e.GetState().VisualStart, "anchor")
+			assert.Equal(t, tt.cursor, cursorPos(e), "cursor")
+			assert.Equal(t, tt.cursor.Col, e.GetBuffer().GetCursor().Preferred, "preferred")
+		})
+	}
+}
+
+// TestBlockObjectFromSelectionOperators checks y, d, c and . on the selection
+// a block object gives from a selection over more than one character. Visual
+// . repeats on as many characters from the cursor, as Vim.
+func TestBlockObjectFromSelectionOperators(t *testing.T) {
+	const nest = "x(ab(cd)ef)y"
+	const lines = "a(bc\nde\nfg)h"
+	tests := []struct {
+		content, keys, want string
+		cursor              Position
+		reg                 string // "" when not checked (d and c don't write the clipboard)
+	}{
+		{nest, "5lvli(y", nest, Position{0, 2}, "ab(cd)ef"},
+		{nest, "5lvli(d", "x()y", Position{0, 2}, ""},
+		{nest, "5lvli(cZ<Esc>", "x(Z)y", Position{0, 2}, ""},
+		{nest, "5lvla(d", "x(abef)y", Position{0, 4}, ""},
+		{nest, "2lv3li(d", "x()y", Position{0, 2}, ""},
+		{nest, "5lvli(dlu", nest, Position{0, 2}, ""},
+		{nest + "\n" + nest, "5lvli(cZ<Esc>j05l.", "x(Z)y\nx(ab(Z", Position{1, 5}, ""},
+		{nest + "\n" + nest, "5lvli(dj05l.", "x()y\nx(ab(", Position{1, 4}, ""},
+		{lines, "2lvji(y", lines, Position{0, 2}, "bc\nde\nfg"},
+		{lines, "jvki(d", "a()h", Position{0, 2}, ""},
+		{lines, "jVji(d", "a()h", Position{0, 2}, ""},
+		{lines + "\n" + lines, "2lvji(cZ<Esc>3j02l.", "a(Z)h\na(bc\nde\nfZh", Position{3, 1}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, NormalMode, e.GetMode().Name())
+			assert.Equal(t, tt.cursor, cursorPos(e), "cursor")
+			if tt.reg != "" {
+				assert.Equal(t, tt.reg, cb.content)
+			}
+		})
+	}
 }
