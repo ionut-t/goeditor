@@ -331,6 +331,143 @@ func TestVisualQuoteObjectBetweenStrings(t *testing.T) {
 	}
 }
 
+// TestQuoteObjectFromSelection checks i"/a" (and ' and `) on a selection over
+// more than one character, as the Visual part of Vim 9.2's current_quote (see
+// selectionQuoteRange). Rows come from Vim; columns are 0-based.
+func TestQuoteObjectFromSelection(t *testing.T) {
+	const (
+		zz               = `a "zz" b`
+		between          = `a"x" "y"b`
+		long             = `x "ab cd" y "ef" z`
+		escaped          = `a "b\"c" d`
+		escapedBackslash = `a "b\\" c "d"`
+		empty            = `"a" "" "b"`
+	)
+	tests := []struct {
+		content, keys  string
+		anchor, cursor Position
+		mode           Mode
+	}{
+		// Repeated on the selection it made: i" takes the quotes.
+		{zz, `3lvi"i"`, Position{0, 2}, Position{0, 5}, VisualMode},
+		{zz, `3lva"a"`, Position{0, 2}, Position{0, 6}, VisualMode},
+		{zz, `3lvi"a"`, Position{0, 2}, Position{0, 6}, VisualMode},
+		{zz, `3lva"i"`, Position{0, 2}, Position{0, 6}, VisualMode},
+		{zz, `3lvl2i"`, Position{0, 2}, Position{0, 5}, VisualMode},
+		{zz, `3lvli"`, Position{0, 2}, Position{0, 5}, VisualMode},
+		// Forwards: the anchor stays unless the selection was just inside or
+		// started off a quote; on a quote the cursor takes the next string.
+		{zz, `vlli"`, Position{0, 0}, Position{0, 4}, VisualMode},
+		{zz, `vllla"`, Position{0, 0}, Position{0, 6}, VisualMode},
+		{zz, `2lvli"`, Position{0, 2}, Position{0, 4}, VisualMode},
+		{zz, `4lvlli"`, Position{0, 4}, Position{0, 6}, VisualMode},
+		{zz, `5lvli"`, Position{0, 5}, Position{0, 6}, VisualMode},
+		// Backwards: the cursor goes to the start, the anchor to the end when
+		// the selection holds no quote and isn't next to one.
+		{zz, `5lvhi"`, Position{0, 5}, Position{0, 3}, VisualMode},
+		{zz, `3lvhi"`, Position{0, 3}, Position{0, 2}, VisualMode},
+		{zz, `4lvhhi"`, Position{0, 4}, Position{0, 2}, VisualMode},
+		{zz, `7lvhi"`, Position{0, 4}, Position{0, 3}, VisualMode},
+		{zz, `3lvlloi"`, Position{0, 5}, Position{0, 3}, VisualMode},
+		// Cursor past the end of the line: no string after it, kept.
+		{zz, `7lvli"`, Position{0, 7}, Position{0, 8}, VisualMode},
+		// Between two strings.
+		{between, `lvlli"`, Position{0, 1}, Position{0, 6}, VisualMode},
+		{between, `3lvlli"`, Position{0, 3}, Position{0, 6}, VisualMode},
+		{between, `4lvli"`, Position{0, 4}, Position{0, 6}, VisualMode},
+		{between, `7lvhi"`, Position{0, 7}, Position{0, 6}, VisualMode},
+		{between, `5lvhhi"`, Position{0, 5}, Position{0, 2}, VisualMode},
+		{between, `3lvhhi"`, Position{0, 3}, Position{0, 1}, VisualMode},
+		{between, `lvlla"`, Position{0, 1}, Position{0, 7}, VisualMode},
+		// Inside, forwards and backwards from between the strings, counts.
+		{long, `4lvli"`, Position{0, 3}, Position{0, 7}, VisualMode},
+		{long, `10lvli"`, Position{0, 13}, Position{0, 14}, VisualMode},
+		{long, `10lvhi"`, Position{0, 7}, Position{0, 3}, VisualMode},
+		{long, `4lvlloi"`, Position{0, 7}, Position{0, 3}, VisualMode},
+		{long, `6lvhhi"`, Position{0, 7}, Position{0, 3}, VisualMode},
+		{long, `3lvhhi"`, Position{0, 3}, Position{0, 1}, VisualMode},
+		{long, `10lvla"`, Position{0, 12}, Position{0, 16}, VisualMode},
+		{long, `10lvl2i"`, Position{0, 12}, Position{0, 15}, VisualMode},
+		// Escaped quotes: \" doesn't close a string, but the checks for
+		// "just inside" and "holds a quote" look at the characters only.
+		{escaped, `3lvli"`, Position{0, 2}, Position{0, 7}, VisualMode},
+		{escaped, `5lvli"`, Position{0, 5}, Position{0, 6}, VisualMode},
+		{escaped, `3lvi"i"`, Position{0, 3}, Position{0, 7}, VisualMode},
+		{escaped, `6lvhi"`, Position{0, 6}, Position{0, 3}, VisualMode},
+		{escaped, `3lvi"a"`, Position{0, 3}, Position{0, 8}, VisualMode},
+		{escapedBackslash, `3lvli"`, Position{0, 3}, Position{0, 5}, VisualMode},
+		{escapedBackslash, `3lvi"i"`, Position{0, 2}, Position{0, 6}, VisualMode},
+		{escapedBackslash, `7lvli"`, Position{0, 7}, Position{0, 11}, VisualMode},
+		// Empty quotes.
+		{empty, `5lvli"`, Position{0, 5}, Position{0, 9}, VisualMode},
+		{empty, `3lvli"`, Position{0, 3}, Position{0, 7}, VisualMode},
+		{empty, `5lvhi"`, Position{0, 5}, Position{0, 1}, VisualMode},
+		{empty, `4lvli"`, Position{0, 4}, Position{0, 8}, VisualMode},
+		// The other quotes, and no string at all (kept).
+		{`a 'zz' b`, `3lvi'i'`, Position{0, 2}, Position{0, 5}, VisualMode},
+		{"a `zz` b", "3lvi`i`", Position{0, 2}, Position{0, 5}, VisualMode},
+		{`a 'zz' b`, `3lvl2a'`, Position{0, 2}, Position{0, 6}, VisualMode},
+		{`abc def`, `lvli"`, Position{0, 1}, Position{0, 2}, VisualMode},
+		// From V on one line: found switches to v, not found stays V.
+		{zz, `Vlli"`, Position{0, 0}, Position{0, 4}, VisualMode},
+		{zz, `3lVlli"`, Position{0, 3}, Position{0, 5}, VisualLineMode},
+		{zz, `3lVhi"`, Position{0, 3}, Position{0, 2}, VisualLineMode},
+		{zz, `2lVli"`, Position{0, 2}, Position{0, 4}, VisualMode},
+		{zz, `3lVi"i"`, Position{0, 2}, Position{0, 5}, VisualMode},
+		{zz, `3lVla"`, Position{0, 2}, Position{0, 6}, VisualMode},
+		// Over more than one line: never found, kept.
+		{"a \"zz\" b\nc \"yy\" d", `vji"`, Position{0, 0}, Position{1, 0}, VisualMode},
+		{"a \"zz\" b\nc \"yy\" d", `Vji"`, Position{0, 0}, Position{1, 0}, VisualLineMode},
+		{"a \"zz\" b\nc \"yy\" d", `3ljvki"`, Position{1, 3}, Position{0, 3}, VisualMode},
+		{"a \"zz\" b\nc \"yy\" d", `3lvjoa"`, Position{1, 3}, Position{0, 3}, VisualMode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.content, content(e))
+			assert.Equal(t, tt.mode, e.GetMode().Name())
+			assert.Equal(t, tt.anchor, e.GetState().VisualStart, "anchor")
+			assert.Equal(t, tt.cursor, cursorPos(e), "cursor")
+		})
+	}
+}
+
+// TestOperatorAfterQuoteObjectFromSelection: d, y, c, U and . act on the
+// selection a quote object made from a selection over more than one
+// character, as in Vim 9.2.
+func TestOperatorAfterQuoteObjectFromSelection(t *testing.T) {
+	tests := []struct {
+		content, keys, text string
+		cursor              Position
+		clipboard           string // checked when not empty (y)
+	}{
+		{`a "zz" b "yy" c`, `3lvi"i"d`, `a  b "yy" c`, Position{0, 2}, ""},
+		{`a "zz" b "yy" c`, `3lvi"i"y`, `a "zz" b "yy" c`, Position{0, 2}, `"zz"`},
+		{`a "zz" b "yy" c`, `3lvi"i"cX<Esc>`, `a X b "yy" c`, Position{0, 2}, ""},
+		{`a "zz" b "yy" c`, `3lvi"i"U`, `a "ZZ" b "yy" c`, Position{0, 2}, ""},
+		{`a "zz" b "yy" c`, `vlli"d`, `"yy" c`, Position{0, 0}, ""},
+		{`a "zz" b "yy" c`, `3lvhi"y`, `a "zz" b "yy" c`, Position{0, 2}, `"z`},
+		{`a "zz" b "yy" c`, `10lvhi"d`, `a "y" c`, Position{0, 3}, ""},
+		{`a "zz" b "yy" c`, `10lvli"y`, `a "zz" b "yy" c`, Position{0, 9}, `"yy"`},
+		{`a "zz" b "yy" c`, `3lvi"i"U7l.`, `a "ZZ" b "YY" c`, Position{0, 9}, ""},
+		{`a "zz" b "yy" c`, `vlli"dw.`, `"`, Position{0, 0}, ""},
+		{`a "zz" b "yy" c`, `3lvi"i"cX<Esc>6l.`, `a X b "yX`, Position{0, 8}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.text, content(e))
+			assert.Equal(t, NormalMode, e.GetMode().Name())
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			if tt.clipboard != "" {
+				assert.Equal(t, tt.clipboard, cb.content)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // anyQuoteTextObjectRange
 // ---------------------------------------------------------------------------

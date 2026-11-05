@@ -621,7 +621,7 @@ func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, 
 		}
 		return 0, 0, false
 	}
-	open := prevQuote(line, col, quote)
+	open := prevQuote(line, col, quote, true)
 	if open < 0 {
 		// As Vim, from the line start: no quote before pos but an escaped
 		// one (\"a b"c from a: \" opens the string).
@@ -651,14 +651,14 @@ func nextQuote(line []rune, col int, quote rune, escape bool) int {
 	return -1
 }
 
-// prevQuote returns the column of the nearest quote before col that isn't
-// escaped (after an odd number of quoteEscape), or -1 (Vim's
+// prevQuote returns the column of the nearest quote before col, or -1.
+// With escape, a quote after an odd number of quoteEscape is skipped (Vim's
 // find_prev_quote).
-func prevQuote(line []rune, col int, quote rune) int {
+func prevQuote(line []rune, col int, quote rune, escape bool) int {
 	for col > 0 {
 		col--
 		n := 0
-		for col-n > 0 && line[col-n-1] == quoteEscape {
+		for escape && col-n > 0 && line[col-n-1] == quoteEscape {
 			n++
 		}
 		if n%2 == 1 {
@@ -742,6 +742,111 @@ func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune
 		return 0, 0, false
 	}
 	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier, count)
+}
+
+// selectionQuoteRange returns the selection a quote object (include: a")
+// gives from a selection over more than one character, anchor to cursor, as
+// the Visual part of Vim's current_quote:
+//   - a selection over more than one line isn't found;
+//   - with the cursor on a quote, the string is the next one after it
+//     (forwards) or the one before it (backwards); when there is no closing
+//     quote, the string runs from the cursor's quote;
+//   - otherwise the quotes are paired from the start of the line and the
+//     string is the pair holding the first quote after the cursor
+//     (backwards: before it);
+//   - i" takes the quotes too when the selection was just inside them
+//     (vi"i"), as a count above 1 does;
+//   - forwards, the anchor moves to the start of the object only when the
+//     selection holds no quote and was just inside the quotes or didn't
+//     start at or right after a quote; backwards, the anchor moves to the
+//     end when the selection was just inside the quotes or holds no quote
+//     and doesn't start at or right before one.
+//
+// Escapes follow Vim: a closing quote after quoteEscape doesn't count, but
+// the "just inside" and "holds a quote" checks look at the characters only
+// (a "b\"c" with b\ selected is just inside, and i" takes the quotes).
+func selectionQuoteRange(buffer Buffer, anchor, cursor Position, quote rune, include bool, count int) (newAnchor, newCursor Position, found bool) {
+	if anchor.Row != cursor.Row {
+		return anchor, cursor, false
+	}
+	line := buffer.GetLineRunes(cursor.Row)
+	at := func(col int) rune {
+		if col >= 0 && col < len(line) {
+			return line[col]
+		}
+		return 0
+	}
+	next := func(col int, escape bool) int { return nextQuote(line, col, quote, escape) }
+	// As Vim's find_prev_quote, column 0 when there is none: the callers
+	// check for a quote there.
+	prev := func(col int, escape bool) int { return max(prevQuote(line, col, quote, escape), 0) }
+
+	va, vc := anchor.Col, cursor.Col
+	forward := va < vc
+	lo, hi := min(va, vc), max(va, vc)
+	inside := lo > 0 && at(lo-1) == quote && at(hi) != 0 && at(hi+1) == quote
+	selectedQuote := slices.Contains(line[min(lo, len(line)):min(hi+1, len(line))], quote)
+
+	var start, end int
+	switch {
+	case at(vc) == quote && forward:
+		// Take the cursor's quote as a closing one: the next string.
+		if start = next(vc+1, false); start < 0 {
+			return anchor, cursor, false
+		}
+		if end = next(start+1, true); end < 0 {
+			start, end = vc, start // it was an opening quote
+		}
+	case at(vc) == quote:
+		if end = prev(vc, false); at(end) != quote {
+			return anchor, cursor, false
+		}
+		if start = prev(end, true); at(start) != quote {
+			start, end = end, vc // it was a closing quote
+		}
+	default:
+		first := prev(vc, false)
+		if forward {
+			first = next(vc, false)
+		}
+		for start = 0; ; start = end + 1 {
+			if start = next(start, false); start < 0 || start > first {
+				return anchor, cursor, false
+			}
+			if end = next(start+1, true); end < 0 {
+				return anchor, cursor, false
+			}
+			if first <= end {
+				break
+			}
+		}
+	}
+
+	if include {
+		if isWhiteSpace(at(end + 1)) {
+			for isWhiteSpace(at(end + 1)) {
+				end++
+			}
+		} else {
+			for start > 0 && isWhiteSpace(line[start-1]) {
+				start--
+			}
+		}
+	} else if count < 2 && !inside {
+		start, end = start+1, end-1
+	}
+
+	row := cursor.Row
+	if forward {
+		if !selectedQuote && (inside || at(va) != quote && at(va-1) != quote) {
+			va = start
+		}
+		return Position{Row: row, Col: va}, Position{Row: row, Col: end}, true
+	}
+	if inside || !selectedQuote && at(va) != quote && at(va+1) != quote {
+		va = end
+	}
+	return Position{Row: row, Col: va}, Position{Row: row, Col: start}, true
 }
 
 // anyQuoteTextObjectRange is quoteTextObjectRange for the pair of any quote

@@ -216,6 +216,12 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		sel.linewise = true
 		return set(start, Position{Row: endRow, Col: 0}, true)
 	case '"', '\'', '`': // i" / a", i' / a', i` / a` — inside/around quotes
+		if anchor != cursor {
+			// As Vim, a selection over more than one character may take
+			// the quotes, the next string or keep its anchor (see
+			// selectionQuoteRange).
+			return set(selectionQuoteRange(buffer, anchor, cursor, key, modifier == 'a', count))
+		}
 		startCol, endCol, found := quoteTextObjectRange(buffer, cursor, modifier, key, count)
 		if !found && modifier == 'i' {
 			if openCol, closeCol, ok := quotePair(buffer, cursor, key); ok && closeCol == openCol+1 {
