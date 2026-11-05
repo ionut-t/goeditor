@@ -641,3 +641,146 @@ func TestBlockObjectFromSelectionOperators(t *testing.T) {
 		})
 	}
 }
+
+// TestCountedBlockObjects checks [count]i( and [count]a( (and the other
+// bracket types) with an operator: the block count levels out from the
+// cursor, a bracket under the cursor being level 1; an operator count
+// multiplies it (2d2i( is d4i(); too few levels change nothing, and c then
+// stays in normal mode. With no block around the cursor, the forward search
+// runs count times, each from the open bracket it found last. '.' repeats
+// the whole count. Rows from Vim 9.2 (current_block); the clipboard starts as
+// "REG", and d and c rows don't check it (they don't write it yet).
+func TestCountedBlockObjects(t *testing.T) {
+	const nest = "x(a(b(c)d)e)f"     // c at column 6
+	const deep = "x(a(b(c(d)e)f)g)h" // d at column 8
+	const lines = "f(\n  a(\n    b\n  )\n)"
+	const nest2 = nest + "\n" + nest
+	const deep2 = deep + "\n" + deep
+	runCountedObjectCases(t, []countedObjectCase{
+		{nest, "6ld2i(", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{nest, "6ld3i(", "x()f", "n", Position{0, 2}, Position{}, anyReg},
+		{nest, "6ld4i(", nest, "n", Position{0, 6}, Position{}, anyReg},
+		{nest, "6ld2a(", "x(ae)f", "n", Position{0, 3}, Position{}, anyReg},
+		{nest, "6ld3a(", "xf", "n", Position{0, 1}, Position{}, anyReg},
+		{nest, "6ly2i(", nest, "n", Position{0, 4}, Position{}, "b(c)d"},
+		{nest, "6ly2a(", nest, "n", Position{0, 3}, Position{}, "(b(c)d)"},
+		{nest, "6ly4i(", nest, "n", Position{0, 6}, Position{}, "REG"},
+		{nest, "6lc2i(", "x(a()e)f", "i", Position{0, 4}, Position{}, anyReg},
+		{nest, "6lc4i(", nest, "n", Position{0, 6}, Position{}, anyReg},
+		{nest, "6ld2i)", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		// On a bracket: its own block is level 1.
+		{nest, "5ld2i(", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{nest, "7ld2i(", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{nest, "3ld2i(", "x()f", "n", Position{0, 2}, Position{}, anyReg},
+		{nest, "9ld2a(", "xf", "n", Position{0, 1}, Position{}, anyReg},
+		{nest, "11ld2i(", nest, "n", Position{0, 11}, Position{}, anyReg},
+		{"x(())y", "2ld2i(", "x()y", "n", Position{0, 2}, Position{}, anyReg},
+		{"x(())y", "2ld2a(", "xy", "n", Position{0, 1}, Position{}, anyReg},
+		// Other bracket types; a type isn't a level of another.
+		{"x[a[b]c]y", "4ld2i[", "x[]y", "n", Position{0, 2}, Position{}, anyReg},
+		{"x[a[b]c]y", "4ld2a]", "xy", "n", Position{0, 1}, Position{}, anyReg},
+		{"x{a{b}c}y", "4ld2iB", "x{}y", "n", Position{0, 2}, Position{}, anyReg},
+		{"x{a{b}c}y", "4ld2aB", "xy", "n", Position{0, 1}, Position{}, anyReg},
+		{"x<a<b>c>y", "4ld2i<lt>", "x<>y", "n", Position{0, 2}, Position{}, anyReg},
+		{"x<a<b>c>y", "4ld2a>", "xy", "n", Position{0, 1}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6ld2i(", "x()f", "n", Position{0, 2}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6ld2i[", "x(a[b(c)d]e)f", "n", Position{0, 6}, Position{}, anyReg},
+		// Over lines, with the count-1 rules for blocks that start or end a line.
+		{lines, "2jd2i(", "f(\n)", "n", Position{1, 0}, Position{}, anyReg},
+		{lines, "2jd2a(", "f", "n", Position{0, 0}, Position{}, anyReg},
+		{lines, "2jy2i(", lines, "n", Position{1, 0}, Position{}, "  a(\n    b\n  )\n"},
+		{lines, "2jc2i(", "f(\n\n)", "i", Position{1, 0}, Position{}, anyReg},
+		{lines, "2jd3i(", lines, "n", Position{2, 0}, Position{}, anyReg},
+		{"f {\n  a {\n    b\n  }\n}", "2jd2iB", "f {\n}", "n", Position{1, 0}, Position{}, anyReg},
+		// The operator count multiplies the object count.
+		{deep, "8l2di(", "x(a(b()f)g)h", "n", Position{0, 6}, Position{}, anyReg},
+		{deep, "8l2d2i(", "x()h", "n", Position{0, 2}, Position{}, anyReg},
+		{deep, "8l3di(", "x(a()g)h", "n", Position{0, 4}, Position{}, anyReg},
+		{deep, "8l2d3i(", deep, "n", Position{0, 8}, Position{}, anyReg},
+		{deep, "8l2y2i(", deep, "n", Position{0, 2}, Position{}, "a(b(c(d)e)f)g"},
+		{deep, "8l2c2i(", "x()h", "i", Position{0, 2}, Position{}, anyReg},
+		// No block around the cursor: the forward search, count times.
+		{"x(a(b)c)d", "d2i(", "x(a()c)d", "n", Position{0, 4}, Position{}, anyReg},
+		{"x(a(b)c)d", "d3i(", "x(a(b)c)d", "n", Position{0, 0}, Position{}, anyReg},
+		{"x(a(b)c)d", "d2a(", "x(ac)d", "n", Position{0, 3}, Position{}, anyReg},
+		{"x(a(b)c)d", "y2i(", "x(a(b)c)d", "n", Position{0, 4}, Position{}, "b"},
+		{"x(a)(b)c", "d2i(", "x(a)(b)c", "n", Position{0, 0}, Position{}, anyReg}, // ) cancels the next (
+		{"x(a(b)(c(d))e)y", "d3i(", "x(a(b)(c())e)y", "n", Position{0, 9}, Position{}, anyReg},
+		{"x[a[b]c]d", "d2i[", "x[a[]c]d", "n", Position{0, 4}, Position{}, anyReg},
+		{"f\n(a(b)c)", "d2i(", "f\n(a()c)", "n", Position{1, 3}, Position{}, anyReg},
+		{"x(a)y(b(c))", "2ld2i(", "x(a)y(b(c))", "n", Position{0, 2}, Position{}, anyReg}, // inside a block: no forward search
+		// Case operators.
+		{nest, "6lg~2i(", "x(a(B(C)D)e)f", "n", Position{0, 4}, Position{}, "REG"},
+		{nest, "6lgU2a(", "x(a(B(C)D)e)f", "n", Position{0, 3}, Position{}, "REG"},
+		{nest, "6lgU4i(", nest, "n", Position{0, 6}, Position{}, "REG"},
+		{nest, "6l3gUi(", "x(A(B(C)D)E)f", "n", Position{0, 2}, Position{}, "REG"},
+		{"x(a(b)c)d", "gU2i(", "x(a(B)c)d", "n", Position{0, 4}, Position{}, "REG"},
+		// '.' repeats the whole count, which a count on '.' replaces.
+		{nest2, "6ld2i(j06l.", "x(a()e)f\nx(a()e)f", "n", Position{1, 4}, Position{}, anyReg},
+		{nest2, "6ld2i(j06l3.", "x(a()e)f\nx()f", "n", Position{1, 2}, Position{}, anyReg},
+		{nest2, "6l2di(j06l.", "x(a()e)f\nx(a()e)f", "n", Position{1, 4}, Position{}, anyReg},
+		{nest2, "6lc2i(Q<Esc>j06l.", "x(a(Q)e)f\nx(a(Q)e)f", "n", Position{1, 4}, Position{}, anyReg},
+		{nest2, "6lgU2i(j06l.", "x(a(B(C)D)e)f\nx(a(B(C)D)e)f", "n", Position{1, 4}, Position{}, "REG"},
+		{deep2, "8l2d2i(j08l.", "x()h\nx()h", "n", Position{1, 2}, Position{}, anyReg},
+		{deep2, "8l2d2i(j08l2.", "x()h\nx(a(b()f)g)h", "n", Position{1, 6}, Position{}, anyReg},
+	})
+}
+
+// TestCountedBlockObjectsVisual checks counts on block objects in visual
+// mode: from one character as with an operator; from a selection over more
+// than one character the count goes into the search from the selection
+// start (the go-out-a-level retry has no count). A count before v is v's.
+func TestCountedBlockObjectsVisual(t *testing.T) {
+	const nest = "x(a(b(c)d)e)f"
+	const lines = "f(\n  a(\n    b\n  )\n)"
+	runCountedObjectCases(t, []countedObjectCase{
+		{nest, "6lv2i(", nest, "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{nest, "6lv3i(", nest, "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{nest, "6lv4i(", nest, "v", Position{0, 6}, Position{0, 6}, "REG"},
+		{nest, "6lv2a(", nest, "v", Position{0, 9}, Position{0, 3}, "REG"},
+		{nest, "6lv4a(", nest, "v", Position{0, 6}, Position{0, 6}, "REG"},
+		{nest, "5lv2i(", nest, "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{nest, "6lV2i(", nest, "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{nest, "6lV3i(", nest, "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{nest, "6lV4i(", nest, "V", Position{0, 6}, Position{0, 6}, "REG"},
+		{nest, "6lv2i(d", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{nest, "6l2v2i(", nest, "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{lines, "2jv2i(", lines, "v", Position{3, 3}, Position{1, 0}, "REG"},
+		{lines, "2jV2a(", lines, "v", Position{4, 0}, Position{0, 1}, "REG"},
+		{"x(a(b)c)d", "v2i(", "x(a(b)c)d", "v", Position{0, 4}, Position{0, 4}, "REG"},
+		{"x(())y", "2lv2i(", "x(())y", "v", Position{0, 3}, Position{0, 2}, "REG"},
+		// From a selection over more than one character.
+		{nest, "6lvl2i(", nest, "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{nest, "6lvl3i(", nest, "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{nest, "6lvl4i(", nest, "v", Position{0, 7}, Position{0, 6}, "REG"},
+		{nest, "6lvl2a(", nest, "v", Position{0, 9}, Position{0, 3}, "REG"},
+		{nest, "6lvh2i(", nest, "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{nest, "6lvh2a(", nest, "v", Position{0, 11}, Position{0, 1}, "REG"},
+		{nest, "6lva(2i(", nest, "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{nest, "6lva(2a(", nest, "v", Position{0, 11}, Position{0, 1}, "REG"},
+		{"x(a(b(cc)d)e)f", "6lvi(2i(", "x(a(b(cc)d)e)f", "v", Position{0, 9}, Position{0, 4}, "REG"},
+		{"x(a(b(cc)d)e)f", "6lvi(3i(", "x(a(b(cc)d)e)f", "v", Position{0, 11}, Position{0, 2}, "REG"},
+		{"x(a(b(cc)d)e)f", "6lvi(4i(", "x(a(b(cc)d)e)f", "v", Position{0, 7}, Position{0, 6}, "REG"},
+		{"x(a(b(cc)d)e)f", "6lvi(2a(", "x(a(b(cc)d)e)f", "v", Position{0, 10}, Position{0, 3}, "REG"},
+		{"f {\n  a {\n    b\n  }\n}", "2jv2iB", "f {\n  a {\n    b\n  }\n}", "v", Position{3, 3}, Position{1, 0}, "REG"},
+	})
+}
+
+// TestCountedAnyBracketObject checks counts on ib/ab. goeditor decides: ib
+// is the nearest block of any type (Vim's ib is i(), so each level is the
+// nearest block of any type around the last one, or, ahead of the cursor,
+// the first block of any type the forward search finds after it.
+func TestCountedAnyBracketObject(t *testing.T) {
+	runCountedObjectCases(t, []countedObjectCase{
+		{"x(a(b(c)d)e)f", "6ld2ib", "x(a()e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{"x[a[b]c]y", "4ld2ib", "x[]y", "n", Position{0, 2}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6ld2ib", "x(a[]e)f", "n", Position{0, 4}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6ld3ib", "x()f", "n", Position{0, 2}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6ld4ib", "x(a[b(c)d]e)f", "n", Position{0, 6}, Position{}, anyReg},
+		{"x(a[b(c)d]e)y", "d2ib", "x(a[]e)y", "n", Position{0, 4}, Position{}, anyReg},
+		{"x(a[b(c)d]e)f", "6lv2ib", "x(a[b(c)d]e)f", "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{"x(a[b(c)d]e)f", "6lvl2ib", "x(a[b(c)d]e)f", "v", Position{0, 8}, Position{0, 4}, "REG"},
+		{"x(a[b(c)d]e)f", "6lvl3ib", "x(a[b(c)d]e)f", "v", Position{0, 10}, Position{0, 2}, "REG"},
+		{"x(a[b(c)d]e)f", "6lgU2ib", "x(a[B(C)D]e)f", "n", Position{0, 4}, Position{}, "REG"},
+	})
+}

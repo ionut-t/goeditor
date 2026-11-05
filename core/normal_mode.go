@@ -664,7 +664,8 @@ func (m *normalMode) handlePendingOperator(editor Editor, buffer Buffer, key Key
 }
 
 // handleTextObject handles a text object key (w, p, …) after a pending modifier (i/a).
-// count extends word objects over additional words (e.g. d2aw); other objects ignore it.
+// count extends word objects over additional words (d2aw), takes block objects
+// count levels out (d2i() and makes i" take the quotes (d2i"); ip/ap ignore it.
 func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, op operator, count int) *EditorError {
 	var err *EditorError
 	actionTaken := false
@@ -695,25 +696,25 @@ func (m *normalMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent
 			actionTaken = true
 		}
 	case '"', '\'', '`': // i"/a", i'/a', i`/a` = inside/around quote
-		err = applyQuoteOp(editor, buffer, modifier, key.Rune, op)
+		err = applyQuoteOp(editor, buffer, modifier, key.Rune, op, count)
 		actionTaken = true
 	case 'q': // iq/aq = inside/around any quote (", ', `)
-		err = applyAnyQuoteOp(editor, buffer, modifier, op)
+		err = applyAnyQuoteOp(editor, buffer, modifier, op, count)
 		actionTaken = true
 	case '(', ')': // i(/a(, i)/a) = inside/around parentheses
-		err = applyBracketOp(editor, buffer, modifier, '(', ')', op)
+		err = applyBracketOp(editor, buffer, modifier, '(', ')', op, count)
 		actionTaken = true
 	case 'b': // ib/ab = inside/around nearest bracket of any type (()/[]/{}/)
-		err = applyAnyBracketOp(editor, buffer, modifier, op)
+		err = applyAnyBracketOp(editor, buffer, modifier, op, count)
 		actionTaken = true
 	case '[', ']': // i[/a[, i]/a] = inside/around square brackets
-		err = applyBracketOp(editor, buffer, modifier, '[', ']', op)
+		err = applyBracketOp(editor, buffer, modifier, '[', ']', op, count)
 		actionTaken = true
 	case '{', '}', 'B': // i{/a{, i}/a}, iB/aB = inside/around curly braces
-		err = applyBracketOp(editor, buffer, modifier, '{', '}', op)
+		err = applyBracketOp(editor, buffer, modifier, '{', '}', op, count)
 		actionTaken = true
 	case '<', '>': // i</a<, i>/a> = inside/around angle brackets
-		err = applyBracketOp(editor, buffer, modifier, '<', '>', op)
+		err = applyBracketOp(editor, buffer, modifier, '<', '>', op, count)
 		actionTaken = true
 	default:
 		editor.DispatchError(ErrInvalidMotionId, fmt.Errorf("invalid text object '%c' after '%c'", key.Rune, modifier))

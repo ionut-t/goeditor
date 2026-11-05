@@ -1,5 +1,7 @@
 package core
 
+import "slices"
+
 // wordWalker steps through the buffer as Vim's inc() and dec() do, for the
 // word text objects: a character (with its composing characters) at a time.
 // The line break of each line is a position of its own (column = line
@@ -615,32 +617,52 @@ func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, 
 	return 0, 0, false
 }
 
-// anyQuotePair tries each standard quote character (", ', `) and returns the
-// innermost pair (smallest span) that contains or follows the cursor.
-func anyQuotePair(buffer Buffer, pos Position) (openCol, closeCol int, found bool) {
-	bestSpan := -1
+// anyQuotePair returns the pair of iq/aq: of the quote pairs of any type
+// (", ', `) around pos, quotes included, the count-th shortest, so 2iq goes
+// out a level (x "a 'z' b" y from z: the " pair). Each type pairs its quotes
+// from the start of the line. As mini.ai's q with search_method 'cover',
+// which iq follows (Vim has no iq), a pair after pos doesn't count.
+func anyQuotePair(buffer Buffer, pos Position, count int) (openCol, closeCol int, found bool) {
+	line := buffer.GetLineRunes(pos.Row)
+	var pairs [][2]int
 	for _, q := range []rune{'"', '\'', '`'} {
-		s, e, ok := quotePair(buffer, pos, q)
-		if !ok {
-			continue
-		}
-		if span := e - s; bestSpan == -1 || span < bestSpan {
-			bestSpan = span
-			openCol, closeCol = s, e
+		open := -1
+		for c, r := range line {
+			switch {
+			case r != q:
+			case open < 0:
+				open = c
+			default:
+				if open <= pos.Col && pos.Col <= c {
+					pairs = append(pairs, [2]int{open, c})
+				}
+				open = -1
+			}
 		}
 	}
-	return openCol, closeCol, bestSpan != -1
+	if count < 1 {
+		count = 1
+	}
+	if count > len(pairs) {
+		return 0, 0, false
+	}
+	slices.SortStableFunc(pairs, func(a, b [2]int) int { return (a[1] - a[0]) - (b[1] - b[0]) })
+	return pairs[count-1][0], pairs[count-1][1], true
 }
 
 // quoteObjectCols turns the quote pair at openCol, closeCol on row into the
 // columns of the i or a object.
 //
 // modifier 'i' → the content between the quotes; not found when it is empty.
+// With a count above 1, as Vim (:h i"), the quotes too but no white space.
 // modifier 'a' → the quotes and, as Vim (:h a"), the white space after the
 // closing quote or, when there is none, the white space before the opening one.
-// Only spaces and tabs count, as in Vim.
-func quoteObjectCols(buffer Buffer, row, openCol, closeCol int, modifier rune) (startCol, endCol int, found bool) {
+// Only spaces and tabs count, as in Vim. a ignores the count.
+func quoteObjectCols(buffer Buffer, row, openCol, closeCol int, modifier rune, count int) (startCol, endCol int, found bool) {
 	if modifier == 'i' {
+		if count > 1 {
+			return openCol, closeCol, true
+		}
 		if closeCol-openCol <= 1 {
 			return 0, 0, false // empty quotes: nothing inside
 		}
@@ -661,22 +683,23 @@ func quoteObjectCols(buffer Buffer, row, openCol, closeCol int, modifier rune) (
 
 // quoteTextObjectRange returns the columns of the i or a object for quote
 // around or after pos (see quotePair and quoteObjectCols).
-func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune) (startCol, endCol int, found bool) {
+func quoteTextObjectRange(buffer Buffer, pos Position, modifier rune, quote rune, count int) (startCol, endCol int, found bool) {
 	openCol, closeCol, ok := quotePair(buffer, pos, quote)
 	if !ok {
 		return 0, 0, false
 	}
-	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier)
+	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier, count)
 }
 
-// anyQuoteTextObjectRange is quoteTextObjectRange for the innermost pair of
-// any quote character (see anyQuotePair).
-func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune) (startCol, endCol int, found bool) {
-	openCol, closeCol, ok := anyQuotePair(buffer, pos)
+// anyQuoteTextObjectRange is quoteTextObjectRange for the pair of any quote
+// character that anyQuotePair picks; the count picks the pair, so 2iq
+// doesn't take the quotes, as 2i" does.
+func anyQuoteTextObjectRange(buffer Buffer, pos Position, modifier rune, count int) (startCol, endCol int, found bool) {
+	openCol, closeCol, ok := anyQuotePair(buffer, pos, count)
 	if !ok {
 		return 0, 0, false
 	}
-	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier)
+	return quoteObjectCols(buffer, pos.Row, openCol, closeCol, modifier, 1)
 }
 
 // findMatchingBracket implements the '%' motion: find the first bracket on the
@@ -836,9 +859,71 @@ func findCloseBracket(buffer Buffer, op Position, openChar, closeChar rune) (Pos
 // at pos: the innermost pair around it or, as Vim when no open bracket
 // encloses pos, the first pair that opens after it, even on a later line.
 // ahead reports the second case. An enclosing open bracket that is never
-// closed is no block, and Vim doesn't search forward then.
-func findBlock(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, ahead, found bool) {
-	return searchBlock(buffer, pos, openChar, closeChar, findEnclosingOpen, true)
+// closed is no block, and Vim doesn't search forward then. count is the
+// level (see outerLevels): 2i( is the block around the innermost one.
+func findBlock(buffer Buffer, pos Position, openChar, closeChar rune, count int) (openPos, closePos Position, ahead, found bool) {
+	openPos, closePos, ahead, found = searchBlock(buffer, pos, openChar, closeChar, findEnclosingOpen, true)
+	openPos, closePos, found = outerLevels(openPos, closePos, ahead, found, count, bracketStep(buffer, openChar, closeChar))
+	return openPos, closePos, ahead, found
+}
+
+// blockStep finds the block one level on from the block that opens at
+// openPos: the one around it or, when ahead (the block was found by the
+// forward search), the next one the forward search finds from it.
+type blockStep func(openPos Position, ahead bool) (nextOpen, nextClose Position, found bool)
+
+// outerLevels goes count-1 levels on from the block openPos-closePos with
+// step, as Vim's current_block, which repeats its search count times: the
+// search for the block around the cursor goes out a level each time, the
+// forward search when none encloses the cursor finds the next open bracket
+// after the last one (x(a(b)c)d d2i( from column 0 is b). With too few
+// levels there is no block. A count below 2 keeps the block.
+func outerLevels(openPos, closePos Position, ahead, found bool, count int, step blockStep) (Position, Position, bool) {
+	for i := 1; i < count && found; i++ {
+		openPos, closePos, found = step(openPos, ahead)
+	}
+	if !found {
+		return Position{}, Position{}, false
+	}
+	return openPos, closePos, true
+}
+
+// bracketStep is the blockStep for one bracket type.
+func bracketStep(buffer Buffer, openChar, closeChar rune) blockStep {
+	return func(openPos Position, ahead bool) (Position, Position, bool) {
+		if ahead {
+			return nextBlockAfter(buffer, openPos, openChar, closeChar)
+		}
+		openPos, closePos, _, found := findBlockBefore(buffer, openPos, openChar, closeChar, false)
+		return openPos, closePos, found
+	}
+}
+
+// anyBracketStep is the blockStep for ib/ab: the nearest block of any type
+// around the open bracket or, when ahead, the first block of any type the
+// forward search finds after it.
+func anyBracketStep(buffer Buffer) blockStep {
+	return func(openPos Position, ahead bool) (Position, Position, bool) {
+		nextOpen, nextClose, _, _, found := nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
+			if ahead {
+				o, c, ok := nextBlockAfter(buffer, openPos, openChar, closeChar)
+				return o, c, true, ok
+			}
+			return findBlockBefore(buffer, openPos, openChar, closeChar, false)
+		})
+		return nextOpen, nextClose, found
+	}
+}
+
+// nextBlockAfter returns the block whose open bracket the forward search
+// (findNextOpen) finds after pos.
+func nextBlockAfter(buffer Buffer, pos Position, openChar, closeChar rune) (openPos, closePos Position, found bool) {
+	openPos, found = findNextOpen(buffer, pos, openChar, closeChar)
+	if !found {
+		return Position{}, Position{}, false
+	}
+	closePos, found = findCloseBracket(buffer, openPos, openChar, closeChar)
+	return openPos, closePos, found
 }
 
 // findBlockBefore is findBlock with the character at pos not counted (see
@@ -873,8 +958,8 @@ func searchBlock(buffer Buffer, pos Position, openChar, closeChar rune,
 //
 // modifier 'i' → content between the brackets (exclusive of the bracket chars).
 // modifier 'a' → the bracket chars themselves.
-func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar, closeChar rune) (startPos, endPos Position, found bool) {
-	openPos, closePos, _, ok := findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
+func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar, closeChar rune, count int) (startPos, endPos Position, found bool) {
+	openPos, closePos, _, ok := findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar, count)
 	if !ok {
 		return Position{}, Position{}, false
 	}
@@ -885,26 +970,29 @@ func bracketTextObjectRange(buffer Buffer, pos Position, modifier rune, openChar
 	return bracketInnerRange(buffer, openPos, closePos)
 }
 
-// blockFinder finds the block for a selection over more than one character
-// from pos, the character at pos not counted (see findBlockBefore).
-type blockFinder func(pos Position, forward bool) (openPos, closePos Position, found bool)
+// blockFinder finds the block count levels out (see outerLevels) for a
+// selection over more than one character from pos, the character at pos not
+// counted (see findBlockBefore).
+type blockFinder func(pos Position, forward bool, count int) (openPos, closePos Position, found bool)
 
 // bracketFinder is the blockFinder for one bracket type.
 func bracketFinder(buffer Buffer, openChar, closeChar rune) blockFinder {
-	return func(pos Position, forward bool) (Position, Position, bool) {
-		openPos, closePos, _, found := findBlockBefore(buffer, pos, openChar, closeChar, forward)
-		return openPos, closePos, found
+	return func(pos Position, forward bool, count int) (Position, Position, bool) {
+		openPos, closePos, ahead, found := findBlockBefore(buffer, pos, openChar, closeChar, forward)
+		return outerLevels(openPos, closePos, ahead, found, count, bracketStep(buffer, openChar, closeChar))
 	}
 }
 
 // anyBracketFinder is the blockFinder for ib/ab: the nearest block of any
 // type (see nearestBlock).
 func anyBracketFinder(buffer Buffer) blockFinder {
-	return func(pos Position, forward bool) (Position, Position, bool) {
+	return func(pos Position, forward bool, count int) (Position, Position, bool) {
 		openPos, closePos, _, _, found := nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
 			return findBlockBefore(buffer, pos, openChar, closeChar, forward)
 		})
-		return openPos, closePos, found
+		// The forward search finds blocks after pos, the others are around it.
+		ahead := positionBefore(pos, openPos)
+		return outerLevels(openPos, closePos, ahead, found, count, anyBracketStep(buffer))
 	}
 }
 
@@ -913,17 +1001,20 @@ func anyBracketFinder(buffer Buffer) blockFinder {
 // Vim's current_block in Visual mode:
 //   - the block is searched from the start of the selection, the character
 //     there not counted: on an open bracket it is the pair around that one,
-//     and with none around it the first pair after it;
+//     and with none around it the first pair after it; count levels out
+//     (see outerLevels), as v2i( from one character;
 //   - "a" takes the pair found, even when it is smaller than the selection;
 //   - "i" that doesn't make the selection bigger at either end (and is more
 //     than one character) goes out a level: the block around the character
-//     before the start, that character not counted, with no forward search.
+//     before the start, that character not counted, with no forward search
+//     and no count (as Vim; with a count above 1 the block always grows,
+//     since its level 2 opens before the selection).
 //     When that character is a close bracket, its pair is the block
 //     ("(a)b c(de)f" v3l…7l i( selects "a"), as Vim.
 //
 // An empty block, or no block, isn't found and the selection is kept.
-func selectionBlockRange(buffer Buffer, start, end Position, modifier rune, find blockFinder) (newStart, newEnd Position, found bool) {
-	openPos, closePos, found := find(start, true)
+func selectionBlockRange(buffer Buffer, start, end Position, modifier rune, count int, find blockFinder) (newStart, newEnd Position, found bool) {
+	openPos, closePos, found := find(start, true, count)
 	for found {
 		if modifier == 'a' {
 			return openPos, closePos, true
@@ -940,7 +1031,7 @@ func selectionBlockRange(buffer Buffer, start, end Position, modifier rune, find
 		if positionBefore(newStart, start) || positionBefore(end, cmpEnd) || newStart == cmpEnd {
 			return newStart, newEnd, true
 		}
-		openPos, closePos, found = find(charBefore(buffer, start), false)
+		openPos, closePos, found = find(charBefore(buffer, start), false, 1)
 	}
 	return Position{}, Position{}, false
 }
@@ -1033,10 +1124,11 @@ func applyOperatorToEmptyQuotes(editor Editor, buffer Buffer, modifier rune, ope
 	return applyOperatorToRange(editor, buffer, op, empty, empty)
 }
 
-// applyQuoteOp applies op (yank/delete/change) to the i/a quote text object for the given quote char.
-func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op operator) *EditorError {
+// applyQuoteOp applies op (yank/delete/change) to the i/a quote text object
+// for the given quote char; with a count above 1, i takes the quotes (d2i").
+func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op operator, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote)
+	startCol, endCol, found := quoteTextObjectRange(buffer, cursor.Position, modifier, quote, count)
 	if !found {
 		if openCol, closeCol, ok := quotePair(buffer, cursor.Position, quote); ok {
 			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
@@ -1049,12 +1141,13 @@ func applyQuoteOp(editor Editor, buffer Buffer, modifier rune, quote rune, op op
 		op)
 }
 
-// applyAnyQuoteOp applies op to the innermost quote pair of any type (", ', `).
-func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op operator) *EditorError {
+// applyAnyQuoteOp applies op to the quote pair of any type (", ', `) around
+// the cursor, count levels out (see anyQuotePair).
+func applyAnyQuoteOp(editor Editor, buffer Buffer, modifier rune, op operator, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
+	startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor.Position, modifier, count)
 	if !found {
-		if openCol, closeCol, ok := anyQuotePair(buffer, cursor.Position); ok {
+		if openCol, closeCol, ok := anyQuotePair(buffer, cursor.Position, count); ok {
 			return applyOperatorToEmptyQuotes(editor, buffer, modifier, openCol, closeCol, op)
 		}
 		return nil
@@ -1079,10 +1172,11 @@ func applyBracketRange(editor Editor, buffer Buffer, modifier rune, openPos, clo
 	return applyOperatorToMotion(editor, buffer, op, start, end)
 }
 
-// applyBracketOp applies op to the i/a bracket text object for the given open/close chars.
-func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op operator) *EditorError {
+// applyBracketOp applies op to the i/a bracket text object for the given
+// open/close chars, count levels out (d2i(); too few levels change nothing.
+func applyBracketOp(editor Editor, buffer Buffer, modifier rune, openChar, closeChar rune, op operator, count int) *EditorError {
 	pos := blockSearchStart(buffer, buffer.GetCursor().Position, openChar)
-	openPos, closePos, _, found := findBlock(buffer, pos, openChar, closeChar)
+	openPos, closePos, _, found := findBlock(buffer, pos, openChar, closeChar, count)
 	if !found {
 		return nil
 	}
@@ -1142,11 +1236,16 @@ func innerBlock(buffer Buffer, openPos, closePos Position) (start, end Position)
 // findNearestBracketBounds finds the block of any standard bracket type — (), [], {} — at pos
 // (see findBlock): the innermost pair that encloses pos, i.e. the one whose opening bracket is
 // closest to the cursor when scanning backward. With none, it is the pair that opens first after
-// pos. Returns the open/close positions and the bracket characters used.
-func findNearestBracketBounds(buffer Buffer, pos Position) (openPos, closePos Position, openChar, closeChar rune, found bool) {
-	return nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
-		return findBlock(buffer, pos, openChar, closeChar)
+// pos. count levels out, each level the nearest block of any type (see
+// anyBracketStep): x(a[b(c)d]e)f d2ib from c is b(c)d. Returns the open/close
+// positions.
+func findNearestBracketBounds(buffer Buffer, pos Position, count int) (openPos, closePos Position, found bool) {
+	openPos, closePos, _, _, found = nearestBlock(func(openChar, closeChar rune) (Position, Position, bool, bool) {
+		return findBlock(buffer, pos, openChar, closeChar, 1)
 	})
+	// The forward search finds blocks after pos, the others are around it.
+	ahead := positionBefore(pos, openPos)
+	return outerLevels(openPos, closePos, ahead, found, count, anyBracketStep(buffer))
 }
 
 // nearestBlock picks, from the block find gives for each standard bracket
@@ -1191,10 +1290,10 @@ func positionBefore(a, b Position) bool {
 }
 
 // applyAnyBracketOp applies op to the nearest bracket pair of any type (()/[]/{}/)
-// at the cursor (see findNearestBracketBounds). Used by the 'b' text object alias.
-func applyAnyBracketOp(editor Editor, buffer Buffer, modifier rune, op operator) *EditorError {
+// at the cursor, count levels out (see findNearestBracketBounds). Used by the 'b' text object alias.
+func applyAnyBracketOp(editor Editor, buffer Buffer, modifier rune, op operator, count int) *EditorError {
 	cursor := buffer.GetCursor()
-	openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor.Position)
+	openPos, closePos, found := findNearestBracketBounds(buffer, cursor.Position, count)
 	if !found {
 		return nil
 	}

@@ -160,7 +160,7 @@ func (m *visualMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 }
 
 // handleTextObject applies a text object (viw, vaw, vip, vap, vi"/va", vi(/va(, …) after an 'i'/'a' modifier.
-// count extends word objects over additional words (v2aw); other objects ignore it.
+// count is used as in visualTextObject.
 func (m *visualMode) handleTextObject(editor Editor, buffer Buffer, key KeyEvent, cursor Cursor, count int) *EditorError {
 	modifier := m.pendingModifier
 	m.pendingModifier = 0
@@ -182,7 +182,8 @@ type objectSelection struct {
 
 // visualTextObject finds the selection the object key (after modifier i or a)
 // gives in visual mode, from the selection anchor to cursor. count extends word
-// objects over additional words (v2aw); other objects ignore it. When the object
+// objects over additional words (v2aw), takes block objects count levels out
+// (v2i() and makes i" take the quotes (v2i"); ip/ap ignore it. When the object
 // isn't found the selection is unchanged, except for word objects, which, as in
 // Vim, move as far as the search went (v9aw).
 func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, cursor Position, count int) objectSelection {
@@ -215,7 +216,7 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		sel.linewise = true
 		return set(start, Position{Row: endRow, Col: 0}, true)
 	case '"', '\'', '`': // i" / a", i' / a', i` / a` — inside/around quotes
-		startCol, endCol, found := quoteTextObjectRange(buffer, cursor, modifier, key)
+		startCol, endCol, found := quoteTextObjectRange(buffer, cursor, modifier, key, count)
 		if !found && modifier == 'i' {
 			if openCol, closeCol, ok := quotePair(buffer, cursor, key); ok && closeCol == openCol+1 {
 				// As Vim, i" on empty quotes selects both quotes, from
@@ -225,9 +226,9 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		}
 		return set(Position{Row: cursor.Row, Col: startCol}, Position{Row: cursor.Row, Col: endCol}, found)
 	case 'q': // iq / aq — inside/around any quote
-		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor, modifier)
+		startCol, endCol, found := anyQuoteTextObjectRange(buffer, cursor, modifier, count)
 		if !found && modifier == 'i' {
-			if openCol, closeCol, ok := anyQuotePair(buffer, cursor); ok && closeCol == openCol+1 {
+			if openCol, closeCol, ok := anyQuotePair(buffer, cursor, count); ok && closeCol == openCol+1 {
 				startCol, endCol, found = closeCol, openCol, true // empty quotes, as i"
 			}
 		}
@@ -235,9 +236,9 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 	case 'b': // ib / ab — inside/around the nearest bracket of any type (()/[]/{})
 		if anchor != cursor {
 			start, end := NormalizeSelection(anchor, cursor)
-			return set(selectionBlockRange(buffer, start, end, modifier, anyBracketFinder(buffer)))
+			return set(selectionBlockRange(buffer, start, end, modifier, count, anyBracketFinder(buffer)))
 		}
-		openPos, closePos, _, _, found := findNearestBracketBounds(buffer, cursor)
+		openPos, closePos, found := findNearestBracketBounds(buffer, cursor, count)
 		if found && modifier == 'i' {
 			openPos, closePos, found = bracketInnerRange(buffer, openPos, closePos)
 		}
@@ -260,9 +261,9 @@ func visualTextObject(editor Editor, buffer Buffer, modifier, key rune, anchor, 
 		// As Vim, a selection over more than one character is searched
 		// from its start and may grow out a level (see selectionBlockRange).
 		start, end := NormalizeSelection(anchor, cursor)
-		return set(selectionBlockRange(buffer, start, end, modifier, bracketFinder(buffer, openChar, closeChar)))
+		return set(selectionBlockRange(buffer, start, end, modifier, count, bracketFinder(buffer, openChar, closeChar)))
 	}
-	start, end, found := bracketTextObjectRange(buffer, cursor, modifier, openChar, closeChar)
+	start, end, found := bracketTextObjectRange(buffer, cursor, modifier, openChar, closeChar, count)
 	return set(start, end, found)
 }
 
