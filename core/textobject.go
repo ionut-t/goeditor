@@ -587,34 +587,87 @@ func changeParagraphTextObject(editor Editor, buffer Buffer, modifier rune) *Edi
 	return nil
 }
 
-// quotePair finds the quote pair surrounding or nearest to pos on the same line.
-// It collects all positions of quote, pairs them up ([0,1], [2,3], …), and returns the first
-// pair whose closing quote is at or after pos.Col. This matches Vim's behaviour: if the cursor
-// is inside a pair or to the left of a pair, that pair is selected.
+// quoteEscape is the character that escapes a quote inside a quoted string,
+// Vim's default 'quoteescape' ("a\"b" is one string).
+const quoteEscape = '\\'
+
+// quotePair finds the quote pair of i" (a", i', …) for pos, as Vim's
+// current_quote (:h i"):
+//   - on a quote, the quotes are paired from the start of the line, and the
+//     pair that holds pos is taken (a"z"b x"y" on the third quote: "z");
+//   - off a quote, the nearest quote before pos opens the string and the next
+//     one after it closes it, so between two strings the text between them
+//     is the string (from b: "b x");
+//   - with no quote before pos, the first quote after it opens the string.
+//
+// A quote after quoteEscape never closes a string, and is skipped by the
+// search back; as in Vim, it can still open one when searching forward.
 func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, found bool) {
-	lineRunes := buffer.GetLineRunes(pos.Row)
-
-	var positions []int
-	for i, r := range lineRunes {
-		if r == quote {
-			positions = append(positions, i)
-		}
-	}
-
-	if len(positions) < 2 {
+	line := buffer.GetLineRunes(pos.Row)
+	col := pos.Col
+	if col < 0 || col >= len(line) {
 		return 0, 0, false
 	}
-
-	col := pos.Col
-	for i := 0; i+1 < len(positions); i += 2 {
-		open := positions[i]
-		close := positions[i+1]
-		if close < col {
-			continue // cursor is past this pair; try the next one
+	if line[col] == quote {
+		for open := nextQuote(line, 0, quote, false); open >= 0 && open <= col; {
+			close := nextQuote(line, open+1, quote, true)
+			if close < 0 {
+				return 0, 0, false
+			}
+			if col <= close {
+				return open, close, true
+			}
+			open = nextQuote(line, close+1, quote, false)
 		}
-		return open, close, true
+		return 0, 0, false
 	}
-	return 0, 0, false
+	open := prevQuote(line, col, quote)
+	if open < 0 {
+		// As Vim, from the line start: no quote before pos but an escaped
+		// one (\"a b"c from a: \" opens the string).
+		if open = nextQuote(line, 0, quote, false); open < 0 {
+			return 0, 0, false
+		}
+	}
+	close := nextQuote(line, open+1, quote, true)
+	if close < 0 {
+		return 0, 0, false
+	}
+	return open, close, true
+}
+
+// nextQuote returns the column of the first quote at or after col, or -1.
+// With escape, a character after quoteEscape is skipped (Vim's
+// find_next_quote).
+func nextQuote(line []rune, col int, quote rune, escape bool) int {
+	for ; col < len(line); col++ {
+		switch {
+		case escape && line[col] == quoteEscape:
+			col++ // skip the escaped character
+		case line[col] == quote:
+			return col
+		}
+	}
+	return -1
+}
+
+// prevQuote returns the column of the nearest quote before col that isn't
+// escaped (after an odd number of quoteEscape), or -1 (Vim's
+// find_prev_quote).
+func prevQuote(line []rune, col int, quote rune) int {
+	for col > 0 {
+		col--
+		n := 0
+		for col-n > 0 && line[col-n-1] == quoteEscape {
+			n++
+		}
+		if n%2 == 1 {
+			col -= n // escaped: skip it and its escapes
+		} else if line[col] == quote {
+			return col
+		}
+	}
+	return -1
 }
 
 // anyQuotePair returns the pair of iq/aq: of the quote pairs of any type

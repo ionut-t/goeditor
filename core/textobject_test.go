@@ -198,6 +198,140 @@ func TestVisualAroundQuoteWhiteSpace(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// quotePair: which quotes off a quote, and escapes
+// ---------------------------------------------------------------------------
+
+// TestQuotePair checks the pair Vim's current_quote picks for i" (open-bugs
+// 54): on a quote, quotes pair from the start of the line; off a quote, the
+// nearest quote before the cursor opens the string and the next one closes
+// it; with none before, the first two after. A quote after a backslash
+// (Vim's default 'quoteescape') doesn't close a string. All results checked
+// against Vim 9.2.
+func TestQuotePair(t *testing.T) {
+	tests := []struct {
+		name        string
+		line        string
+		col         int
+		quote       rune
+		open, close int
+		found       bool
+	}{
+		{"between two strings", `a"z"b x"y"`, 4, '"', 3, 7, true},
+		{"between two strings, single quote", `a'z'b x'y'`, 4, '\'', 3, 7, true},
+		{"between two strings, backtick", "a`z`b x`y`", 4, '`', 3, 7, true},
+		{"inside the first string", `a"z"b x"y"`, 2, '"', 1, 3, true},
+		{"on the opening quote", `a"z"b x"y"`, 1, '"', 1, 3, true},
+		{"on a closing quote: paired from the line start", `a"z"b x"y"`, 3, '"', 1, 3, true},
+		{"on the second string's opening quote", `a"z"b x"y"`, 7, '"', 7, 9, true},
+		{"before the first quote", `ab "x" cd`, 0, '"', 3, 5, true},
+		{"after the last quote", `"x" ab`, 5, '"', 0, 0, false},
+		{"odd quotes, between the second and third", `a"b"c"d`, 4, '"', 3, 5, true},
+		{"odd quotes, after the last", `a"b"c"d`, 6, '"', 0, 0, false},
+		{"odd quotes, on the unpaired last quote", `a"b"c"d`, 5, '"', 0, 0, false},
+		{"no quotes", `no quotes`, 3, '"', 0, 0, false},
+		{"escaped quote doesn't close", `"a\"b" c`, 1, '"', 0, 5, true},
+		{"escaped quote skipped searching back", `"a\"b" c`, 4, '"', 0, 5, true},
+		{"on an escaped quote: paired from the line start", `"a\"b" c`, 3, '"', 0, 5, true},
+		{"escaped quote between two strings", `x "a" \" b "c"`, 8, '"', 4, 11, true},
+		{"escaped quote opens searching forward", `x \"a" b`, 0, '"', 3, 5, true},
+		{"escaped quote before the cursor opens from the line start", `\"ab`, 2, '"', 0, 0, false},
+		{"escaped backslash: the quote closes", `"a\\"b" c`, 1, '"', 0, 4, true},
+		{"backslash at the line end", `x "a\`, 3, '"', 0, 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBufferFromBytes([]byte(tt.line))
+			open, close, found := quotePair(b, Position{0, tt.col}, tt.quote)
+			assert.Equal(t, tt.found, found)
+			if tt.found {
+				assert.Equal(t, [2]int{tt.open, tt.close}, [2]int{open, close})
+			}
+		})
+	}
+}
+
+// TestQuoteObjectBetweenStrings runs the operators, visual mode, counts and
+// . on quote objects with the cursor off a quote (open-bugs 54). Results
+// from Vim 9.2.
+func TestQuoteObjectBetweenStrings(t *testing.T) {
+	tests := []struct {
+		content, keys string
+		want          string
+		cursor        Position
+		clipboard     string // "" when the keys don't yank
+	}{
+		{`a"z"b x"y"`, `4ldi"`, `a"z""y"`, Position{0, 4}, ""},
+		{`a"z"b x"y"`, `4lda"`, `a"zy"`, Position{0, 3}, ""},
+		{`a"z"b x"y"`, `4lyi"`, `a"z"b x"y"`, Position{0, 4}, "b x"},
+		{`a"z"b x"y"`, `4lya"`, `a"z"b x"y"`, Position{0, 3}, `"b x"`},
+		{`a"z"b x"y"`, `4lci"X<Esc>`, `a"z"X"y"`, Position{0, 4}, ""},
+		{`a"z"b x"y"`, `4lca"X<Esc>`, `a"zXy"`, Position{0, 3}, ""},
+		{`a"z"b x"y"`, `4lgUi"`, `a"z"B X"y"`, Position{0, 4}, ""},
+		{`a"z"b x"y"`, `4lgUa"`, `a"z"B X"y"`, Position{0, 3}, ""},
+		{`a"z"b x"y"`, `4l2di"`, `a"zy"`, Position{0, 3}, ""},
+		{`a"z"b x"y"`, `4l2yi"`, `a"z"b x"y"`, Position{0, 3}, `"b x"`},
+		{`a'z'b x'y'`, `4ldi'`, `a'z''y'`, Position{0, 4}, ""},
+		{"a`z`b x`y`", "4lda`", "a`zy`", Position{0, 3}, ""},
+		{`a"b"c"d`, `4ldi"`, `a"b""d`, Position{0, 4}, ""},
+		{`a"b"c"d"e`, `4lda"`, `a"bd"e`, Position{0, 3}, ""},
+		{`a"b"c"d`, `6ldi"`, `a"b"c"d`, Position{0, 6}, ""},
+		{`a"" b ""c`, `4ldi"`, `a""""c`, Position{0, 3}, ""},
+		// a" takes the white space after the closing quote, else before the
+		// opening one, of the string found between the two.
+		{`a "z"  b  "y" c`, `7lda"`, `a "zy" c`, Position{0, 4}, ""},
+		{`"z" b " y"`, `4lda"`, `"zy"`, Position{0, 2}, ""},
+		// Escaped quotes.
+		{`"a\"b" c`, `4ldi"`, `"" c`, Position{0, 1}, ""},
+		{`x "a\" b" "c"`, `6ldi"`, `x "" "c"`, Position{0, 3}, ""},
+		{`x "a" \" b "c"`, `8ldi"`, `x "a""c"`, Position{0, 5}, ""},
+		// . finds the pair again at the new cursor.
+		{`a"z"b x"y"c"w"d`, `4ldi"3l.`, `a"z""y""w"d`, Position{0, 7}, ""},
+		{`x "a" y "b" z "c" w`, `6l2di"4l.`, `x "abc" w`, Position{0, 5}, ""},
+		{`a"z"b x"y"c"w"d e`, `4lci"Q<Esc>4l.`, `a"z"Q"y"Q"w"d e`, Position{0, 8}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.Equal(t, tt.cursor.Col, e.GetBuffer().GetCursor().Preferred, "preferred column")
+			assert.Equal(t, NormalMode, e.GetMode().Name())
+			if tt.clipboard != "" {
+				assert.Equal(t, tt.clipboard, cb.content)
+			}
+		})
+	}
+}
+
+// TestVisualQuoteObjectBetweenStrings: v and V from one character select the
+// quote object off a quote as i" does; V switches to v.
+func TestVisualQuoteObjectBetweenStrings(t *testing.T) {
+	tests := []struct {
+		content, keys  string
+		anchor, cursor Position
+	}{
+		{`a"z"b x"y"`, `4lvi"`, Position{0, 4}, Position{0, 6}},
+		{`a"z"b x"y"`, `4lva"`, Position{0, 3}, Position{0, 7}},
+		{`a"z"b x"y"`, `4lVi"`, Position{0, 4}, Position{0, 6}},
+		{`a"z"b x"y"`, `4lVa"`, Position{0, 3}, Position{0, 7}},
+		{`a"z"b x"y"`, `4lv2i"`, Position{0, 3}, Position{0, 7}},
+		{`x "a" y "b" z`, `6lva"`, Position{0, 4}, Position{0, 8}},
+		{`a"b"c"d"e`, `4lva"`, Position{0, 3}, Position{0, 5}},
+		{`"z" b " y"`, `4lva"`, Position{0, 2}, Position{0, 7}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys+" on "+tt.content, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, VisualMode, e.GetMode().Name())
+			assert.Equal(t, tt.anchor, e.GetState().VisualStart)
+			assert.Equal(t, tt.cursor, cursorPos(e))
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // anyQuoteTextObjectRange
 // ---------------------------------------------------------------------------
 
