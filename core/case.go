@@ -342,7 +342,8 @@ func applyCaseToVisualSelection(editor Editor, buffer Buffer, op rune, startPos,
 // applyCaseToTextObject applies a case transform to the text object at the cursor.
 // modifier is 'i' (inner) or 'a' (around); objectKey selects the object type
 // (w, W, ", ', `, q, (, ), b, [, ], {, }, B, <, >). count extends word
-// objects over additional words (gU2aw); other objects ignore it.
+// objects over additional words (gU2aw), takes block objects count levels
+// out (gU2i() and makes i" take the quotes (gU2i").
 // The cursor is moved to the start of the affected range, matching Vim behaviour.
 func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey rune, count int) *EditorError {
 	cursor := buffer.GetCursor()
@@ -358,7 +359,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 		return applyCaseToWordObject(editor, buffer, op, modifier == 'a', count, cls)
 
 	case '"', '\'', '`':
-		startCol, endCol, ok := quoteTextObjectRange(buffer, cursor.Position, modifier, objectKey)
+		startCol, endCol, ok := quoteTextObjectRange(buffer, cursor.Position, modifier, objectKey, count)
 		if !ok {
 			return nil
 		}
@@ -367,7 +368,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 		found = true
 
 	case 'q':
-		startCol, endCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, modifier)
+		startCol, endCol, ok := anyQuoteTextObjectRange(buffer, cursor.Position, modifier, count)
 		if !ok {
 			return nil
 		}
@@ -376,7 +377,7 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 		found = true
 
 	case '(', ')', 'b', '[', ']', '{', '}', 'B', '<', '>':
-		openPos, closePos, ok := caseBlockBounds(buffer, cursor.Position, objectKey)
+		openPos, closePos, ok := caseBlockBounds(buffer, cursor.Position, objectKey, count)
 		if !ok {
 			return nil
 		}
@@ -413,14 +414,13 @@ func applyCaseToTextObject(editor Editor, buffer Buffer, op, modifier, objectKey
 }
 
 // caseBlockBounds returns the bracket pair of the block object objectKey
-// (one of ( ) b [ ] { } B < >) at pos; see findBlock. b is the nearest pair
-// of any of ( [ {. Any other key finds no block.
-func caseBlockBounds(buffer Buffer, pos Position, objectKey rune) (openPos, closePos Position, found bool) {
+// (one of ( ) b [ ] { } B < >) at pos, count levels out; see findBlock. b
+// is the nearest pair of any of ( [ {. Any other key finds no block.
+func caseBlockBounds(buffer Buffer, pos Position, objectKey rune, count int) (openPos, closePos Position, found bool) {
 	var openChar, closeChar rune
 	switch objectKey {
 	case 'b':
-		openPos, closePos, _, _, found = findNearestBracketBounds(buffer, pos)
-		return openPos, closePos, found
+		return findNearestBracketBounds(buffer, pos, count)
 	case '(', ')':
 		openChar, closeChar = '(', ')'
 	case '[', ']':
@@ -432,7 +432,7 @@ func caseBlockBounds(buffer Buffer, pos Position, objectKey rune) (openPos, clos
 	default:
 		return Position{}, Position{}, false
 	}
-	openPos, closePos, _, found = findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar)
+	openPos, closePos, _, found = findBlock(buffer, blockSearchStart(buffer, pos, openChar), openChar, closeChar, count)
 	return openPos, closePos, found
 }
 

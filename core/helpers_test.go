@@ -73,3 +73,38 @@ func escape(e Editor)    { _ = e.HandleKey(KeyEvent{Key: KeyEscape}) }
 func backspace(e Editor) { _ = e.HandleKey(KeyEvent{Key: KeyBackspace}) }
 func enter(e Editor)     { _ = e.HandleKey(KeyEvent{Key: KeyEnter}) }
 func tab(e Editor)       { _ = e.HandleKey(KeyEvent{Key: KeyTab}) }
+
+// countedObjectCase is keys typed on content and what they leave: the text,
+// the mode ("n", "i", "v" or "V"), the cursor and, in visual modes, the
+// anchor. reg is checked unless it is anyReg. The clipboard starts as "REG".
+type countedObjectCase struct {
+	content, keys string
+	text          string
+	mode          string
+	cursor        Position
+	anchor        Position // visual modes only
+	reg           string
+}
+
+func runCountedObjectCases(t *testing.T, tests []countedObjectCase) {
+	t.Helper()
+	modes := map[Mode]string{NormalMode: "n", InsertMode: "i", VisualMode: "v", VisualLineMode: "V"}
+	for _, tt := range tests {
+		t.Run(tt.content+" "+tt.keys, func(t *testing.T) {
+			e, cb := newTestEditorWithClipboard(tt.content)
+			cb.content = "REG"
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.text, content(e), "text")
+			mode := modes[e.GetMode().Name()]
+			assert.Equal(t, tt.mode, mode, "mode")
+			assert.Equal(t, tt.cursor, cursorPos(e), "cursor")
+			assert.Equal(t, tt.cursor.Col, e.GetBuffer().GetCursor().Preferred, "preferred column")
+			if mode == "v" || mode == "V" {
+				assert.Equal(t, tt.anchor, e.GetState().VisualStart, "anchor")
+			}
+			if tt.reg != anyReg {
+				assert.Equal(t, tt.reg, cb.content, "register")
+			}
+		})
+	}
+}
