@@ -609,17 +609,7 @@ func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, 
 		return 0, 0, false
 	}
 	if line[col] == quote {
-		for open := nextQuote(line, 0, quote, false); open >= 0 && open <= col; {
-			close := nextQuote(line, open+1, quote, true)
-			if close < 0 {
-				return 0, 0, false
-			}
-			if col <= close {
-				return open, close, true
-			}
-			open = nextQuote(line, close+1, quote, false)
-		}
-		return 0, 0, false
+		return pairHolding(line, col, quote)
 	}
 	open := prevQuote(line, col, quote, true)
 	if open < 0 {
@@ -634,6 +624,23 @@ func quotePair(buffer Buffer, pos Position, quote rune) (openCol, closeCol int, 
 		return 0, 0, false
 	}
 	return open, close, true
+}
+
+// pairHolding pairs the quotes of line from its start and returns the pair
+// that holds col, quotes included; as Vim, this is how a quote is told to be
+// an opening or a closing one. A quote after quoteEscape never closes a pair.
+func pairHolding(line []rune, col int, quote rune) (openCol, closeCol int, found bool) {
+	for open := nextQuote(line, 0, quote, false); open >= 0 && open <= col; {
+		close := nextQuote(line, open+1, quote, true)
+		if close < 0 {
+			return 0, 0, false
+		}
+		if col <= close {
+			return open, close, true
+		}
+		open = nextQuote(line, close+1, quote, false)
+	}
+	return 0, 0, false
 }
 
 // nextQuote returns the column of the first quote at or after col, or -1.
@@ -770,7 +777,11 @@ func selectionQuoteRange(buffer Buffer, anchor, cursor Position, quote rune, inc
 		return anchor, cursor, false
 	}
 	line := buffer.GetLineRunes(cursor.Row)
-	at := func(col int) rune {
+	// runeAt reads past either end of the line as 0, as Vim reads the NUL
+	// there: the cursor may be one past the end in Visual mode (vl on the
+	// last character), and the checks below look at the characters around
+	// the selection, before column 0 and after the end included.
+	runeAt := func(col int) rune {
 		if col >= 0 && col < len(line) {
 			return line[col]
 		}
@@ -784,12 +795,12 @@ func selectionQuoteRange(buffer Buffer, anchor, cursor Position, quote rune, inc
 	va, vc := anchor.Col, cursor.Col
 	forward := va < vc
 	lo, hi := min(va, vc), max(va, vc)
-	inside := lo > 0 && at(lo-1) == quote && at(hi) != 0 && at(hi+1) == quote
+	inside := lo > 0 && runeAt(lo-1) == quote && runeAt(hi) != 0 && runeAt(hi+1) == quote
 	selectedQuote := slices.Contains(line[min(lo, len(line)):min(hi+1, len(line))], quote)
 
 	var start, end int
 	switch {
-	case at(vc) == quote && forward:
+	case runeAt(vc) == quote && forward:
 		// Take the cursor's quote as a closing one: the next string.
 		if start = next(vc+1, false); start < 0 {
 			return anchor, cursor, false
@@ -797,34 +808,29 @@ func selectionQuoteRange(buffer Buffer, anchor, cursor Position, quote rune, inc
 		if end = next(start+1, true); end < 0 {
 			start, end = vc, start // it was an opening quote
 		}
-	case at(vc) == quote:
-		if end = prev(vc, false); at(end) != quote {
+	case runeAt(vc) == quote:
+		if end = prev(vc, false); runeAt(end) != quote {
 			return anchor, cursor, false
 		}
-		if start = prev(end, true); at(start) != quote {
+		if start = prev(end, true); runeAt(start) != quote {
 			start, end = end, vc // it was a closing quote
 		}
 	default:
+		// The string holding the first quote after the cursor (backwards:
+		// before it); none after it (-1) isn't found.
 		first := prev(vc, false)
 		if forward {
 			first = next(vc, false)
 		}
-		for start = 0; ; start = end + 1 {
-			if start = next(start, false); start < 0 || start > first {
-				return anchor, cursor, false
-			}
-			if end = next(start+1, true); end < 0 {
-				return anchor, cursor, false
-			}
-			if first <= end {
-				break
-			}
+		var ok bool
+		if start, end, ok = pairHolding(line, first, quote); !ok {
+			return anchor, cursor, false
 		}
 	}
 
 	if include {
-		if isWhiteSpace(at(end + 1)) {
-			for isWhiteSpace(at(end + 1)) {
+		if isWhiteSpace(runeAt(end + 1)) {
+			for isWhiteSpace(runeAt(end + 1)) {
 				end++
 			}
 		} else {
@@ -838,12 +844,12 @@ func selectionQuoteRange(buffer Buffer, anchor, cursor Position, quote rune, inc
 
 	row := cursor.Row
 	if forward {
-		if !selectedQuote && (inside || at(va) != quote && at(va-1) != quote) {
+		if !selectedQuote && (inside || runeAt(va) != quote && runeAt(va-1) != quote) {
 			va = start
 		}
 		return Position{Row: row, Col: va}, Position{Row: row, Col: end}, true
 	}
-	if inside || !selectedQuote && at(va) != quote && at(va+1) != quote {
+	if inside || !selectedQuote && runeAt(va) != quote && runeAt(va+1) != quote {
 		va = end
 	}
 	return Position{Row: row, Col: va}, Position{Row: row, Col: start}, true
