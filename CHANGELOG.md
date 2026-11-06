@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.0](https://github.com/ionut-t/goeditor/compare/v0.18.0...v0.19.0) (2026-11-06)
+
+
+### Features
+
+* **textobject:** add count support for bracket and quote text objects ([#134](https://github.com/ionut-t/goeditor/issues/134)) ([b2832a5](https://github.com/ionut-t/goeditor/commit/b2832a5bab9e75f9c4a6b231dd5db6a89a9e1e6b))
+* **textobject:** follow Vim for quote objects on a selection ([#137](https://github.com/ionut-t/goeditor/issues/137)) ([fdb2558](https://github.com/ionut-t/goeditor/commit/fdb2558f591c71b285d01a872c3bf6111ae86776))
+* **visual:** add gu, gU and g~ on a selection ([#139](https://github.com/ionut-t/goeditor/issues/139)) ([ae9a1ae](https://github.com/ionut-t/goeditor/commit/ae9a1aef29f5b5f9d9d8a1cea177cdd400c19111))
+
+
+### Bug Fixes
+
+* **search:** drop the search highlight once an edit changes the match ([#138](https://github.com/ionut-t/goeditor/issues/138)) ([73d37c2](https://github.com/ionut-t/goeditor/commit/73d37c2638cba546b8005ac87fe9ee6772ccacda))
+* **textobject:** implement Vim's 'current_quote' behaviour for quote pairs ([#136](https://github.com/ionut-t/goeditor/issues/136)) ([7afe1c8](https://github.com/ionut-t/goeditor/commit/7afe1c8d7ecd81a595ed756f7d15e8540ee71431))
+
 ## [0.18.0](https://github.com/ionut-t/goeditor/compare/v0.17.0...v0.18.0) (2026-11-04)
 
 
