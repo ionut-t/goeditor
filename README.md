@@ -2,6 +2,8 @@
 
 A feature-rich, Vim-inspired text editor library for Go, built on [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
+![goeditor demo](assets/demo.gif)
+
 ## Features
 
 - **Multiple editing modes**: Normal, Insert, Visual, Visual Line, and Command modes
