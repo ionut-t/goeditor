@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/ionut-t/goeditor/core"
 	"github.com/ionut-t/goeditor/highlighter"
 	"github.com/rivo/uniseg"
 	"github.com/stretchr/testify/assert"
@@ -589,4 +590,22 @@ func TestCalculateLineNumberWidth(t *testing.T) {
 
 	m.HideLineNumbers(true)
 	assert.Equal(t, 0, m.calculateLineNumberWidth(9))
+}
+
+// TestSearchHighlightSpan checks that the search highlight covers the match's
+// characters, not its bytes, and goes once an edit changes the match (bug 58).
+func TestSearchHighlightSpan(t *testing.T) {
+	m := New(40, 10)
+	m.editor.SetContent([]byte("x ćeć y"))
+	m.editor.ExecuteSearch("ćeć", core.SearchOptions{Wrap: true})
+	var cols []int
+	for col := range 7 {
+		if m.isPositionInSearchResult(core.Position{Row: 0, Col: col}, col) {
+			cols = append(cols, col)
+		}
+	}
+	assert.Equal(t, []int{2, 3, 4}, cols)
+
+	require.Nil(t, m.editor.GetBuffer().DeleteRunesAt(0, 3, 1))
+	assert.False(t, m.isPositionInSearchResult(core.Position{Row: 0, Col: 2}, 2))
 }

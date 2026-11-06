@@ -129,6 +129,30 @@ func matchRunesAt(line, pattern []rune, col int, ignoreCase bool) bool {
 }
 
 // needsBoundaryCheck reports whether any word-boundary option is active.
+// foldPattern returns pattern's runes as Find compares them (case-folded when the
+// search ignores case) and whether it ignores case. Smartcase: with IgnoreCase on,
+// a pattern containing an uppercase letter is case-sensitive.
+func foldPattern(pattern string, options SearchOptions) ([]rune, bool) {
+	ignoreCase := options.IgnoreCase && (!options.SmartCase || !strings.ContainsFunc(pattern, isSmartCaseUpper))
+	runes := []rune(pattern)
+	if ignoreCase {
+		for i, r := range runes {
+			runes[i] = foldRune(r)
+		}
+	}
+	return runes, ignoreCase
+}
+
+// matchesAt reports whether Find would find pattern at rune column col of lineRunes.
+func matchesAt(lineRunes []rune, pattern string, col int, options SearchOptions) bool {
+	if pattern == "" {
+		return false
+	}
+	searchRunes, ignoreCase := foldPattern(pattern, options)
+	return matchRunesAt(lineRunes, searchRunes, col, ignoreCase) &&
+		(!needsBoundaryCheck(options) || checkWordBoundaries(lineRunes, col, len(searchRunes), options))
+}
+
 func needsBoundaryCheck(opts SearchOptions) bool {
 	return opts.WholeWord || opts.WordBoundaryStart || opts.WordBoundaryEnd
 }
@@ -428,15 +452,7 @@ func (b *textBuffer) Find(pattern string, start Position, options SearchOptions)
 		return Position{}, false
 	}
 
-	// Smartcase: with IgnoreCase on, a pattern containing an uppercase letter is case-sensitive.
-	ignoreCase := options.IgnoreCase && (!options.SmartCase || !strings.ContainsFunc(pattern, isSmartCaseUpper))
-
-	searchRunes := []rune(pattern)
-	if ignoreCase {
-		for i, r := range searchRunes {
-			searchRunes[i] = foldRune(r)
-		}
-	}
+	searchRunes, ignoreCase := foldPattern(pattern, options)
 
 	numLines := b.LineCount()
 
