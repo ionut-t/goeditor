@@ -487,6 +487,42 @@ func TestVisualCaseOp(t *testing.T) {
 	})
 }
 
+// TestVisualCaseGOp checks gu, gU and g~ after v and V against Vim 9.2
+// (open-bugs 59): they are u, U and ~ on the selection, a count before them
+// is ignored, and the key after them is a normal-mode command. Vim got all
+// the keys in one feedkeys.
+func TestVisualCaseGOp(t *testing.T) {
+	const text = "abc def\nGhi jkl\nmno pqr"
+	tests := []struct {
+		keys string
+		want string
+		pos  Position
+	}{
+		{"vegU", "ABC def\nGhi jkl\nmno pqr", Position{0, 0}},
+		{"vegu", "abc def\nGhi jkl\nmno pqr", Position{0, 0}},
+		{"veg~", "ABC def\nGhi jkl\nmno pqr", Position{0, 0}},
+		{"VjgU", "ABC DEF\nGHI JKL\nmno pqr", Position{0, 0}},
+		{"vegUw", "ABC def\nGhi jkl\nmno pqr", Position{0, 4}},
+		{"vegUj", "ABC def\nGhi jkl\nmno pqr", Position{1, 0}},
+		{"vegUjj.", "ABC def\nGhi jkl\nMNO pqr", Position{2, 0}},
+		{"wvegUj.", "abc DEF\nGhi JKL\nmno pqr", Position{1, 4}},
+		{"wVgUj.", "ABC DEF\nGHI JKL\nmno pqr", Position{1, 0}},
+		{"veg~w.", "ABC DEF\nGhi jkl\nmno pqr", Position{0, 4}},
+		{"2vegU", "ABC def\nGhi jkl\nmno pqr", Position{0, 0}},
+		{"v3gU", "Abc def\nGhi jkl\nmno pqr", Position{0, 0}},
+		{"lvlgUu", text, Position{0, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e := newTestEditor(text)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.want, content(e))
+			assert.Equal(t, tt.pos, cursorPos(e))
+			assert.True(t, e.IsNormalMode())
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Visual line mode: u / U / ~ on line selection
 // ---------------------------------------------------------------------------

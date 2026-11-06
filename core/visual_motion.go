@@ -14,7 +14,8 @@ func handleVisualPrefix(prefix rune, editor Editor, buffer Buffer, key KeyEvent)
 }
 
 // handleVisualGKey handles the second key of a 'g' prefix in any visual mode
-// (gg / ge / gx). [count]gg goes to line count, as in normal mode.
+// (gg / ge / gx; gJ, gu, gU and g~ are run by each mode). [count]gg goes to
+// line count, as in normal mode.
 func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
 	count := takeCount(editor)
 	editor.UpdateCommand("")

@@ -107,10 +107,17 @@ func (m *visualLineMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *
 	}
 
 	if prefix := m.pending.take(); prefix != 0 {
-		if prefix == 'g' && key.Rune == 'J' && key.Modifiers&ModCtrl == 0 {
-			takeCount(editor) // ignored, as by J
-			editor.UpdateCommand("")
-			return m.join(editor, buffer, false)
+		if prefix == 'g' && key.Modifiers&ModCtrl == 0 {
+			switch key.Rune {
+			case 'J':
+				takeCount(editor) // ignored, as by J
+				editor.UpdateCommand("")
+				return m.join(editor, buffer, false)
+			case 'u', 'U', '~': // gu/gU/g~ on a selection are u/U/~, count ignored
+				editor.UpdateCommand("")
+				_, err := m.handleAction(editor, buffer, key, takeCount(editor))
+				return err
+			}
 		}
 		handleVisualPrefix(prefix, editor, buffer, key)
 		return nil
