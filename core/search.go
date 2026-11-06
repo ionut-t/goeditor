@@ -1,6 +1,9 @@
 package core
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	e.state.SearchQuery.Pattern = pattern
@@ -112,8 +115,32 @@ func (e *editor) repeatSearch(flip bool) Cursor {
 	return e.buffer.GetCursor()
 }
 
+// SearchResults returns the positions of the last search's matches that the
+// pattern still matches: an edit since the search drops the ones it changed
+// (Vim's 'hlsearch' re-matches on every redraw), while n and N still search for
+// the pattern.
 func (e *editor) SearchResults() []Position {
-	return e.state.SearchResults
+	results := e.state.SearchResults
+	for i, pos := range results {
+		if !e.searchMatchesAt(pos) {
+			kept := slices.Clone(results[:i])
+			for _, p := range results[i+1:] {
+				if e.searchMatchesAt(p) {
+					kept = append(kept, p)
+				}
+			}
+			return kept
+		}
+	}
+	return results
+}
+
+// searchMatchesAt reports whether the last search's term still matches at pos.
+func (e *editor) searchMatchesAt(pos Position) bool {
+	if pos.Row < 0 || pos.Row >= e.buffer.LineCount() {
+		return false
+	}
+	return matchesAt(e.buffer.GetLineRunes(pos.Row), e.state.SearchQuery.Term, pos.Col, e.state.SearchOptions)
 }
 
 // SearchWordUnderCursor implements vim's * (forward) and # (backward):

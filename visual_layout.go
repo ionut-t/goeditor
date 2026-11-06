@@ -176,7 +176,7 @@ func (m *Model) isPositionInSearchResult(pos core.Position, col int) bool {
 		return false
 	}
 
-	termLen := len(searchTerm)
+	termLen := utf8.RuneCountInString(searchTerm)
 
 	// Binary search to find the first result with row >= pos.Row
 	left, right := 0, len(results)

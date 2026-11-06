@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // defaultSearch executes a forward, non-wrapping search with no case options.
@@ -753,5 +754,74 @@ func TestSearchWordUnderCursor(t *testing.T) {
 		assert.Equal(t, Position{0, 11}, cursorPos(e))
 		e.NextSearchResult() // n → col 19
 		assert.Equal(t, Position{0, 19}, cursorPos(e))
+	})
+}
+
+// TestSearchResultsFollowEdits checks that SearchResults drops a match an edit
+// changed (bug 58): the highlight is painted from these positions.
+func TestSearchResultsFollowEdits(t *testing.T) {
+	t.Run("changing the match drops it", func(t *testing.T) {
+		e := newTestEditor("the sensors read\nsensors")
+		wrapSearch(e, "sensors")
+		require.Equal(t, []Position{{0, 4}}, e.SearchResults())
+		typeKeys(t, e, "ciwdetectors<Esc>")
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("an edit before the match on its line drops it", func(t *testing.T) {
+		e := newTestEditor("the sensors read")
+		wrapSearch(e, "sensors")
+		typeKeys(t, e, "0x")
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("lines put above move the line away from the match", func(t *testing.T) {
+		e, _ := newTestEditorWithClipboard("abc\nthe sensors")
+		wrapSearch(e, "sensors")
+		require.Equal(t, []Position{{1, 4}}, e.SearchResults())
+		typeKeys(t, e, "kyyP")
+		require.Equal(t, "abc\nabc\nthe sensors", e.GetBuffer().GetCurrentContent())
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("deleting the match line past the end drops it", func(t *testing.T) {
+		e := newTestEditor("abc\nthe sensors")
+		wrapSearch(e, "sensors")
+		typeKeys(t, e, "dd")
+		assert.Empty(t, e.SearchResults())
+	})
+
+	t.Run("an edit that leaves the match keeps it", func(t *testing.T) {
+		e := newTestEditor("the sensors read")
+		wrapSearch(e, "sensors")
+		typeKeys(t, e, "$x")
+		assert.Equal(t, []Position{{0, 4}}, e.SearchResults())
+	})
+
+	t.Run("undo brings the match back", func(t *testing.T) {
+		e := newTestEditor("the sensors read")
+		wrapSearch(e, "sensors")
+		typeKeys(t, e, "xu")
+		assert.Equal(t, []Position{{0, 4}}, e.SearchResults())
+	})
+
+	t.Run("search options apply to the check", func(t *testing.T) {
+		e := newTestEditor("the Sensors read")
+		e.ExecuteSearch(`\<sensors\>\c`, SearchOptions{Wrap: true})
+		require.Equal(t, []Position{{0, 4}}, e.SearchResults())
+		typeKeys(t, e, "$x")
+		assert.Equal(t, []Position{{0, 4}}, e.SearchResults())
+		typeKeys(t, e, "0fsas<Esc>")
+		assert.Empty(t, e.SearchResults(), "the word boundary no longer holds")
+	})
+
+	t.Run("n still searches after the match is dropped", func(t *testing.T) {
+		e := newTestEditor("the sensors read\nsensors")
+		wrapSearch(e, "sensors")
+		typeKeys(t, e, "ciwdetectors<Esc>")
+		require.Empty(t, e.SearchResults())
+		typeKeys(t, e, "n")
+		assert.Equal(t, Position{1, 0}, cursorPos(e))
+		assert.Equal(t, []Position{{1, 0}}, e.SearchResults())
 	})
 }
