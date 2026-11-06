@@ -15,19 +15,18 @@ type visualOperations interface {
 func handleVisualPrefix(m visualOperations, prefix rune, editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	switch prefix {
 	case 'g':
+		count := takeCount(editor)
+		editor.UpdateCommand("")
 		if key.Modifiers&ModCtrl == 0 {
 			switch key.Rune {
 			case 'J':
-				takeCount(editor)
-				editor.UpdateCommand("")
 				return m.join(editor, buffer, false)
 			case 'u', 'U', '~':
-				editor.UpdateCommand("")
-				_, err := m.handleAction(editor, buffer, key, takeCount(editor))
+				_, err := m.handleAction(editor, buffer, key, count)
 				return err
 			}
 		}
-		handleVisualGKey(editor, buffer, key)
+		handleVisualGKey(editor, buffer, key, count)
 	case 'z':
 		handleZKey(editor, buffer, key, takeCount(editor))
 	}
@@ -36,10 +35,8 @@ func handleVisualPrefix(m visualOperations, prefix rune, editor Editor, buffer B
 
 // handleVisualGKey handles the g commands that move the cursor or leave the
 // selection alone (gg / ge / gx). [count]gg goes to line count, as in normal
-// mode.
-func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent) {
-	count := takeCount(editor)
-	editor.UpdateCommand("")
+// mode. count is 0 when none was typed.
+func handleVisualGKey(editor Editor, buffer Buffer, key KeyEvent, count int) {
 	cursor := buffer.GetCursor()
 	switch key.Rune {
 	case 'g':
