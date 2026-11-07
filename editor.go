@@ -652,6 +652,13 @@ func (m Model) SetCompletions(completions []core.Completion, context core.Comple
 	)
 }
 
+// IsCompletionMenuVisible reports whether the completion menu is open. While it
+// is, keys such as Esc, Enter and Tab act on the menu, so a host that binds
+// any of them itself can check this to leave them to the editor.
+func (m Model) IsCompletionMenuVisible() bool {
+	return m.completionMenuVisible
+}
+
 // SetCompletionMenuMaxVisibleItems sets the maximum number of visible items in the completion menu.
 func (m *Model) SetCompletionMenuMaxVisibleItems(max int) {
 	m.completionMenuMaxVisible = max
