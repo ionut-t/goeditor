@@ -427,6 +427,8 @@ type Option func(*modelConfig)
 
 type modelConfig struct {
 	clipboard core.Clipboard
+	// isDark, when set, skips asking the terminal for its background colour.
+	isDark *bool
 }
 
 func New(width, height int, opts ...Option) Model {
@@ -443,7 +445,12 @@ func New(width, height int, opts ...Option) Model {
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
 
-	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
+	var isDark bool
+	if cfg.isDark != nil {
+		isDark = *cfg.isDark
+	} else {
+		isDark = lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
+	}
 	defaultTheme := DefaultTheme(isDark)
 
 	styles := textinput.DefaultStyles(isDark)
@@ -483,6 +490,17 @@ func New(width, height int, opts ...Option) Model {
 	m.SetSize(width, height)
 
 	return m
+}
+
+// WithDarkBackground tells the editor whether the terminal background is dark
+// instead of asking the terminal. Asking takes the terminal into raw mode and
+// reads stdin for up to two seconds, which competes with a running Bubble Tea
+// program for its input: hosts creating the editor after their program has
+// started should pass what they learnt from tea.BackgroundColorMsg.
+func WithDarkBackground(isDark bool) Option {
+	return func(c *modelConfig) {
+		c.isDark = &isDark
+	}
 }
 
 // WithClipboard sets a custom clipboard implementation on the editor.
