@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -271,6 +272,11 @@ type Model struct {
 	completionDismissedWord  string
 	completionMenuMaxVisible int
 
+	// listening is shared by every copy of the Model: true while a
+	// listenForEditorUpdate command is waiting on the signal channel, so at
+	// most one is ever outstanding however many messages Update handles.
+	listening *atomic.Bool
+
 	cursorBlinkCancel context.CancelFunc
 	clearMsgCancel    context.CancelFunc
 	clearYankCancel   context.CancelFunc
@@ -478,6 +484,7 @@ func New(width, height int, opts ...Option) Model {
 		completionDebounceTime:      300 * time.Millisecond,
 		precomputedCompletionStyles: setupCompletionStyles(defaultTheme),
 		completionMenuMaxVisible:    10,
+		listening:                   new(atomic.Bool),
 	}
 
 	m.SetSize(width, height)
@@ -1432,9 +1439,19 @@ func (m *Model) SetMaxHistory(max uint32) {
 }
 
 func (m *Model) listenForEditorUpdate() tea.Cmd {
+	// Update re-arms the listener on every message; without this guard each
+	// call would leave another goroutine blocked on the channel. Signals sent
+	// while none is listening wait in the channel's buffer.
+	if m.listening != nil && !m.listening.CompareAndSwap(false, true) {
+		return nil
+	}
+	editorChan := m.editor.GetUpdateSignalChan()
+	listening := m.listening
 	return func() tea.Msg {
-		editorChan := m.editor.GetUpdateSignalChan()
 		signal := <-editorChan
+		if listening != nil {
+			listening.Store(false)
+		}
 
 		switch signal := signal.(type) {
 		case core.CommandSignal:
