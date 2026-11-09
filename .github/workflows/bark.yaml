@@ -7,8 +7,9 @@ name: Bark
 #   "bark: review"   reviews the PR.
 # Each job removes its label when done (even on failure), so adding the label
 # again re-runs it. Pushes to an open PR don't trigger anything.
-# PRs from forks are skipped on open: GitHub gives their workflows no secrets
-# and a read-only token, so Bark can't run on them here.
+# PRs from forks are skipped, on open and on labels: GitHub gives their
+# workflows no secrets and a read-only token, so Bark can't run on them here.
+# Run bark locally for those (bark review --pr <n> --comment).
 on:
   pull_request:
     types: [opened, labeled]
@@ -18,9 +19,10 @@ jobs:
     name: Generate PR Description
     runs-on: ubuntu-latest
     if: >-
-      (github.event.action == 'opened'
-        && github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event.action == 'labeled' && github.event.label.name == 'bark: describe')
+      github.event.pull_request.head.repo.full_name == github.repository && (
+        github.event.action == 'opened'
+        || (github.event.action == 'labeled' && github.event.label.name == 'bark: describe')
+      )
     permissions:
       contents: read
       pull-requests: write
@@ -47,7 +49,7 @@ jobs:
     # always() lets the job run when pr-description is skipped (a "bark: review" label).
     # On open, the review waits for the description so it can read it.
     if: >-
-      always() && (
+      always() && github.event.pull_request.head.repo.full_name == github.repository && (
         (github.event.action == 'opened' && needs.pr-description.result == 'success'
           && !startsWith(github.head_ref, 'chore/')
           && !startsWith(github.head_ref, 'docs/')
