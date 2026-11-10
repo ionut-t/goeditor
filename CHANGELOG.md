@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.0](https://github.com/ionut-t/goeditor/compare/v0.19.0...v0.20.0) (2026-11-10)
+
+
+### Features
+
+* **editor:** add IsCompletionMenuVisible ([#143](https://github.com/ionut-t/goeditor/issues/143)) ([4dabee0](https://github.com/ionut-t/goeditor/commit/4dabee0f390cf1835349415ed709bee80914e961))
+* **editor:** add WithDarkBackground option ([#142](https://github.com/ionut-t/goeditor/issues/142)) ([9d60f16](https://github.com/ionut-t/goeditor/commit/9d60f16ffd764fb4ce741906e3a082c947393c66))
+
 ## [0.19.0](https://github.com/ionut-t/goeditor/compare/v0.18.0...v0.19.0) (2026-11-06)
 
 
