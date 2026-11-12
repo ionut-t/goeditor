@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.21.0](https://github.com/ionut-t/goeditor/compare/v0.20.0...v0.21.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** `New` no longer queries the terminal for its background colour and always uses the dark default theme unless `WithDarkBackground` is passed; apps in light terminals should pass `WithDarkBackground(false)` or call `WithTheme(DefaultTheme(msg.IsDark()))` on `tea.BackgroundColorMsg`.
+
+### Bug Fixes
+
+* **editor:** remove blocking terminal background query ([b292e62](https://github.com/ionut-t/goeditor/commit/b292e6293ed80f953e10836efc950f7f546384a9))
+
 ## [0.20.0](https://github.com/ionut-t/goeditor/compare/v0.19.0...v0.20.0) (2026-11-10)
 
 
