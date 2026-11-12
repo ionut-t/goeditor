@@ -99,6 +99,34 @@ theme := goeditor.Theme{
 m.WithTheme(theme)
 ```
 
+### Light and dark terminals
+
+The default theme comes in a dark and a light variant. The editor never asks
+the terminal for its background colour, because the query blocks and competes
+with Bubble Tea for input, so it uses the dark variant unless told otherwise.
+
+If you already know the background, pass it when creating the editor:
+
+```go
+m := goeditor.New(80, 24, goeditor.WithDarkBackground(false))
+```
+
+Otherwise let Bubble Tea ask the terminal and switch themes when it answers:
+
+```go
+func (m model) Init() tea.Cmd {
+    return tea.RequestBackgroundColor
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.BackgroundColorMsg:
+        m.editor.WithTheme(goeditor.DefaultTheme(msg.IsDark()))
+    }
+    // ...
+}
+```
+
 ## Vim Keybindings
 
 ### Normal Mode
@@ -272,7 +300,7 @@ Mappings(mode core.MapMode) []core.Mapping
 SetMapLeader(leader string)
 
 // Styling
-WithTheme(theme Theme)
+WithTheme(theme Theme) // e.g. DefaultTheme(isDark)
 SetHighlightedWords(words map[string]lipgloss.Style)
 SetPlaceholder(placeholder string)
 

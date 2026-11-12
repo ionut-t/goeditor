@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image/color"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -427,13 +426,15 @@ type Option func(*modelConfig)
 
 type modelConfig struct {
 	clipboard core.Clipboard
-	// isDark, when set, skips asking the terminal for its background colour.
-	isDark *bool
+	// isDark picks the default theme. The editor never asks the terminal, so
+	// it defaults to dark.
+	isDark bool
 }
 
 func New(width, height int, opts ...Option) Model {
 	cfg := &modelConfig{
 		clipboard: &clipboardImpl{},
+		isDark:    true,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -445,15 +446,9 @@ func New(width, height int, opts ...Option) Model {
 	searchInput := textinput.New()
 	searchInput.Prompt = "/"
 
-	var isDark bool
-	if cfg.isDark != nil {
-		isDark = *cfg.isDark
-	} else {
-		isDark = lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
-	}
-	defaultTheme := DefaultTheme(isDark)
+	defaultTheme := DefaultTheme(cfg.isDark)
 
-	styles := textinput.DefaultStyles(isDark)
+	styles := textinput.DefaultStyles(cfg.isDark)
 	styles.Focused.Prompt = defaultTheme.SearchInputPromptStyle
 	styles.Focused.Text = defaultTheme.SearchInputTextStyle
 	styles.Blurred.Prompt = defaultTheme.SearchInputPromptStyle
@@ -492,14 +487,15 @@ func New(width, height int, opts ...Option) Model {
 	return m
 }
 
-// WithDarkBackground tells the editor whether the terminal background is dark
-// instead of asking the terminal. Asking takes the terminal into raw mode and
-// reads stdin for up to two seconds, which competes with a running Bubble Tea
-// program for its input: hosts creating the editor after their program has
-// started should pass what they learnt from tea.BackgroundColorMsg.
+// WithDarkBackground tells the editor whether the terminal background is dark,
+// which picks the default theme. Without it the editor assumes a dark
+// background: it never asks the terminal itself, because the query blocks and
+// competes with Bubble Tea for stdin. Hosts that know the answer pass it here;
+// hosts that learn it after creating the editor, from tea.BackgroundColorMsg,
+// call WithTheme(DefaultTheme(msg.IsDark())).
 func WithDarkBackground(isDark bool) Option {
 	return func(c *modelConfig) {
-		c.isDark = &isDark
+		c.isDark = isDark
 	}
 }
 

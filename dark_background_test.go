@@ -14,3 +14,10 @@ func TestWithDarkBackgroundPicksTheme(t *testing.T) {
 		assert.Equal(t, DefaultTheme(dark).NormalModeStyle.GetBackground(), m.theme.NormalModeStyle.GetBackground())
 	}
 }
+
+// TestNewDefaultsToDarkBackground checks New assumes a dark background
+// instead of asking the terminal, which blocks and steals Bubble Tea's input.
+func TestNewDefaultsToDarkBackground(t *testing.T) {
+	m := New(40, 10, WithClipboard(&memClipboard{}))
+	assert.Equal(t, DefaultTheme(true).NormalModeStyle.GetBackground(), m.theme.NormalModeStyle.GetBackground())
+}
