@@ -730,19 +730,6 @@ func TestSearchWordUnderCursor(t *testing.T) {
 		assert.Equal(t, Position{2, 0}, cursorPos(e))
 	})
 
-	t.Run("* on non-word character does nothing", func(t *testing.T) {
-		e := newTestEditor("foo bar")
-		keys(e, 'w') // move to "bar" at col 4
-		keys(e, 'e') // move to end of "bar" → col 6
-		keys(e, 'l') // move right to space? Actually 'l' from end of word stays. Let's go to space via '$' then 'F' ' '
-		// simpler: position on the space between words
-		e2 := newTestEditor("foo bar")
-		keys(e2, 'f', ' ') // jump to space at col 3
-		initialPos := cursorPos(e2)
-		e2.SearchWordUnderCursor(false)
-		assert.Equal(t, initialPos, cursorPos(e2))
-	})
-
 	t.Run("n after * continues as whole-word search", func(t *testing.T) {
 		// "foo foobar foo bar foo": whole-word "foo" at col 0, 11, 19
 		e := newTestEditor("foo foobar foo bar foo")
@@ -755,6 +742,111 @@ func TestSearchWordUnderCursor(t *testing.T) {
 		e.NextSearchResult() // n → col 19
 		assert.Equal(t, Position{0, 19}, cursorPos(e))
 	})
+}
+
+// TestStarTarget checks what * and # search for when the cursor isn't on a
+// keyword, as Vim 9.2's find_ident_under_cursor: the first keyword after the
+// cursor on the line, else the non-blank text under or after it, searched
+// from its start. The pattern is the one Vim keeps in @/.
+func TestStarTarget(t *testing.T) {
+	tests := []struct {
+		content string
+		keys    string
+		cursor  Position
+		pattern string
+	}{
+		{"foo 1 x 1", "3l*", Position{0, 8}, `\<1\>`},
+		{"foo 1 x 1", "3l#", Position{0, 8}, `\<1\>`},
+		{"a+b a b", "l*", Position{0, 6}, `\<b\>`},
+		{"a+b a b", "l#", Position{0, 6}, `\<b\>`},
+		{"(foo) foo", "*", Position{0, 6}, `\<foo\>`},
+		{"  foo x foo", "*", Position{0, 8}, `\<foo\>`},
+		{"ab ++ c++", "3l*", Position{0, 6}, `\<c\>`},
+		{"ab .x.\n.x.", "3l*", Position{1, 1}, `\<x\>`},
+		{"x.y x.y", "l*", Position{0, 6}, `\<y\>`},
+		{"ab a.b a.b", "3l*", Position{0, 7}, `\<a\>`},
+		{"foo bar", "3l*", Position{0, 4}, `\<bar\>`},
+		// No keyword from the cursor on: the non-blank text, as it is.
+		{"ab ++ ++", "3l*", Position{0, 6}, "++"},
+		{"ab ++ ++", "3l#", Position{0, 6}, "++"},
+		{"ab ++ ++", "3l*n", Position{0, 3}, "++"},
+		{"ab ++\n++", "3l*", Position{1, 0}, "++"},
+		{"ab ++\n++", "2l*", Position{1, 0}, "++"},
+		{"ab +-", "4l*", Position{0, 3}, "+-"},
+		{"ab (", "2l*", Position{0, 3}, "("},
+		// A mid-word # starts from the word's start, so it skips the word.
+		{"foo foo", "5l#", Position{0, 0}, `\<foo\>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.content+" "+tt.keys, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.Equal(t, tt.pattern, e.GetState().SearchQuery.Pattern)
+		})
+	}
+}
+
+// TestStarNoString checks Vim's E348: * and # with only blanks from the
+// cursor to the end of the line move nothing, keep the last search and
+// report ErrNoStringUnderCursor.
+func TestStarNoString(t *testing.T) {
+	for _, tt := range []struct{ content, keys string }{
+		{"foo  \nfoo", "4l*"},
+		{"foo  \nfoo", "4l#"},
+		{"\nfoo", "*"},
+	} {
+		t.Run(tt.content+" "+tt.keys, func(t *testing.T) {
+			e := newTestEditor(tt.content)
+			typeKeys(t, e, tt.keys[:len(tt.keys)-1])
+			start := cursorPos(e)
+			typeKeys(t, e, tt.keys[len(tt.keys)-1:])
+			assert.Equal(t, start, cursorPos(e))
+			assert.Equal(t, "", e.GetState().SearchQuery.Pattern)
+			assert.Equal(t, ErrNoStringUnderCursorId, nextErrorID(t, e))
+		})
+	}
+}
+
+// nextErrorID returns the ID of the first ErrorSignal waiting on e's signal
+// channel, failing the test when there is none.
+func nextErrorID(t *testing.T, e Editor) ErrorId {
+	t.Helper()
+	for {
+		select {
+		case s := <-e.GetUpdateSignalChan():
+			if err, ok := s.(ErrorSignal); ok {
+				id, _ := err.Value()
+				return id
+			}
+		default:
+			t.Fatal("no ErrorSignal")
+			return 0
+		}
+	}
+}
+
+// TestRepeatAfterFailedSearch checks that n and N search again after a search
+// that found nothing, as Vim 9.2: an edit may have added a match since.
+func TestRepeatAfterFailedSearch(t *testing.T) {
+	tests := []struct {
+		keys   string
+		cursor Position
+	}{
+		{"/zzz<CR>n", Position{0, 0}},
+		{"/zzz<CR>Ozzz<Esc>Gn", Position{0, 0}},
+		{"/zzz<CR>Ozzz<Esc>GN", Position{0, 0}},
+		{"?zzz<CR>Ozzz<Esc>jn", Position{0, 0}},
+		{"/bar<CR>/<C-U>zzz<CR>Ozzz<Esc>Gn", Position{1, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e := newTestEditor("foo 1\nbar 2\nfoo 3\nbar 4")
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.Equal(t, "zzz", e.GetState().SearchQuery.Pattern)
+		})
+	}
 }
 
 // TestSearchResultsFollowEdits checks that SearchResults drops a match an edit
