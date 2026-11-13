@@ -22,8 +22,8 @@ var (
 	ErrMapRecursion       = errors.New("recursive mapping")
 	ErrUndoCorrupt        = errors.New("undo list corrupt")
 	ErrTextTooLong        = errors.New("resulting text too long")
-	// ErrNoPreviousPattern is Vim's E35: an empty search with no last search
-	// to reuse.
+	// ErrNoPreviousPattern is Vim's E35: an empty search, n or N with no
+	// last search to reuse.
 	ErrNoPreviousPattern = errors.New("no previous regular expression")
 	// ErrNoStringUnderCursor is Vim's E348: * or # with only blanks from the
 	// cursor to the end of the line.

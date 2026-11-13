@@ -128,9 +128,11 @@ func (e *editor) PreviousSearchResult() Cursor {
 
 // repeatSearch repeats the last search from the cursor, in the original direction
 // or, with flip, the opposite one. As Vim's, it searches again after a search
-// that found nothing, since an edit may have added a match.
+// that found nothing, since an edit may have added a match. With no last
+// search it dispatches ErrNoPreviousPattern and moves nothing.
 func (e *editor) repeatSearch(flip bool) Cursor {
 	if e.state.SearchQuery.Pattern == "" {
+		e.DispatchError(ErrNoPreviousPatternId, ErrNoPreviousPattern)
 		return e.buffer.GetCursor()
 	}
 
@@ -244,7 +246,7 @@ func starTarget(line []rune, col int, cls func(rune) int) (start, end int, keywo
 	if !keyword {
 		for i = col; i < len(line) && cls(line[i]) == blankClass; i = charEnd(line, i) {
 		}
-		if i == len(line) {
+		if i >= len(line) {
 			return 0, 0, false, false
 		}
 	}

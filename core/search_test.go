@@ -808,6 +808,16 @@ func TestStarNoString(t *testing.T) {
 	}
 }
 
+// TestStarTargetPastLineEnd checks that a column at or past the end of the
+// line finds nothing instead of indexing past it. The editor clamps its cursor
+// to the line length, so only a direct caller can pass a larger column.
+func TestStarTargetPastLineEnd(t *testing.T) {
+	for _, col := range []int{2, 3, 9} {
+		_, _, _, ok := starTarget([]rune("ab"), col, utfClass)
+		assert.False(t, ok, "col %d", col)
+	}
+}
+
 // nextErrorID returns the ID of the first ErrorSignal waiting on e's signal
 // channel, failing the test when there is none.
 func nextErrorID(t *testing.T, e Editor) ErrorId {
@@ -823,6 +833,23 @@ func nextErrorID(t *testing.T, e Editor) ErrorId {
 			t.Fatal("no ErrorSignal")
 			return 0
 		}
+	}
+}
+
+// TestRepeatWithoutLastSearch checks that n and N with no last search move
+// nothing and report ErrNoPreviousPattern, as Vim 9.2's E35 (also in visual
+// mode, and after abandoning the search line, which clears the last search).
+func TestRepeatWithoutLastSearch(t *testing.T) {
+	for _, keys := range []string{"n", "N", "jn", "vjN", "/bar<CR>gg/<Esc>n"} {
+		t.Run(keys, func(t *testing.T) {
+			e := newTestEditor("foo 1\nbar 2")
+			typeKeys(t, e, keys[:len(keys)-1])
+			before := cursorPos(e)
+			drainSignals(e)
+			typeKeys(t, e, keys[len(keys)-1:])
+			assert.Equal(t, before, cursorPos(e))
+			assert.Equal(t, ErrNoPreviousPatternId, nextErrorID(t, e))
+		})
 	}
 }
 
