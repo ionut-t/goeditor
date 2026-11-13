@@ -64,14 +64,24 @@ func (e *editor) ExecuteSearch(pattern string, searchOptions SearchOptions) {
 	}
 
 	if e.state.Mode == SearchMode {
+		e.setMode(e.state.PreviousMode)
+		// After the mode change, which clears it: the pattern stays on the
+		// command line, as Vim's.
 		prefix := "/"
 		if e.state.SearchOptions.Backwards {
 			prefix = "?"
 		}
-		e.UpdateCommand(prefix + e.state.SearchQuery.Pattern)
-		e.setMode(e.state.PreviousMode)
+		e.state.SearchEcho = prefix + e.state.SearchQuery.Pattern
 	}
 	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
+}
+
+func (e *editor) SetSearchOptions(options SearchOptions) {
+	e.searchOptions = SearchOptions{
+		IgnoreCase: options.IgnoreCase,
+		SmartCase:  options.SmartCase,
+		Wrap:       options.Wrap,
+	}
 }
 
 func (e *editor) CancelSearch() {

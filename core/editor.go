@@ -107,6 +107,10 @@ type Editor interface {
 	ExecuteCommand(cmd string) *EditorError
 	ExecuteSearch(query string, searchOptions SearchOptions)
 	CancelSearch()
+	// SetSearchOptions sets the options a search typed after / or ? runs
+	// with: IgnoreCase, SmartCase and Wrap. The key sets Backwards. The
+	// default is Vim's: case sensitive, wrapping.
+	SetSearchOptions(SearchOptions)
 
 	// History management. Undo, Redo and UndoLine return the edits they applied.
 	Undo() ([]TextEdit, error)
@@ -198,6 +202,10 @@ type editor struct {
 	// moveAcrossLines lets h, l and the arrow keys cross line boundaries.
 	moveAcrossLines bool
 
+	// searchOptions are the options a search typed after / or ? runs with
+	// (SetSearchOptions).
+	searchOptions SearchOptions
+
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
 	lineHeightFunc    LineHeightFunc
@@ -231,6 +239,7 @@ func New(clipboard Clipboard) Editor {
 		mapLeader:     DefaultMapLeader,
 		mapTimeout:    true,
 		mapTimeoutLen: DefaultMapTimeoutLen,
+		searchOptions: SearchOptions{Wrap: true},
 	}
 	e.buffer = &recordingBuffer{Buffer: NewBuffer(), e: e}
 
@@ -240,7 +249,7 @@ func New(clipboard Clipboard) Editor {
 	e.modes[VisualMode] = newVisualMode(&e.charSearch)
 	e.modes[VisualLineMode] = newVisualLineMode(&e.charSearch)
 	e.modes[CommandMode] = NewCommandMode()
-	e.modes[SearchMode] = NewSearchMode()
+	e.modes[SearchMode] = newSearchMode(&e.searchOptions)
 
 	// Set initial mode
 	initialModeName := e.state.Mode
@@ -317,6 +326,7 @@ func (e *editor) setMode(modeName Mode) {
 	}
 
 	e.state.PreviousMode = e.state.Mode
+	e.state.SearchEcho = ""
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter

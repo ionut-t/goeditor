@@ -1,19 +1,59 @@
 package core
 
-type searchMode struct{ baseMode }
+// searchMode is the '/' and '?' search line: edited like the ':' command line
+// (cmdline), and searched on <CR>. The line keeps its text and cursor after a
+// search, so the next '/' or '?' starts from the last pattern typed;
+// abandoning it empties it.
+type searchMode struct {
+	baseMode
+	line      cmdline
+	backwards bool
+	options   *SearchOptions // the editor's SetSearchOptions
+}
 
-func NewSearchMode() EditorMode  { return &searchMode{} }
+// NewSearchMode returns a search mode that runs searches with Vim's default
+// options. The editor's own search mode uses the options set with
+// SetSearchOptions.
+func NewSearchMode() EditorMode { return newSearchMode(&SearchOptions{Wrap: true}) }
+
+func newSearchMode(options *SearchOptions) *searchMode {
+	return &searchMode{options: options}
+}
+
 func (m *searchMode) Name() Mode { return SearchMode }
 
+func (m *searchMode) prompt() string {
+	if m.backwards {
+		return "?"
+	}
+	return "/"
+}
+
 func (m *searchMode) Enter(editor Editor, buffer Buffer) {
-	editor.DispatchSignal(EnterSearchModeSignal{Backwards: editor.GetState().SearchOptions.Backwards})
-	editor.UpdateCommand("")
+	m.backwards = editor.GetState().SearchOptions.Backwards
+	editor.DispatchSignal(EnterSearchModeSignal{Backwards: m.backwards})
+	m.line.publish(editor, m.prompt())
 }
 
 func (m *searchMode) Exit(editor Editor, buffer Buffer) {
+	editor.UpdateCommand("")
 	editor.DispatchSignal(ExitSearchModeSignal{})
 }
 
+// HandleKey edits the search line (see cmdline.handleKey) and searches on
+// <CR>. ExecuteSearch and CancelSearch go back to the mode the search started
+// from.
 func (m *searchMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
+	switch m.line.handleKey(key) {
+	case cmdlineAbandon:
+		m.line.reset()
+		editor.CancelSearch()
+	case cmdlineEnter:
+		options := *m.options
+		options.Backwards = m.backwards
+		editor.ExecuteSearch(string(m.line.text), options)
+	case cmdlineEdited:
+		m.line.publish(editor, m.prompt())
+	}
 	return nil
 }
