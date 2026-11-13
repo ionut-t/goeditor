@@ -20,6 +20,8 @@ func TestGxSendsOpenMsg(t *testing.T) {
 
 	var msg any
 	for len(m.GetEditor().GetUpdateSignalChan()) > 0 {
+		// Update armed listeners the test never ran; read directly instead.
+		m.listening.Store(false)
 		if msg = m.listenForEditorUpdate()(); msg != (commandMsg{}) {
 			break
 		}
