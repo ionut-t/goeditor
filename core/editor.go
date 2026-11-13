@@ -99,6 +99,9 @@ type Editor interface {
 	SetState(State)       // Update the editor state (used internally)
 	UpdateStatus(string)  // Helper to set status line
 	UpdateCommand(string) // Helper to set command line
+	// UpdateCommandLine sets the command line with a cursor at the given
+	// rune index, for a command line the user is editing.
+	UpdateCommandLine(text string, cursor int)
 
 	// Command execution (Called from Command Mode)
 	ExecuteCommand(cmd string) *EditorError
@@ -440,10 +443,15 @@ func (e *editor) UpdateStatus(status string) {
 
 // UpdateCommand is a helper for modes to update the command line
 func (e *editor) UpdateCommand(cmd string) {
-	if cmd != "" {
+	e.UpdateCommandLine(cmd, -1)
+}
+
+func (e *editor) UpdateCommandLine(text string, cursor int) {
+	if text != "" {
 		e.DispatchSignal(CommandSignal{})
 	}
-	e.state.CommandLine = cmd
+	e.state.CommandLine = text
+	e.state.CommandCursor = cursor
 }
 
 func (e *editor) IsSelected() bool {

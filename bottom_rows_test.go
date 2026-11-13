@@ -2,9 +2,11 @@ package goeditor
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
@@ -159,7 +161,7 @@ func TestSearchRowFillsWidthWithCommandLineBackground(t *testing.T) {
 	bgSGR := fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 	// Each segment ends in a reset, so each one with visible text must set
 	// the background again. The cursor is reverse video and needs none.
-	for _, seg := range strings.Split(row, "\x1b[m") {
+	for seg := range strings.SplitSeq(row, "\x1b[m") {
 		visible := ansi.Strip(seg)
 		if visible == "" || strings.Contains(seg, "\x1b[7") {
 			continue
@@ -187,13 +189,66 @@ func TestSearchRowPadsWithSearchTextBackground(t *testing.T) {
 
 	segs := strings.Split(row, "\x1b[m")
 	var padding string
-	for i := len(segs) - 1; i >= 0; i-- {
-		if ansi.Strip(segs[i]) != "" {
-			padding = segs[i]
+	for _, seg := range slices.Backward(segs) {
+		if ansi.Strip(seg) != "" {
+			padding = seg
 			break
 		}
 	}
 	require.Empty(t, strings.TrimSpace(ansi.Strip(padding)), "last segment should be padding: %q", padding)
 	assert.Contains(t, padding, "48;2;18;52;86", "padding should use the search text background: %q", padding)
 	assert.NotContains(t, padding, "48;2;30;30;46")
+}
+
+// cursorCell returns the visible text of the reverse-video cell in row.
+func cursorCell(row string) string {
+	for seg := range strings.SplitSeq(row, "\x1b[m") {
+		if strings.Contains(seg, "\x1b[7;") {
+			return ansi.Strip(seg)
+		}
+	}
+	return ""
+}
+
+// TestEditedCommandLineShowsCursor checks that the command line draws its
+// cursor, on the character under it or as a blank cell past the end.
+func TestEditedCommandLineShowsCursor(t *testing.T) {
+	m := newBottomRowsModel(20, 10, nil)
+	m = typeText(":abc def")(m)
+
+	row, active := m.getCommandLine(m.editor.GetState())
+	assert.True(t, active)
+	assert.Equal(t, 20, ansi.StringWidth(row))
+	assert.Equal(t, ":abc def", strings.TrimRight(ansi.Strip(row), " "))
+	assert.Equal(t, " ", cursorCell(row), "cursor past the end is a blank cell")
+
+	// <S-Left> arrives from Bubble Tea with Shift as a modifier.
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModShift})
+	row, _ = m.getCommandLine(m.editor.GetState())
+	assert.Equal(t, ":abc def", strings.TrimRight(ansi.Strip(row), " "))
+	assert.Equal(t, "d", cursorCell(row))
+
+	// Normal-mode pending keys share the row but have no cursor.
+	m = escKey(m)
+	m = typeRune('3')(m)
+	row, _ = m.getCommandLine(m.editor.GetState())
+	assert.Empty(t, cursorCell(row))
+}
+
+// TestEditedCommandLineScrollsToCursor checks that a command longer than the
+// row scrolls left just enough to keep the cursor in view, and shows the
+// start again when the cursor moves back.
+func TestEditedCommandLineScrollsToCursor(t *testing.T) {
+	m := newBottomRowsModel(10, 10, nil)
+	m = typeText(":0123456789abc")(m)
+
+	row, _ := m.getCommandLine(m.editor.GetState())
+	assert.Equal(t, 10, ansi.StringWidth(row))
+	assert.Equal(t, "456789abc ", ansi.Strip(row), "cursor in the last cell")
+	assert.Equal(t, " ", cursorCell(row))
+
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	row, _ = m.getCommandLine(m.editor.GetState())
+	assert.Equal(t, ":012345678", ansi.Strip(row))
+	assert.Equal(t, "0", cursorCell(row), "<Home> goes to the start of the text, after the prompt")
 }
