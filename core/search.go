@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -42,6 +43,7 @@ func (e *editor) runSearch(query SearchQuery, options SearchOptions) {
 	} else {
 		e.state.SearchResults = []Position{}
 		e.state.SearchResultIndex = -1
+		e.dispatchNotFound(options)
 	}
 
 	if e.state.Mode == SearchMode {
@@ -145,12 +147,33 @@ func (e *editor) repeatSearch(flip bool) Cursor {
 	if found {
 		e.onSearchResultFound(pos)
 		e.ScrollViewport()
+	} else {
+		e.dispatchNotFound(options)
 	}
 	e.echoSearch(options.Backwards)
 
-	e.DispatchSignal(SearchResultsSignal{positions: e.state.SearchResults})
+	// The matches the pattern still matches: a failed n keeps the last match
+	// while it is there (n past the last one with Wrap off), as Vim's
+	// highlight, and drops it once an edit changed it.
+	e.DispatchSignal(SearchResultsSignal{positions: e.SearchResults()})
 
 	return e.buffer.GetCursor()
+}
+
+// dispatchNotFound reports a search that found no match, as Vim: "pattern
+// not found: bar" (ErrPatternNotFound), or with Wrap off "search hit BOTTOM
+// without match for: bar" (ErrSearchHitBottom) going forward and
+// ErrSearchHitTop going backward.
+func (e *editor) dispatchNotFound(options SearchOptions) {
+	pattern := e.state.SearchQuery.Pattern
+	switch {
+	case options.Wrap:
+		e.DispatchError(ErrPatternNotFoundId, fmt.Errorf("%w: %s", ErrPatternNotFound, pattern))
+	case options.Backwards:
+		e.DispatchError(ErrSearchHitTopId, fmt.Errorf("%w for: %s", ErrSearchHitTop, pattern))
+	default:
+		e.DispatchError(ErrSearchHitBottomId, fmt.Errorf("%w for: %s", ErrSearchHitBottom, pattern))
+	}
 }
 
 // echoSearch leaves the last search on the command line (State.SearchEcho)

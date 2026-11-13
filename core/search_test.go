@@ -836,6 +836,94 @@ func nextErrorID(t *testing.T, e Editor) ErrorId {
 	}
 }
 
+// TestRepeatFailedResultsSignal checks the matches a failed n sends: none
+// once an edit removed them all, and the current one while it is still there
+// (n past the last match with Wrap off), as SearchResults.
+func TestRepeatFailedResultsSignal(t *testing.T) {
+	lastResults := func(e Editor) []Position {
+		got := []Position{{-1, -1}} // no SearchResultsSignal
+		for {
+			select {
+			case s := <-e.GetUpdateSignalChan():
+				if r, ok := s.(SearchResultsSignal); ok {
+					got = r.Value()
+				}
+			default:
+				return got
+			}
+		}
+	}
+
+	e := newTestEditor("foo 1\nbar 2\nfoo 3\nbar 4")
+	typeKeys(t, e, "/bar<CR>ddGdd")
+	drainSignals(e)
+	typeKeys(t, e, "ggn")
+	assert.Empty(t, lastResults(e), "the stored match is now foo 3")
+
+	e = newTestEditor("foo 1\nbar 2\nfoo 3\nbar 4")
+	e.SetSearchOptions(SearchOptions{Wrap: false})
+	typeKeys(t, e, "/bar<CR>n")
+	drainSignals(e)
+	typeKeys(t, e, "n")
+	assert.Equal(t, Position{3, 0}, cursorPos(e))
+	assert.Equal(t, []Position{{3, 0}}, lastResults(e))
+}
+
+// TestSearchNotFound checks the error a search, n or N sends when it finds
+// no match, as Vim 9.2: E486 with Wrap on, E385/E384 with it off (going
+// forward/backward), even when the pattern is nowhere in the buffer. Only
+// the cases with a message send an error at all.
+func TestSearchNotFound(t *testing.T) {
+	tests := []struct {
+		noWrap bool
+		keys   string
+		cursor Position
+		err    string
+	}{
+		{false, "/zzz<CR>", Position{0, 0}, "pattern not found: zzz"},
+		{false, "?zzz<CR>", Position{0, 0}, "pattern not found: zzz"},
+		{false, "/bar<CR>ddGddggn", Position{0, 0}, "pattern not found: bar"},
+		{false, "/bar<CR>ddGddggN", Position{0, 0}, "pattern not found: bar"},
+		{false, "/bar<CR>ddGdd/<C-U><CR>", Position{1, 0}, "pattern not found: bar"},
+		{true, "/bar<CR>nn", Position{3, 0}, "search hit BOTTOM without match for: bar"},
+		{true, "G?bar<CR>n", Position{1, 0}, "search hit TOP without match for: bar"},
+		{true, "/zzz<CR>", Position{0, 0}, "search hit BOTTOM without match for: zzz"},
+		{true, "G/bar<CR>", Position{3, 0}, "search hit BOTTOM without match for: bar"},
+		// Found: no error.
+		{false, "/bar<CR>n", Position{3, 0}, ""},
+		{false, "/bar<CR>cwxyz<Esc>ggn", Position{3, 0}, ""},
+		{true, "/bar<CR>nN", Position{1, 0}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e := newTestEditor("foo 1\nbar 2\nfoo 3\nbar 4")
+			if tt.noWrap {
+				e.SetSearchOptions(SearchOptions{Wrap: false})
+			}
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.cursor, cursorPos(e))
+
+			var errs []string
+			for done := false; !done; {
+				select {
+				case s := <-e.GetUpdateSignalChan():
+					if es, ok := s.(ErrorSignal); ok {
+						_, err := es.Value()
+						errs = append(errs, err.Error())
+					}
+				default:
+					done = true
+				}
+			}
+			if tt.err == "" {
+				assert.Empty(t, errs)
+			} else {
+				assert.Equal(t, []string{tt.err}, errs)
+			}
+		})
+	}
+}
+
 // TestRepeatWithoutLastSearch checks that n and N with no last search move
 // nothing and report ErrNoPreviousPattern, as Vim 9.2's E35 (also in visual
 // mode, and after abandoning the search line, which clears the last search).

@@ -28,6 +28,13 @@ var (
 	// ErrNoStringUnderCursor is Vim's E348: * or # with only blanks from the
 	// cursor to the end of the line.
 	ErrNoStringUnderCursor = errors.New("no string under cursor")
+	// ErrPatternNotFound is Vim's E486: a search, n or N found no match
+	// anywhere in the buffer. ErrSearchHitBottom (E385) and ErrSearchHitTop
+	// (E384) are the same with Wrap off, going forward and backward. The
+	// error dispatched wraps them with the pattern ("pattern not found: bar").
+	ErrPatternNotFound = errors.New("pattern not found")
+	ErrSearchHitBottom = errors.New("search hit BOTTOM without match")
+	ErrSearchHitTop    = errors.New("search hit TOP without match")
 )
 
 type ErrorId int
@@ -59,6 +66,9 @@ const (
 	ErrTextTooLongId
 	ErrNoPreviousPatternId
 	ErrNoStringUnderCursorId
+	ErrPatternNotFoundId
+	ErrSearchHitBottomId
+	ErrSearchHitTopId
 )
 
 // EditorError is an error with an ErrorId saying which operation failed. It
