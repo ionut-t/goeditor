@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.22.0](https://github.com/ionut-t/goeditor/compare/v0.21.0...v0.22.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** WithSearchInputCursorMode is removed; the search line has a steady cursor like the command line.
+
+### Features
+
+* **editor:** edit the command line with a cursor and Vim keys ([#151](https://github.com/ionut-t/goeditor/issues/151)) ([f9fc999](https://github.com/ionut-t/goeditor/commit/f9fc999c47a2c4649a2a0b57c667b9188cd9ec74))
+
+
+### Bug Fixes
+
+* **editor:** edit search on the core command line ([0fed793](https://github.com/ionut-t/goeditor/commit/0fed793131d06998debe8efcbb03d5489526510b))
+* **editor:** handle multibyte and multi-rune key input ([#152](https://github.com/ionut-t/goeditor/issues/152)) ([6292fb5](https://github.com/ionut-t/goeditor/commit/6292fb5ff320cde915fe14b62dbc072a220f351f))
+* **search:** support empty patterns and align word search with Vim ([#154](https://github.com/ionut-t/goeditor/issues/154)) ([01b5988](https://github.com/ionut-t/goeditor/commit/01b5988eb0a1fc43dce90f15ad5d3c1fd8e35051))
+* **ui:** ensure search bar background spans full width ([#149](https://github.com/ionut-t/goeditor/issues/149)) ([66dbb7f](https://github.com/ionut-t/goeditor/commit/66dbb7f8e98dc5beb090bd9bdc0e036f1b16468c))
+
 ## [0.21.0](https://github.com/ionut-t/goeditor/compare/v0.20.0...v0.21.0) (2026-11-12)
 
 
