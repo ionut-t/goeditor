@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ionut-t/goeditor/core"
 	"github.com/ionut-t/goeditor/highlighter"
 )
@@ -1401,6 +1402,9 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 			Background(m.theme.CommandLineStyle.GetBackground()).
 			Render(m.message)
 		active = true
+	case state.Mode == core.CommandMode && state.CommandCursor >= 0:
+		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor)
+		active = true
 	default:
 		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
 		active = state.Mode == core.CommandMode
@@ -1412,6 +1416,35 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 	}
 
 	return commandLine, active
+}
+
+// renderEditedCommandLine draws a command line being edited, with the
+// cursor as a reverse-video cell (a blank one past the end of the text). When
+// the text is wider than the row, it scrolls just far enough left to keep the
+// cursor in view.
+func (m Model) renderEditedCommandLine(text string, cursor int) string {
+	runes := []rune(text)
+	cursor = min(max(cursor, 0), len(runes))
+
+	under := " "
+	after := runes[cursor:]
+	if cursor < len(runes) {
+		under = string(runes[cursor])
+		after = runes[cursor+1:]
+	}
+
+	start := 0
+	for start < cursor && ansi.StringWidth(string(runes[start:cursor]))+ansi.StringWidth(under) > m.width {
+		start++
+	}
+	before := string(runes[start:cursor])
+
+	style := m.theme.CommandLineStyle
+	line := style.Render(before) + style.Reverse(true).Render(under)
+	if room := m.width - ansi.StringWidth(before) - ansi.StringWidth(under); room > 0 {
+		line += style.Render(ansi.Truncate(string(after), room, ""))
+	}
+	return line
 }
 
 func (m *Model) getStatusLine() string {
@@ -1562,6 +1595,13 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 
 	if k.Mod&tea.ModCtrl != 0 {
 		result.Modifiers |= core.ModCtrl
+	}
+
+	// Shift only matters on keys that don't type text (<S-Left>); on text
+	// keys it is already in the character ('A'), which is how key notation
+	// spells it too.
+	if k.Mod&tea.ModShift != 0 && k.Text == "" {
+		result.Modifiers |= core.ModShift
 	}
 
 	switch k.Code {

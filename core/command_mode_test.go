@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -338,4 +339,121 @@ func TestCommandModeGotoLine(t *testing.T) {
 			assert.Equal(t, Position{1, 0}, cursorPos(e))
 		})
 	}
+}
+
+// --- Editing the command line ---
+
+// TestCommandLineEditing checks command-line editing keys against Vim 9.2.
+// Each case types ':' then keys; want is the text with '|' at the cursor, or
+// "" when the keys leave command mode.
+func TestCommandLineEditing(t *testing.T) {
+	cases := []struct{ keys, want string }{
+		{"abc def", "abc def|"},
+		{"abc def<Left><Left>", "abc d|ef"},
+		{"abc def<Left><Left>X", "abc dX|ef"},
+		{"abc<C-B><Left>", "|abc"},
+		{"abc<Right>", "abc|"},
+		{"abc def<Home>", "|abc def"},
+		{"abc def<C-B>", "|abc def"},
+		{"abc def<C-B><C-E>", "abc def|"},
+		{"abc def<C-B><End>", "abc def|"},
+
+		// <Del> deletes under the cursor, or before it at the end of the line.
+		{"abc def<Del>", "abc de|"},
+		{"abc def<Left><Del>", "abc de|"},
+		{"abc<C-B><Del>", "|bc"},
+
+		{"abc def<Left><Left><BS>", "abc |ef"},
+		{"abc<C-H>", "ab|"},
+
+		// <C-W>: white space, then keyword or non-keyword characters.
+		{"abc def<C-W>", "abc |"},
+		{"abc def  <C-W>", "abc |"},
+		{"abc.def<C-W>", "abc.|"},
+		{"abc...<C-W>", "abc|"},
+		{"abc ...<C-W>", "abc |"},
+		{"   <C-W>", "|"},
+		{"abc def<Left><C-W>", "abc |f"},
+		{"abc<C-B><C-W>", "|abc"},
+
+		// <C-U> deletes before the cursor and keeps the rest.
+		{"abc def<Left><Left><C-U>", "|ef"},
+		{"abc def<C-U>", "|"},
+		{"abc<C-B><Right><C-U>", "|bc"},
+
+		// <S-Left>/<C-Left>: back until the character before is a space.
+		{"abc def<S-Left>", "abc |def"},
+		{"abc def<S-Left><S-Left>", "|abc def"},
+		{"abc  def<C-Left>", "abc  |def"},
+		{"abc.def<S-Left>", "|abc.def"},
+		{"ab  <S-Left>", "ab | "},
+		{"a  b<S-Left><S-Left>", "a | b"},
+
+		// <S-Right>/<C-Right>: forward until the cursor is on a space.
+		{"abc def<C-B><S-Right>", "abc| def"},
+		{"abc def<C-B><C-Right>", "abc| def"},
+		{"abc def ghi<C-B><S-Right><S-Right>", "abc def| ghi"},
+		{"abc  def<C-B><S-Right><S-Right>", "abc | def"},
+		{"abc def<C-B><S-Right><S-Right><S-Right>", "abc def|"},
+		{"a  b  c<C-B><S-Right><S-Right><S-Right><S-Right>", "a  b | c"},
+		{"  ab<C-B><S-Right>", " | ab"},
+
+		// Leaving: <BS> and <Del> only on an empty line.
+		{"a<BS><BS>", ""},
+		{"a<Left><BS>", "|a"},
+		{"<BS>", ""},
+		{"abc<Left><Left><Left><BS>", "|abc"},
+		{"abc<C-U><BS>", ""},
+		{"abc<C-W><BS>", ""},
+		{"<Del>", ""},
+		{"a<Left><Del><Del>", ""},
+		{"a<Del><Del>", ""},
+		{"abc<Left><Esc>", ""},
+		{"abc<C-J>", ""},
+
+		// Multi-byte text moves and deletes by character.
+		{"aéb<Left><BS>", "a|b"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.keys, func(t *testing.T) {
+			e := newTestEditor("hello")
+			keys(e, ':')
+			seq, err := ParseKeys(tc.keys, "")
+			require.NoError(t, err)
+			for _, k := range seq {
+				_ = e.HandleKey(k)
+			}
+
+			if tc.want == "" {
+				assert.False(t, e.IsCommandMode(), "should have left command mode")
+				assert.Equal(t, -1, e.GetState().CommandCursor)
+				return
+			}
+
+			require.True(t, e.IsCommandMode())
+			state := e.GetState()
+			text := []rune(strings.TrimPrefix(state.CommandLine, ":"))
+			cursor := state.CommandCursor - 1
+			require.GreaterOrEqual(t, cursor, 0)
+			require.LessOrEqual(t, cursor, len(text))
+			got := string(text[:cursor]) + "|" + string(text[cursor:])
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestCommandLineEditedCommandRuns checks that Enter runs the edited text,
+// not just what was typed last.
+func TestCommandLineEditedCommandRuns(t *testing.T) {
+	e := newTestEditor("1\n2\n3\n4\n5")
+	keys(e, ':', '4', '5')
+	_ = e.HandleKey(KeyEvent{Key: KeyLeft})
+	backspace(e)
+	keys(e, '2')
+	assert.Equal(t, ":25", e.GetState().CommandLine)
+	_ = e.HandleKey(KeyEvent{Key: KeyDelete}) // on the 5
+	assert.Equal(t, ":2", e.GetState().CommandLine)
+	enter(e)
+	assert.Equal(t, 1, cursorPos(e).Row)
 }
