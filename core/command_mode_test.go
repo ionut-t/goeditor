@@ -343,9 +343,10 @@ func TestCommandModeGotoLine(t *testing.T) {
 
 // --- Editing the command line ---
 
-// TestCommandLineEditing checks command-line editing keys against Vim 9.2.
-// Each case types ':' then keys; want is the text with '|' at the cursor, or
-// "" when the keys leave command mode.
+// TestCommandLineEditing checks command-line editing keys against Vim 9.2,
+// on the ':' command line and the '/' and '?' search lines, which Vim edits
+// the same way. Each case types the prompt then keys; want is the text with
+// '|' at the cursor, or "" when the keys leave the command line.
 func TestCommandLineEditing(t *testing.T) {
 	cases := []struct{ keys, want string }{
 		{"abc def", "abc def|"},
@@ -415,31 +416,36 @@ func TestCommandLineEditing(t *testing.T) {
 		{"aéb<Left><BS>", "a|b"},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.keys, func(t *testing.T) {
-			e := newTestEditor("hello")
-			keys(e, ':')
-			seq, err := ParseKeys(tc.keys, "")
-			require.NoError(t, err)
-			for _, k := range seq {
-				_ = e.HandleKey(k)
-			}
+	for _, prompt := range []struct {
+		key  rune
+		mode Mode
+	}{{':', CommandMode}, {'/', SearchMode}, {'?', SearchMode}} {
+		for _, tc := range cases {
+			t.Run(string(prompt.key)+tc.keys, func(t *testing.T) {
+				e := newTestEditor("hello")
+				keys(e, prompt.key)
+				seq, err := ParseKeys(tc.keys, "")
+				require.NoError(t, err)
+				for _, k := range seq {
+					_ = e.HandleKey(k)
+				}
 
-			if tc.want == "" {
-				assert.False(t, e.IsCommandMode(), "should have left command mode")
-				assert.Equal(t, -1, e.GetState().CommandCursor)
-				return
-			}
+				if tc.want == "" {
+					assert.NotEqual(t, prompt.mode, e.GetState().Mode, "should have left the command line")
+					assert.Equal(t, -1, e.GetState().CommandCursor)
+					return
+				}
 
-			require.True(t, e.IsCommandMode())
-			state := e.GetState()
-			text := []rune(strings.TrimPrefix(state.CommandLine, ":"))
-			cursor := state.CommandCursor - 1
-			require.GreaterOrEqual(t, cursor, 0)
-			require.LessOrEqual(t, cursor, len(text))
-			got := string(text[:cursor]) + "|" + string(text[cursor:])
-			assert.Equal(t, tc.want, got)
-		})
+				require.Equal(t, prompt.mode, e.GetState().Mode)
+				state := e.GetState()
+				text := []rune(strings.TrimPrefix(state.CommandLine, string(prompt.key)))
+				cursor := state.CommandCursor - 1
+				require.GreaterOrEqual(t, cursor, 0)
+				require.LessOrEqual(t, cursor, len(text))
+				got := string(text[:cursor]) + "|" + string(text[cursor:])
+				assert.Equal(t, tc.want, got)
+			})
+		}
 	}
 }
 

@@ -10,8 +10,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"charm.land/bubbles/v2/cursor"
-	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -252,9 +250,6 @@ type Model struct {
 	language         string
 	highlighterTheme string
 
-	searchInput   textinput.Model
-	searchOptions core.SearchOptions
-
 	// Completion state
 	completionMenuVisible       bool
 	completions                 []core.Completion
@@ -302,7 +297,7 @@ type clearMsg struct{}
 
 type commandMsg struct{}
 
-type enterSearchMode struct{ backwards bool }
+type enterSearchMode struct{}
 
 type exitSearchMode struct{}
 
@@ -445,21 +440,13 @@ func New(width, height int, opts ...Option) Model {
 	// The core counts scrolling in screen rows, so it needs to know how lines wrap.
 	texteditor.SetLineHeightFunc(lineRows)
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height))
-	searchInput := textinput.New()
-	searchInput.Prompt = "/"
-
-	defaultTheme := DefaultTheme(cfg.isDark)
-
-	styles := searchInputStyles(textinput.DefaultStyles(cfg.isDark), defaultTheme)
-	styles.Cursor.Blink = false
-	searchInput.SetStyles(styles)
-
-	searchOptions := core.SearchOptions{
+	texteditor.SetSearchOptions(core.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
-		Backwards:  false,
 		Wrap:       true,
-	}
+	})
+
+	defaultTheme := DefaultTheme(cfg.isDark)
 
 	m := Model{
 		editor:            texteditor,
@@ -471,8 +458,6 @@ func New(width, height int, opts ...Option) Model {
 		highlightedWords:  make(map[string]lipgloss.Style),
 		cursorMode:        CursorSteady,
 		cursorVisible:     true,
-		searchInput:       searchInput,
-		searchOptions:     searchOptions,
 
 		autoTriggerEnabled:          false,
 		completionDebounceTime:      300 * time.Millisecond,
@@ -557,16 +542,25 @@ func (m *Model) SetContent(content string) {
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 
-	m.searchInput.SetStyles(searchInputStyles(m.searchInput.Styles(), theme))
 	m.precomputedCompletionStyles = setupCompletionStyles(theme)
 }
 
-// searchInputStyles applies the theme's search input styles. The prompt and
-// the text each end in an SGR reset, which would drop the background of the
-// surrounding command line, so they carry the command line background
-// themselves (unless the theme gives them one of their own). The rest of the
-// row is padded with the text style's background, see getCommandLine.
-func searchInputStyles(styles textinput.Styles, theme Theme) textinput.Styles {
+// commandLineStyles are the styles of a command line being edited: its
+// prompt, its text, and the cursor cell (drawn in reverse video).
+type commandLineStyles struct {
+	prompt, text, cursor lipgloss.Style
+}
+
+// editedCommandLineStyles returns the styles for the ':' command line, or for
+// the '/' and '?' search line, which has the theme's SearchInput styles. Each
+// rendered piece ends in an SGR reset, which would drop the background of the
+// surrounding command line, so the search styles carry the command line
+// background themselves (unless the theme gives them one of their own).
+func editedCommandLineStyles(theme Theme, search bool) commandLineStyles {
+	if !search {
+		s := theme.CommandLineStyle
+		return commandLineStyles{prompt: s, text: s, cursor: s}
+	}
 	bg := theme.CommandLineStyle.GetBackground()
 	withBg := func(s lipgloss.Style) lipgloss.Style {
 		if _, none := s.GetBackground().(lipgloss.NoColor); none {
@@ -574,30 +568,20 @@ func searchInputStyles(styles textinput.Styles, theme Theme) textinput.Styles {
 		}
 		return s
 	}
-	prompt := withBg(theme.SearchInputPromptStyle)
-	text := withBg(theme.SearchInputTextStyle)
-	styles.Focused.Prompt = prompt
-	styles.Focused.Text = text
-	styles.Blurred.Prompt = prompt
-	styles.Blurred.Text = text
-	return styles
+	return commandLineStyles{
+		prompt: withBg(theme.SearchInputPromptStyle),
+		text:   withBg(theme.SearchInputTextStyle),
+		cursor: withBg(theme.SearchInputCursorStyle),
+	}
 }
 
 // WithSearchOptions allows setting custom search options.
 func (m *Model) WithSearchOptions(options SearchOptions) {
-	m.searchOptions = core.SearchOptions{
+	m.editor.SetSearchOptions(core.SearchOptions{
 		IgnoreCase: options.IgnoreCase,
 		SmartCase:  options.SmartCase,
 		Wrap:       options.Wrap,
-	}
-}
-
-// WithSearchInputCursorMode allows setting the cursor mode for the search input.
-// Default is CursorStatic.
-func (m *Model) WithSearchInputCursorMode(mode cursor.Mode) {
-	styles := m.searchInput.Styles()
-	styles.Cursor.Blink = (mode == cursor.CursorBlink)
-	m.searchInput.SetStyles(styles)
+	})
 }
 
 // SetLanguage sets the programming language for syntax highlighting.
@@ -1211,16 +1195,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
-		if m.editor.IsSearchMode() {
-			switch keyEvent.Key {
-			case core.KeyEscape:
-				m.editor.CancelSearch()
-				m.searchInput.SetValue("")
-			case core.KeyEnter:
-				m.editor.ExecuteSearch(m.searchInput.Value(), m.searchOptions)
-			}
-		}
-
 		/* TODO: Optimise to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
@@ -1263,20 +1237,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case enterSearchMode:
-		m.searchOptions.Backwards = msg.backwards
-		if msg.backwards {
-			m.searchInput.Prompt = "?"
-		} else {
-			m.searchInput.Prompt = "/"
-		}
-		m.searchInput.Focus()
-
 		if m.clearMsgCancel != nil {
 			return m, m.dispatchClearMsg(0)
 		}
 
 	case exitSearchMode:
-		m.searchInput.Blur()
 
 	case cursorBlinkMsg:
 		if m.isFocused && m.cursorMode == CursorBlink {
@@ -1338,12 +1303,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	cmds = append(cmds, viewportCmd)
 
-	if m.editor.IsSearchMode() {
-		searchInput, searchCmd := m.searchInput.Update(msg)
-		m.searchInput = searchInput
-		cmds = append(cmds, searchCmd)
-	}
-
 	// Note: calculateVisualMetrics() is called in handleContentChange() for KeyMsg events
 	// Other message types don't modify buffer content, so no recalculation needed.
 	// Rendering always uses the cached visual layout from the last calculation.
@@ -1399,13 +1358,14 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 	var active bool
 	padStyle := m.theme.CommandLineStyle
 	switch {
-	case m.editor.IsSearchMode():
-		commandLine = m.theme.CommandLineStyle.Render(m.searchInput.View())
+	case state.Mode == core.SearchMode && state.CommandCursor >= 0:
+		styles := editedCommandLineStyles(m.theme, true)
+		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor, styles)
 		active = true
 		// Carry the query's background to the end of the row, so a theme
 		// that gives the search text a background of its own gets a whole
 		// search bar rather than a patch behind the text.
-		padStyle = padStyle.Background(m.searchInput.Styles().Focused.Text.GetBackground())
+		padStyle = padStyle.Background(styles.text.GetBackground())
 	case m.err != nil:
 		commandLine = m.theme.ErrorStyle.
 			Background(m.theme.CommandLineStyle.GetBackground()).
@@ -1417,10 +1377,15 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 			Render(m.message)
 		active = true
 	case state.Mode == core.CommandMode && state.CommandCursor >= 0:
-		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor)
+		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor, editedCommandLineStyles(m.theme, false))
 		active = true
 	default:
-		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
+		text := state.CommandLine
+		if text == "" {
+			// Pending keys cover the last search, as Vim's showcmd.
+			text = state.SearchEcho
+		}
+		commandLine = m.theme.CommandLineStyle.Render(text)
 		active = state.Mode == core.CommandMode
 	}
 
@@ -1432,11 +1397,12 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 	return commandLine, active
 }
 
-// renderEditedCommandLine draws a command line being edited, with the
-// cursor as a reverse-video cell (a blank one past the end of the text). When
-// the text is wider than the row, it scrolls just far enough left to keep the
-// cursor in view.
-func (m Model) renderEditedCommandLine(text string, cursor int) string {
+// renderEditedCommandLine draws a command line being edited: its first rune
+// (the ':', '/' or '?' prompt) in the prompt style, the rest in the text
+// style, and the cursor as a reverse-video cell (a blank one past the end of
+// the text). When the text is wider than the row, it scrolls just far enough
+// left to keep the cursor in view, the prompt first.
+func (m Model) renderEditedCommandLine(text string, cursor int, styles commandLineStyles) string {
 	runes := []rune(text)
 	cursor = min(max(cursor, 0), len(runes))
 
@@ -1451,12 +1417,20 @@ func (m Model) renderEditedCommandLine(text string, cursor int) string {
 	for start < cursor && ansi.StringWidth(string(runes[start:cursor]))+ansi.StringWidth(under) > m.width {
 		start++
 	}
-	before := string(runes[start:cursor])
+	before := runes[start:cursor]
+	beforeWidth := ansi.StringWidth(string(before))
 
-	style := m.theme.CommandLineStyle
-	line := style.Render(before) + style.Reverse(true).Render(under)
-	if room := m.width - ansi.StringWidth(before) - ansi.StringWidth(under); room > 0 {
-		line += style.Render(ansi.Truncate(string(after), room, ""))
+	var line string
+	if start == 0 && len(before) > 0 {
+		line = styles.prompt.Render(string(before[:1]))
+		before = before[1:]
+	}
+	if len(before) > 0 {
+		line += styles.text.Render(string(before))
+	}
+	line += styles.cursor.Reverse(true).Render(under)
+	if room := m.width - beforeWidth - ansi.StringWidth(under); room > 0 && len(after) > 0 {
+		line += styles.text.Render(ansi.Truncate(string(after), room, ""))
 	}
 	return line
 }
@@ -1574,7 +1548,7 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 			return UndoLineMsg{Edits: signal.Value()}
 
 		case core.EnterSearchModeSignal:
-			return enterSearchMode{backwards: signal.Backwards}
+			return enterSearchMode{}
 
 		case core.ExitSearchModeSignal:
 			return exitSearchMode{}

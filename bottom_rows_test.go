@@ -145,12 +145,8 @@ func TestStatusRowShowsMessagesWithoutCommandLine(t *testing.T) {
 // just up to the first SGR reset.
 func TestSearchRowFillsWidthWithCommandLineBackground(t *testing.T) {
 	m := newBottomRowsModel(40, 10, nil)
-	m = typeRune('/')(m)
+	m = typeText("/li")(m)
 	require.True(t, m.editor.IsSearchMode())
-	// Focus and keys reach the input through the editor's update channel,
-	// which these synchronous helpers don't drain.
-	m.searchInput.Focus()
-	m.searchInput.SetValue("li")
 
 	row, active := m.getCommandLine(m.editor.GetState())
 	assert.True(t, active)
@@ -179,10 +175,8 @@ func TestSearchRowPadsWithSearchTextBackground(t *testing.T) {
 	theme.SearchInputTextStyle = theme.SearchInputTextStyle.Background(lipgloss.Color("#123456"))
 	m.WithTheme(theme)
 
-	m = typeRune('/')(m)
+	m = typeText("/li")(m)
 	require.True(t, m.editor.IsSearchMode())
-	m.searchInput.Focus()
-	m.searchInput.SetValue("li")
 
 	row, _ := m.getCommandLine(m.editor.GetState())
 	assert.Equal(t, 40, ansi.StringWidth(row))
