@@ -448,11 +448,7 @@ func New(width, height int, opts ...Option) Model {
 
 	defaultTheme := DefaultTheme(cfg.isDark)
 
-	styles := textinput.DefaultStyles(cfg.isDark)
-	styles.Focused.Prompt = defaultTheme.SearchInputPromptStyle
-	styles.Focused.Text = defaultTheme.SearchInputTextStyle
-	styles.Blurred.Prompt = defaultTheme.SearchInputPromptStyle
-	styles.Blurred.Text = defaultTheme.SearchInputTextStyle
+	styles := searchInputStyles(textinput.DefaultStyles(cfg.isDark), defaultTheme)
 	styles.Cursor.Blink = false
 	searchInput.SetStyles(styles)
 
@@ -559,13 +555,30 @@ func (m *Model) SetContent(content string) {
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 
-	styles := m.searchInput.Styles()
-	styles.Focused.Prompt = theme.SearchInputPromptStyle
-	styles.Focused.Text = theme.SearchInputTextStyle
-	styles.Blurred.Prompt = theme.SearchInputPromptStyle
-	styles.Blurred.Text = theme.SearchInputTextStyle
-	m.searchInput.SetStyles(styles)
+	m.searchInput.SetStyles(searchInputStyles(m.searchInput.Styles(), theme))
 	m.precomputedCompletionStyles = setupCompletionStyles(theme)
+}
+
+// searchInputStyles applies the theme's search input styles. The prompt and
+// the text each end in an SGR reset, which would drop the background of the
+// surrounding command line, so they carry the command line background
+// themselves (unless the theme gives them one of their own). The rest of the
+// row is padded with the text style's background, see getCommandLine.
+func searchInputStyles(styles textinput.Styles, theme Theme) textinput.Styles {
+	bg := theme.CommandLineStyle.GetBackground()
+	withBg := func(s lipgloss.Style) lipgloss.Style {
+		if _, none := s.GetBackground().(lipgloss.NoColor); none {
+			return s.Background(bg)
+		}
+		return s
+	}
+	prompt := withBg(theme.SearchInputPromptStyle)
+	text := withBg(theme.SearchInputTextStyle)
+	styles.Focused.Prompt = prompt
+	styles.Focused.Text = text
+	styles.Blurred.Prompt = prompt
+	styles.Blurred.Text = text
+	return styles
 }
 
 // WithSearchOptions allows setting custom search options.
@@ -1367,13 +1380,17 @@ func (m Model) View() string {
 // (a count, or an operator waiting for its motion) don't count: they're too
 // brief to be worth hiding the status line for.
 func (m Model) getCommandLine(state core.State) (string, bool) {
-	if m.editor.IsSearchMode() {
-		return m.theme.CommandLineStyle.Render(m.searchInput.View()), true
-	}
-
 	var commandLine string
 	var active bool
+	padStyle := m.theme.CommandLineStyle
 	switch {
+	case m.editor.IsSearchMode():
+		commandLine = m.theme.CommandLineStyle.Render(m.searchInput.View())
+		active = true
+		// Carry the query's background to the end of the row, so a theme
+		// that gives the search text a background of its own gets a whole
+		// search bar rather than a patch behind the text.
+		padStyle = padStyle.Background(m.searchInput.Styles().Focused.Text.GetBackground())
 	case m.err != nil:
 		commandLine = m.theme.ErrorStyle.
 			Background(m.theme.CommandLineStyle.GetBackground()).
@@ -1391,7 +1408,7 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 
 	paddingWidth := m.width - lipgloss.Width(commandLine)
 	if paddingWidth > 0 {
-		commandLine += m.theme.CommandLineStyle.Render(strings.Repeat(" ", paddingWidth))
+		commandLine += padStyle.Render(strings.Repeat(" ", paddingWidth))
 	}
 
 	return commandLine, active

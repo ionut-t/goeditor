@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,4 +135,65 @@ func TestStatusRowShowsMessagesWithoutCommandLine(t *testing.T) {
 
 	m.message = ""
 	assert.Contains(t, viewLines(m)[9], "NORMAL")
+}
+
+// TestSearchRowFillsWidthWithCommandLineBackground checks that the search
+// prompt row looks like the command-mode row: padded to the full width, and
+// with the command line background behind the prompt and the query too, not
+// just up to the first SGR reset.
+func TestSearchRowFillsWidthWithCommandLineBackground(t *testing.T) {
+	m := newBottomRowsModel(40, 10, nil)
+	m = typeRune('/')(m)
+	require.True(t, m.editor.IsSearchMode())
+	// Focus and keys reach the input through the editor's update channel,
+	// which these synchronous helpers don't drain.
+	m.searchInput.Focus()
+	m.searchInput.SetValue("li")
+
+	row, active := m.getCommandLine(m.editor.GetState())
+	assert.True(t, active)
+	assert.Equal(t, 40, ansi.StringWidth(row), "search row should span the full width: %q", row)
+
+	bg := m.theme.CommandLineStyle.GetBackground()
+	r, g, b, _ := bg.RGBA()
+	bgSGR := fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+	// Each segment ends in a reset, so each one with visible text must set
+	// the background again. The cursor is reverse video and needs none.
+	for _, seg := range strings.Split(row, "\x1b[m") {
+		visible := ansi.Strip(seg)
+		if visible == "" || strings.Contains(seg, "\x1b[7") {
+			continue
+		}
+		assert.Contains(t, seg, bgSGR, "segment %q has no command line background", visible)
+	}
+}
+
+// TestSearchRowPadsWithSearchTextBackground checks that a theme giving the
+// search text a background of its own gets it across the whole row, not just
+// behind the query.
+func TestSearchRowPadsWithSearchTextBackground(t *testing.T) {
+	m := newBottomRowsModel(40, 10, nil)
+	theme := DefaultTheme(true)
+	theme.SearchInputTextStyle = theme.SearchInputTextStyle.Background(lipgloss.Color("#123456"))
+	m.WithTheme(theme)
+
+	m = typeRune('/')(m)
+	require.True(t, m.editor.IsSearchMode())
+	m.searchInput.Focus()
+	m.searchInput.SetValue("li")
+
+	row, _ := m.getCommandLine(m.editor.GetState())
+	assert.Equal(t, 40, ansi.StringWidth(row))
+
+	segs := strings.Split(row, "\x1b[m")
+	var padding string
+	for i := len(segs) - 1; i >= 0; i-- {
+		if ansi.Strip(segs[i]) != "" {
+			padding = segs[i]
+			break
+		}
+	}
+	require.Empty(t, strings.TrimSpace(ansi.Strip(padding)), "last segment should be padding: %q", padding)
+	assert.Contains(t, padding, "48;2;18;52;86", "padding should use the search text background: %q", padding)
+	assert.NotContains(t, padding, "48;2;30;30;46")
 }
