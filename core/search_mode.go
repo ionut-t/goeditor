@@ -1,9 +1,10 @@
 package core
 
 // searchMode is the '/' and '?' search line: edited like the ':' command line
-// (cmdline), and searched on <CR>. The line keeps its text and cursor after a
-// search, so the next '/' or '?' starts from the last pattern typed;
-// abandoning it empties it.
+// (cmdline), and searched on <CR>. The next '/' or '?' opens with the last
+// search's pattern, whichever command searched (/, ?, *, #, or an empty
+// <CR> reusing it), and with the cursor where it was when that pattern was
+// typed here, at its end otherwise; abandoning the line empties it.
 type searchMode struct {
 	baseMode
 	line      cmdline
@@ -30,7 +31,11 @@ func (m *searchMode) prompt() string {
 }
 
 func (m *searchMode) Enter(editor Editor, buffer Buffer) {
-	m.backwards = editor.GetState().SearchOptions.Backwards
+	state := editor.GetState()
+	m.backwards = state.SearchOptions.Backwards
+	if pattern := state.SearchQuery.Pattern; pattern != string(m.line.text) {
+		m.line.set(pattern)
+	}
 	editor.DispatchSignal(EnterSearchModeSignal{Backwards: m.backwards})
 	m.line.publish(editor, m.prompt())
 }

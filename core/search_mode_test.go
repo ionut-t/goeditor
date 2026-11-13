@@ -79,6 +79,39 @@ func TestSearchEchoStays(t *testing.T) {
 	}
 }
 
+// TestSearchEchoAfterRepeat checks that n, N, * and # leave the search on the
+// command line with the direction they went, as Vim 9.2 in a terminal (also
+// after a mode change cleared the last echo).
+func TestSearchEchoAfterRepeat(t *testing.T) {
+	tests := []struct {
+		keys string
+		echo string
+	}{
+		{"/bar<CR>n", "/bar"},
+		{"/bar<CR>N", "?bar"},
+		{"/bar<CR>nN", "?bar"},
+		{"?bar<CR>n", "?bar"},
+		{"?bar<CR>N", "/bar"},
+		{"/bar<CR>v<Esc>n", "/bar"},
+		{"/bar<CR>i<Esc>n", "/bar"},
+		{"/bar<CR>:<Esc>n", "/bar"},
+		{"/bar<CR>/x<Esc>n", ""},
+		{"*", `/\<foo\>`},
+		{"*N", `?\<foo\>`},
+		{"j#", `?\<bar\>`},
+		{"j#n", `?\<bar\>`},
+		{"/bar<CR>*", `/\<bar\>`},
+		{"v*", `/\<foo\>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(searchModeContent)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.echo, e.GetState().SearchEcho)
+		})
+	}
+}
+
 // TestSearchLineKeepsPattern checks that the search line opens with the last
 // pattern typed, and its cursor where it was, and that abandoning it empties
 // it.
@@ -95,6 +128,13 @@ func TestSearchLineKeepsPattern(t *testing.T) {
 		{"/bar<CR>/2<CR>/", "/bar2", 5},
 		{"/bar<CR>/<Esc>/", "/", 1},
 		{"/bar<Esc>/", "/", 1},
+		// The last search's pattern, whichever command searched, with the
+		// cursor at its end.
+		{"*/", `/\<foo\>`, 8},
+		{"j#?", `?\<bar\>`, 8},
+		{"/bar<Left><CR>*/", `/\<bar\>`, 8},
+		{"/bar<CR>/<C-U><CR>/", "/bar", 4},
+		{"*/<C-U><CR>/", `/\<foo\>`, 8},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {
@@ -103,6 +143,60 @@ func TestSearchLineKeepsPattern(t *testing.T) {
 			require.True(t, e.IsSearchMode())
 			assert.Equal(t, tt.commandLine, e.GetState().CommandLine)
 			assert.Equal(t, tt.cursor, e.GetState().CommandCursor)
+		})
+	}
+}
+
+// TestSearchEmptyPattern checks that an empty "/<CR>" or "?<CR>" reuses the
+// last search in the new direction, which n and N then follow, as Vim 9.2.
+// The line opens with the last pattern, so the cases empty it with <C-U>.
+func TestSearchEmptyPattern(t *testing.T) {
+	tests := []struct {
+		content string
+		keys    string
+		cursor  Position
+		echo    string
+	}{
+		{searchModeContent, "/bar<CR>gg/<C-U><CR>", Position{1, 0}, "/bar"},
+		{searchModeContent, "/bar<CR>/<C-U><CR>", Position{3, 0}, "/bar"},
+		{searchModeContent, "/bar<CR>/<C-U><CR>N", Position{1, 0}, "?bar"},
+		{searchModeContent, "/bar<CR>G?<C-U><CR>", Position{1, 0}, "?bar"},
+		{searchModeContent, "/bar<CR>G?<C-U><CR>n", Position{3, 0}, "?bar"},
+		{searchModeContent, "?bar<CR>gg/<C-U><CR>n", Position{3, 0}, "/bar"},
+		{searchModeContent, "/BAR\\c<CR>gg/<C-U><CR>", Position{1, 0}, "/BAR\\c"},
+		// * keeps its whole-word match: foobar and xfoo are skipped.
+		{"foo foobar\nxfoo foo", "*gg/<C-U><CR>", Position{1, 5}, `/\<foo\>`},
+		{"foo foobar\nxfoo foo", "*gg/<C-U><CR>n", Position{0, 0}, `/\<foo\>`},
+		{"foo foobar\nxfoo foo", "*gg?<C-U><CR>n", Position{0, 0}, `?\<foo\>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.keys, func(t *testing.T) {
+			e, _ := newTestEditorWithClipboard(tt.content)
+			typeKeys(t, e, tt.keys)
+			assert.Equal(t, tt.cursor, cursorPos(e))
+			assert.Equal(t, NormalMode, e.GetState().Mode)
+			assert.Equal(t, tt.echo, e.GetState().SearchEcho)
+		})
+	}
+}
+
+// TestSearchEmptyPatternWithoutLastSearch checks Vim's E35: an empty search
+// with no last search moves nothing and reports ErrNoPreviousPattern. Unlike
+// Vim, abandoning the search line clears the last search (a kept divergence),
+// so "/bar<CR>/<Esc>/<CR>" fails too, where Vim searches for bar.
+func TestSearchEmptyPatternWithoutLastSearch(t *testing.T) {
+	for _, keys := range []string{"/<CR>", "?<CR>", "v/<CR>", "/bar<CR>gg/<Esc>/<CR>"} {
+		t.Run(keys, func(t *testing.T) {
+			e := newTestEditor(searchModeContent)
+			typeKeys(t, e, keys)
+			assert.Equal(t, Position{0, 0}, cursorPos(e))
+			assert.False(t, e.IsSearchMode())
+			assert.Equal(t, "", e.GetState().SearchEcho)
+
+			assert.Equal(t, ErrNoPreviousPatternId, nextErrorID(t, e))
+
+			typeKeys(t, e, "n")
+			assert.Equal(t, Position{0, 0}, cursorPos(e), "n has nothing to repeat")
 		})
 	}
 }

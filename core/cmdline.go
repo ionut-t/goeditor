@@ -23,6 +23,12 @@ func (c *cmdline) reset() {
 	c.cursor = 0
 }
 
+// set replaces the text, with the cursor at its end.
+func (c *cmdline) set(text string) {
+	c.text = []rune(text)
+	c.cursor = len(c.text)
+}
+
 // publish shows prompt, the text and the cursor on the command line.
 func (c *cmdline) publish(editor Editor, prompt string) {
 	editor.UpdateCommandLine(prompt+string(c.text), c.cursor+len([]rune(prompt)))
