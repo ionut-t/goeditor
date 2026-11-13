@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/textinput"
@@ -1091,6 +1092,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			break
 		}
 
+		// One key press can carry several runes: a grapheme cluster typed as
+		// one character (e + U+0301, a flag, a ZWJ emoji) or a Kitty keyboard
+		// event's associated text. The core takes one rune per key, so feed
+		// them one at a time, as if typed in a row.
+		if press, ok := msg.(tea.KeyPressMsg); ok && utf8.RuneCountInString(press.Text) > 1 {
+			for _, r := range press.Text {
+				var cmd tea.Cmd
+				m, cmd = m.Update(tea.KeyPressMsg{Code: r, Text: string(r), Mod: press.Mod})
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		keyEvent := convertBubbleKey(msg)
 		skipNormalKeyHandling := false
 
@@ -1586,7 +1600,7 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 	result := core.KeyEvent{}
 
 	if k.Text != "" {
-		result.Rune = rune(k.Text[0])
+		result.Rune, _ = utf8.DecodeRuneInString(k.Text)
 	}
 
 	if k.Mod&tea.ModAlt != 0 {
