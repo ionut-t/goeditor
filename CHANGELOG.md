@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.23.0](https://github.com/ionut-t/goeditor/compare/v0.22.0...v0.23.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cmdline:** The internal constructor newSearchMode now requires an additional *histories parameter.
+
+### Features
+
+* **cmdline:** add command and search history ([8463986](https://github.com/ionut-t/goeditor/commit/846398645a55776511f5ebc3872fafc687e06617))
+
 ## [0.22.0](https://github.com/ionut-t/goeditor/compare/v0.21.0...v0.22.0) (2026-11-13)
 
 
