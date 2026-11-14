@@ -6,6 +6,10 @@ package core
 type cmdline struct {
 	text   []rune
 	cursor int // index into text, 0..len(text)
+
+	// history is the list <Up> and <Down> walk (see browseHistory).
+	history *[]string
+	browse  historyBrowse
 }
 
 // cmdlineResult is what a key did to the command line.
@@ -18,9 +22,12 @@ const (
 	cmdlineAbandon                      // <Esc>, or <BS>/<Del> on an empty line
 )
 
+// reset empties the line for a new command line, which starts past the newest
+// history entry.
 func (c *cmdline) reset() {
 	c.text = nil
 	c.cursor = 0
+	c.browse.reset()
 }
 
 // set replaces the text, with the cursor at its end.
@@ -35,11 +42,27 @@ func (c *cmdline) publish(editor Editor, prompt string) {
 }
 
 // handleKey applies an editing key. Keys that need features goeditor doesn't
-// have yet (<C-R> registers, <C-V> literals, <C-K> digraphs, history,
-// completion) are ignored, and <C-C> is left to the host.
+// have yet (<C-R> registers, <C-V> literals, <C-K> digraphs, completion) are
+// ignored, and <C-C> is left to the host.
 func (c *cmdline) handleKey(key KeyEvent) cmdlineResult {
 	if key.IsCtrl('j') || key.IsCtrl('m') {
 		key = KeyEvent{Key: KeyEnter}
+	}
+
+	if ok, older, prefix := historyKey(key); ok {
+		var list []string
+		if c.history != nil {
+			list = *c.history
+		}
+		if !c.browseHistory(list, older, prefix) {
+			return cmdlineIgnored
+		}
+		return cmdlineEdited
+	}
+	// As Vim's, <Left> and <Right> keep walking with the same prefix; any
+	// other key starts the next walk from the line as it is then.
+	if (key.Key != KeyLeft && key.Key != KeyRight) || key.Modifiers != 0 {
+		c.browse.browsing = false
 	}
 
 	switch key.Key {

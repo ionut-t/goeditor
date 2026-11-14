@@ -844,6 +844,44 @@ func (m *Model) SetMoveAcrossLines(enabled bool) {
 	m.editor.SetMoveAcrossLines(enabled)
 }
 
+// CommandLineHistory returns the commands or searches the user has entered,
+// oldest first. Pass core.CommandHistory for ':' commands or
+// core.SearchHistory for searches.
+//
+// The editor forgets its history when it is closed. To keep it between
+// sessions, save what this returns when your app quits and pass it to
+// SetCommandLineHistory on the next start:
+//
+//	saved := m.CommandLineHistory(core.CommandHistory)
+//	// ... next session:
+//	m.SetCommandLineHistory(core.CommandHistory, saved)
+//
+// The returned slice is a copy, so it is safe to keep or modify.
+func (m *Model) CommandLineHistory(kind core.HistoryKind) []string {
+	return m.editor.CommandLineHistory(kind)
+}
+
+// SetCommandLineHistory replaces the command or search history with entries,
+// listed oldest first, usually ones saved earlier with CommandLineHistory. The
+// user can then bring them back with the Up and Down keys.
+//
+// Empty entries are skipped and duplicates are kept once, at their latest
+// position. If there are more entries than the history size, only the newest
+// ones are kept.
+func (m *Model) SetCommandLineHistory(kind core.HistoryKind, entries []string) {
+	m.editor.SetCommandLineHistory(kind, entries)
+}
+
+// SetCommandLineHistorySize sets how many entries the command history and the
+// search history each keep. The default is 200 (core.DefaultHistorySize), and
+// 0 turns history off. When a history is full, the oldest entry is dropped.
+//
+// This is the same setting as ":set history". It does not affect undo; use
+// SetMaxHistory for that.
+func (m *Model) SetCommandLineHistorySize(n int) {
+	m.editor.SetCommandLineHistorySize(n)
+}
+
 // mapTimeoutCmd starts the 'timeoutlen' timer when the editor is holding keys
 // that a later key could still turn into a longer mapping. The core has no
 // timers of its own, so nothing else will resolve them.

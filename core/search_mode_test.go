@@ -112,44 +112,22 @@ func TestSearchEchoAfterRepeat(t *testing.T) {
 	}
 }
 
-// TestSearchLineKeepsPattern checks that the search line opens with the last
-// pattern typed, and its cursor where it was, and that abandoning it empties
-// it.
-func TestSearchLineKeepsPattern(t *testing.T) {
-	tests := []struct {
-		keys        string
-		commandLine string
-		cursor      int
-	}{
-		{"/bar<CR>/", "/bar", 4},
-		{"/bar<CR>?", "?bar", 4},
-		{"/bar<Left><CR>/", "/bar", 3},
-		{"/bar<CR>/<C-U>foo", "/foo", 4},
-		{"/bar<CR>/2<CR>/", "/bar2", 5},
-		{"/bar<CR>/<Esc>/", "/", 1},
-		{"/bar<Esc>/", "/", 1},
-		// The last search's pattern, whichever command searched, with the
-		// cursor at its end.
-		{"*/", `/\<foo\>`, 8},
-		{"j#?", `?\<bar\>`, 8},
-		{"/bar<Left><CR>*/", `/\<bar\>`, 8},
-		{"/bar<CR>/<C-U><CR>/", "/bar", 4},
-		{"*/<C-U><CR>/", `/\<foo\>`, 8},
-	}
-	for _, tt := range tests {
-		t.Run(tt.keys, func(t *testing.T) {
+// TestSearchLineOpensEmpty checks that the search line opens empty, as Vim's,
+// whatever searched last; earlier patterns come back with <Up>.
+func TestSearchLineOpensEmpty(t *testing.T) {
+	for _, keys := range []string{"/bar<CR>/", "/bar<CR>?", "/bar<Esc>/", "*/", "j#?"} {
+		t.Run(keys, func(t *testing.T) {
 			e := newTestEditor(searchModeContent)
-			typeKeys(t, e, tt.keys)
+			typeKeys(t, e, keys)
 			require.True(t, e.IsSearchMode())
-			assert.Equal(t, tt.commandLine, e.GetState().CommandLine)
-			assert.Equal(t, tt.cursor, e.GetState().CommandCursor)
+			assert.Equal(t, keys[len(keys)-1:], e.GetState().CommandLine)
+			assert.Equal(t, 1, e.GetState().CommandCursor)
 		})
 	}
 }
 
 // TestSearchEmptyPattern checks that an empty "/<CR>" or "?<CR>" reuses the
 // last search in the new direction, which n and N then follow, as Vim 9.2.
-// The line opens with the last pattern, so the cases empty it with <C-U>.
 func TestSearchEmptyPattern(t *testing.T) {
 	tests := []struct {
 		content string
@@ -157,17 +135,17 @@ func TestSearchEmptyPattern(t *testing.T) {
 		cursor  Position
 		echo    string
 	}{
-		{searchModeContent, "/bar<CR>gg/<C-U><CR>", Position{1, 0}, "/bar"},
-		{searchModeContent, "/bar<CR>/<C-U><CR>", Position{3, 0}, "/bar"},
-		{searchModeContent, "/bar<CR>/<C-U><CR>N", Position{1, 0}, "?bar"},
-		{searchModeContent, "/bar<CR>G?<C-U><CR>", Position{1, 0}, "?bar"},
-		{searchModeContent, "/bar<CR>G?<C-U><CR>n", Position{3, 0}, "?bar"},
-		{searchModeContent, "?bar<CR>gg/<C-U><CR>n", Position{3, 0}, "/bar"},
-		{searchModeContent, "/BAR\\c<CR>gg/<C-U><CR>", Position{1, 0}, "/BAR\\c"},
+		{searchModeContent, "/bar<CR>gg/<CR>", Position{1, 0}, "/bar"},
+		{searchModeContent, "/bar<CR>/<CR>", Position{3, 0}, "/bar"},
+		{searchModeContent, "/bar<CR>/<CR>N", Position{1, 0}, "?bar"},
+		{searchModeContent, "/bar<CR>G?<CR>", Position{1, 0}, "?bar"},
+		{searchModeContent, "/bar<CR>G?<CR>n", Position{3, 0}, "?bar"},
+		{searchModeContent, "?bar<CR>gg/<CR>n", Position{3, 0}, "/bar"},
+		{searchModeContent, "/BAR\\c<CR>gg/<CR>", Position{1, 0}, "/BAR\\c"},
 		// * keeps its whole-word match: foobar and xfoo are skipped.
-		{"foo foobar\nxfoo foo", "*gg/<C-U><CR>", Position{1, 5}, `/\<foo\>`},
-		{"foo foobar\nxfoo foo", "*gg/<C-U><CR>n", Position{0, 0}, `/\<foo\>`},
-		{"foo foobar\nxfoo foo", "*gg?<C-U><CR>n", Position{0, 0}, `?\<foo\>`},
+		{"foo foobar\nxfoo foo", "*gg/<CR>", Position{1, 5}, `/\<foo\>`},
+		{"foo foobar\nxfoo foo", "*gg/<CR>n", Position{0, 0}, `/\<foo\>`},
+		{"foo foobar\nxfoo foo", "*gg?<CR>n", Position{0, 0}, `?\<foo\>`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {
