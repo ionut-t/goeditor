@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -250,4 +253,42 @@ func TestHistoryHostAPI(t *testing.T) {
 		assert.Nil(t, e.CommandLineHistory(HistoryKind(7)))
 		assert.Nil(t, e.CommandLineHistory(HistoryKind(-1)))
 	})
+}
+
+// TestSetCommandLineHistoryMatchesAdd checks that restoring a history gives
+// the same list as adding its entries one at a time, as the user typing them
+// would.
+func TestSetCommandLineHistoryMatchesAdd(t *testing.T) {
+	r := rand.New(rand.NewPCG(1, 2))
+	for range 500 {
+		size := r.IntN(8)
+		entries := make([]string, r.IntN(20))
+		for i := range entries {
+			entries[i] = strings.Repeat("x", r.IntN(6)) // "" sometimes, many duplicates
+		}
+
+		want := histories{size: size}
+		for _, entry := range entries {
+			want.add(SearchHistory, entry)
+		}
+
+		e := newTestEditor("")
+		e.SetCommandLineHistorySize(size)
+		e.SetCommandLineHistory(SearchHistory, entries)
+		require.Equal(t, nilIfEmpty(want.lists[SearchHistory]), nilIfEmpty(e.CommandLineHistory(SearchHistory)), "size %d, entries %q", size, entries)
+	}
+}
+
+// BenchmarkSetCommandLineHistory restores a full history at the largest size
+// ':set history' allows.
+func BenchmarkSetCommandLineHistory(b *testing.B) {
+	entries := make([]string, 10000)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("echo %d", i)
+	}
+	e := newTestEditor("")
+	e.SetCommandLineHistorySize(10000)
+	for b.Loop() {
+		e.SetCommandLineHistory(CommandHistory, entries)
+	}
 }

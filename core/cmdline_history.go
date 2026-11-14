@@ -65,10 +65,21 @@ func (e *editor) SetCommandLineHistory(kind HistoryKind, entries []string) {
 	if kind < 0 || kind >= historyKinds {
 		return
 	}
-	e.histories.lists[kind] = nil
-	for _, entry := range entries {
-		e.histories.add(kind, entry)
+	// One pass from the newest entry back, so restoring a long history takes
+	// linear time: calling add for each entry would rescan the list each time.
+	size := e.histories.size
+	list := make([]string, 0, min(len(entries), size))
+	seen := make(map[string]struct{}, cap(list))
+	for i := len(entries) - 1; i >= 0 && len(list) < size; i-- {
+		entry := entries[i]
+		if _, dup := seen[entry]; dup || entry == "" {
+			continue
+		}
+		seen[entry] = struct{}{}
+		list = append(list, entry)
 	}
+	slices.Reverse(list)
+	e.histories.lists[kind] = list
 }
 
 // SetCommandLineHistorySize sets how many entries each history keeps, the
