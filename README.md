@@ -177,6 +177,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 - `:set nornu` - Disable relative line numbers
 - `:set mapleader=,` - Set the `<leader>` key used by mappings
 - `:map`, `:nmap`, `:vmap`, `:imap`, `:omap` and their `noremap` / `unmap` / `mapclear` variants - see [Key Mapping](#key-mapping)
+- `:set history=200` - How many entries each command-line history keeps (Vim's default, 200; `0` keeps none)
+
+The `:` line and the `/` / `?` search lines open empty and keep separate histories, as Vim's: `Up` / `Down` bring back earlier entries that start with what is typed before the cursor, and `Shift+Up` / `Shift+Down`, `PageUp` / `PageDown` and `Ctrl+P` / `Ctrl+N` walk every entry. Lines are added when they are run or abandoned with `Esc`, and `*` / `#` add their pattern. The history lives only as long as the editor; to keep it between sessions, save it with `model.CommandLineHistory(core.CommandHistory)` (and `core.SearchHistory`) when the host quits and restore it with `model.SetCommandLineHistory` (both oldest entry first). `model.SetCommandLineHistorySize` sets the size, as `:set history` does.
 
 ## Key Mapping
 

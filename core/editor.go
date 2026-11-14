@@ -112,6 +112,16 @@ type Editor interface {
 	// default is Vim's: case sensitive, wrapping.
 	SetSearchOptions(SearchOptions)
 
+	// Command and search history: what the user typed after ':', '/' or '?',
+	// brought back with the Up and Down keys. Lists are oldest first. To keep
+	// history between sessions, save it with CommandLineHistory and load it
+	// back with SetCommandLineHistory. This is not the undo history (see
+	// SetMaxHistory).
+	CommandLineHistory(kind HistoryKind) []string
+	SetCommandLineHistory(kind HistoryKind, entries []string)
+	SetCommandLineHistorySize(n int) // How many entries each history keeps; 200 by default
+	CommandLineHistorySize() int
+
 	// History management. Undo, Redo and UndoLine return the edits they applied.
 	Undo() ([]TextEdit, error)
 	Redo() ([]TextEdit, error)
@@ -206,6 +216,9 @@ type editor struct {
 	// (SetSearchOptions).
 	searchOptions SearchOptions
 
+	// histories are the ':' and search command-line histories.
+	histories histories
+
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
 	lineHeightFunc    LineHeightFunc
@@ -240,6 +253,7 @@ func New(clipboard Clipboard) Editor {
 		mapTimeout:    true,
 		mapTimeoutLen: DefaultMapTimeoutLen,
 		searchOptions: SearchOptions{Wrap: true},
+		histories:     histories{size: DefaultHistorySize},
 	}
 	e.buffer = &recordingBuffer{Buffer: NewBuffer(), e: e}
 
@@ -248,8 +262,8 @@ func New(clipboard Clipboard) Editor {
 	e.modes[InsertMode] = NewInsertMode()
 	e.modes[VisualMode] = newVisualMode(&e.charSearch)
 	e.modes[VisualLineMode] = newVisualLineMode(&e.charSearch)
-	e.modes[CommandMode] = NewCommandMode()
-	e.modes[SearchMode] = newSearchMode(&e.searchOptions)
+	e.modes[CommandMode] = newCommandMode(&e.histories, &e.mapDepth)
+	e.modes[SearchMode] = newSearchMode(&e.searchOptions, &e.histories)
 
 	// Set initial mode
 	initialModeName := e.state.Mode

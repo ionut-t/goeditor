@@ -1,24 +1,28 @@
 package core
 
 // searchMode is the '/' and '?' search line: edited like the ':' command line
-// (cmdline), and searched on <CR>. The next '/' or '?' opens with the last
-// search's pattern, whichever command searched (/, ?, *, #, or an empty
-// <CR> reusing it), and with the cursor where it was when that pattern was
-// typed here, at its end otherwise; abandoning the line empties it.
+// (cmdline), and searched on <CR>. It opens empty; <Up> and <Down> bring back
+// earlier patterns from the search history, which the line adds to when it is
+// run or abandoned, as Vim's.
 type searchMode struct {
 	baseMode
 	line      cmdline
 	backwards bool
 	options   *SearchOptions // the editor's SetSearchOptions
+	histories *histories     // the editor's, nil for NewSearchMode
 }
 
 // NewSearchMode returns a search mode that runs searches with Vim's default
 // options. The editor's own search mode uses the options set with
 // SetSearchOptions.
-func NewSearchMode() EditorMode { return newSearchMode(&SearchOptions{Wrap: true}) }
+func NewSearchMode() EditorMode { return newSearchMode(&SearchOptions{Wrap: true}, nil) }
 
-func newSearchMode(options *SearchOptions) *searchMode {
-	return &searchMode{options: options}
+func newSearchMode(options *SearchOptions, h *histories) *searchMode {
+	m := &searchMode{options: options, histories: h}
+	if h != nil {
+		m.line.history = &h.lists[SearchHistory]
+	}
+	return m
 }
 
 func (m *searchMode) Name() Mode { return SearchMode }
@@ -33,9 +37,7 @@ func (m *searchMode) prompt() string {
 func (m *searchMode) Enter(editor Editor, buffer Buffer) {
 	state := editor.GetState()
 	m.backwards = state.SearchOptions.Backwards
-	if pattern := state.SearchQuery.Pattern; pattern != string(m.line.text) {
-		m.line.set(pattern)
-	}
+	m.line.reset()
 	editor.DispatchSignal(EnterSearchModeSignal{Backwards: m.backwards})
 	m.line.publish(editor, m.prompt())
 }
@@ -51,9 +53,10 @@ func (m *searchMode) Exit(editor Editor, buffer Buffer) {
 func (m *searchMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *EditorError {
 	switch m.line.handleKey(key) {
 	case cmdlineAbandon:
-		m.line.reset()
+		m.addHistory()
 		editor.CancelSearch()
 	case cmdlineEnter:
+		m.addHistory()
 		options := *m.options
 		options.Backwards = m.backwards
 		editor.ExecuteSearch(string(m.line.text), options)
@@ -61,4 +64,12 @@ func (m *searchMode) HandleKey(editor Editor, buffer Buffer, key KeyEvent) *Edit
 		m.line.publish(editor, m.prompt())
 	}
 	return nil
+}
+
+// addHistory keeps the line in the search history. Unlike the ':' line, a
+// search line from a mapping is kept too, as Vim's.
+func (m *searchMode) addHistory() {
+	if m.histories != nil {
+		m.histories.add(SearchHistory, string(m.line.text))
+	}
 }

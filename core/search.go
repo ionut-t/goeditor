@@ -219,9 +219,10 @@ func (e *editor) searchMatchesAt(pos Position) bool {
 // searches for the keyword under or after the cursor as a whole word or, with
 // none on the rest of the line, for the non-blank text there as it is (see
 // starTarget). As Vim's, the search starts from the start of that text, and
-// the last search's pattern is the one Vim keeps ("\<foo\>", or "++"). With
-// only blanks from the cursor to the end of the line it dispatches
-// ErrNoStringUnderCursor (Vim's E348) and moves nothing.
+// the last search's pattern, which also goes into the search history, is the
+// one Vim keeps ("\<foo\>", or "++"). With only blanks from the cursor to the
+// end of the line it dispatches ErrNoStringUnderCursor (Vim's E348) and moves
+// nothing.
 func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 	cursor := e.buffer.GetCursor()
 	line := e.buffer.GetLineRunes(cursor.Position.Row)
@@ -235,6 +236,8 @@ func (e *editor) SearchWordUnderCursor(backwards bool) Cursor {
 	if keyword {
 		query.Pattern = `\<` + text + `\>`
 	}
+
+	e.histories.add(SearchHistory, query.Pattern)
 
 	from := cursor
 	from.Position.Col = start

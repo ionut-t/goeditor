@@ -884,7 +884,7 @@ func TestSearchNotFound(t *testing.T) {
 		{false, "?zzz<CR>", Position{0, 0}, "pattern not found: zzz"},
 		{false, "/bar<CR>ddGddggn", Position{0, 0}, "pattern not found: bar"},
 		{false, "/bar<CR>ddGddggN", Position{0, 0}, "pattern not found: bar"},
-		{false, "/bar<CR>ddGdd/<C-U><CR>", Position{1, 0}, "pattern not found: bar"},
+		{false, "/bar<CR>ddGdd/<CR>", Position{1, 0}, "pattern not found: bar"},
 		{true, "/bar<CR>nn", Position{3, 0}, "search hit BOTTOM without match for: bar"},
 		{true, "G?bar<CR>n", Position{1, 0}, "search hit TOP without match for: bar"},
 		{true, "/zzz<CR>", Position{0, 0}, "search hit BOTTOM without match for: zzz"},
@@ -952,7 +952,7 @@ func TestRepeatAfterFailedSearch(t *testing.T) {
 		{"/zzz<CR>Ozzz<Esc>Gn", Position{0, 0}},
 		{"/zzz<CR>Ozzz<Esc>GN", Position{0, 0}},
 		{"?zzz<CR>Ozzz<Esc>jn", Position{0, 0}},
-		{"/bar<CR>/<C-U>zzz<CR>Ozzz<Esc>Gn", Position{1, 0}},
+		{"/bar<CR>/zzz<CR>Ozzz<Esc>Gn", Position{1, 0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.keys, func(t *testing.T) {
