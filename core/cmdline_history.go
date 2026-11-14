@@ -119,7 +119,10 @@ type historyBrowse struct {
 	// <Up> and <Down> look for, and the line <Down> past the newest entry
 	// brings back. browsing is false once a key other than the history keys,
 	// <Left> and <Right> has been typed; the next history key starts a new
-	// walk from index, with the line as it is then.
+	// walk from index, with the line as it is then. index is deliberately
+	// not reset to the newest entry here: Vim keeps hiscnt and only takes a
+	// new lookfor, so after ":ec<Up><BS><Up>" it shows the entry before the
+	// one <BS> edited, not the newest match.
 	lookfor  string
 	browsing bool
 }
