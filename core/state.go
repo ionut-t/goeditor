@@ -11,7 +11,15 @@ type State struct {
 	PreviousMode Mode   // Previous editing mode
 	StatusLine   string // Content of the status line (bottom line)
 	CommandLine  string // Current command being typed or message to display
-	Quit         bool   // Flag indicating if the editor should exit
+	// CommandCursor is the cursor's rune index in CommandLine while the user
+	// is editing it (command mode), or -1 when there is no cursor to show.
+	CommandCursor int
+	// SearchEcho is the last search as typed ("/pattern" or "?pattern"),
+	// which Vim leaves on the command line after <CR>. Pending keys (a count,
+	// an operator) are shown in CommandLine, so a host shows SearchEcho when
+	// CommandLine is empty. A mode change clears it.
+	SearchEcho string
+	Quit       bool // Flag indicating if the editor should exit
 
 	// Viewport information
 	TopLine        int // First buffer line in the window (0-indexed); see scroll.go
@@ -89,6 +97,7 @@ func InitialState() State {
 		PreviousMode:      "normal",
 		StatusLine:        "-- NORMAL --",
 		CommandLine:       "",
+		CommandCursor:     -1,
 		TopLine:           0,
 		ViewportHeight:    24,
 		ViewportWidth:     80,

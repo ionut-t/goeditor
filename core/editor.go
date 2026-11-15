@@ -99,11 +99,28 @@ type Editor interface {
 	SetState(State)       // Update the editor state (used internally)
 	UpdateStatus(string)  // Helper to set status line
 	UpdateCommand(string) // Helper to set command line
+	// UpdateCommandLine sets the command line with a cursor at the given
+	// rune index, for a command line the user is editing.
+	UpdateCommandLine(text string, cursor int)
 
 	// Command execution (Called from Command Mode)
 	ExecuteCommand(cmd string) *EditorError
 	ExecuteSearch(query string, searchOptions SearchOptions)
 	CancelSearch()
+	// SetSearchOptions sets the options a search typed after / or ? runs
+	// with: IgnoreCase, SmartCase and Wrap. The key sets Backwards. The
+	// default is Vim's: case sensitive, wrapping.
+	SetSearchOptions(SearchOptions)
+
+	// Command and search history: what the user typed after ':', '/' or '?',
+	// brought back with the Up and Down keys. Lists are oldest first. To keep
+	// history between sessions, save it with CommandLineHistory and load it
+	// back with SetCommandLineHistory. This is not the undo history (see
+	// SetMaxHistory).
+	CommandLineHistory(kind HistoryKind) []string
+	SetCommandLineHistory(kind HistoryKind, entries []string)
+	SetCommandLineHistorySize(n int) // How many entries each history keeps; 200 by default
+	CommandLineHistorySize() int
 
 	// History management. Undo, Redo and UndoLine return the edits they applied.
 	Undo() ([]TextEdit, error)
@@ -195,6 +212,13 @@ type editor struct {
 	// moveAcrossLines lets h, l and the arrow keys cross line boundaries.
 	moveAcrossLines bool
 
+	// searchOptions are the options a search typed after / or ? runs with
+	// (SetSearchOptions).
+	searchOptions SearchOptions
+
+	// histories are the ':' and search command-line histories.
+	histories histories
+
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
 	lineHeightFunc    LineHeightFunc
@@ -228,6 +252,8 @@ func New(clipboard Clipboard) Editor {
 		mapLeader:     DefaultMapLeader,
 		mapTimeout:    true,
 		mapTimeoutLen: DefaultMapTimeoutLen,
+		searchOptions: SearchOptions{Wrap: true},
+		histories:     histories{size: DefaultHistorySize},
 	}
 	e.buffer = &recordingBuffer{Buffer: NewBuffer(), e: e}
 
@@ -236,8 +262,8 @@ func New(clipboard Clipboard) Editor {
 	e.modes[InsertMode] = NewInsertMode()
 	e.modes[VisualMode] = newVisualMode(&e.charSearch)
 	e.modes[VisualLineMode] = newVisualLineMode(&e.charSearch)
-	e.modes[CommandMode] = NewCommandMode()
-	e.modes[SearchMode] = NewSearchMode()
+	e.modes[CommandMode] = newCommandMode(&e.histories, &e.mapDepth)
+	e.modes[SearchMode] = newSearchMode(&e.searchOptions, &e.histories)
 
 	// Set initial mode
 	initialModeName := e.state.Mode
@@ -314,6 +340,7 @@ func (e *editor) setMode(modeName Mode) {
 	}
 
 	e.state.PreviousMode = e.state.Mode
+	e.state.SearchEcho = ""
 	e.currentMode = newMode
 	e.state.Mode = modeName          // Update state string
 	e.currentMode.Enter(e, e.buffer) // Pass buffer to Enter
@@ -440,10 +467,15 @@ func (e *editor) UpdateStatus(status string) {
 
 // UpdateCommand is a helper for modes to update the command line
 func (e *editor) UpdateCommand(cmd string) {
-	if cmd != "" {
+	e.UpdateCommandLine(cmd, -1)
+}
+
+func (e *editor) UpdateCommandLine(text string, cursor int) {
+	if text != "" {
 		e.DispatchSignal(CommandSignal{})
 	}
-	e.state.CommandLine = cmd
+	e.state.CommandLine = text
+	e.state.CommandCursor = cursor
 }
 
 func (e *editor) IsSelected() bool {

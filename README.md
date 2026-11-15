@@ -99,6 +99,34 @@ theme := goeditor.Theme{
 m.WithTheme(theme)
 ```
 
+### Light and dark terminals
+
+The default theme comes in a dark and a light variant. The editor never asks
+the terminal for its background colour, because the query blocks and competes
+with Bubble Tea for input, so it uses the dark variant unless told otherwise.
+
+If you already know the background, pass it when creating the editor:
+
+```go
+m := goeditor.New(80, 24, goeditor.WithDarkBackground(false))
+```
+
+Otherwise let Bubble Tea ask the terminal and switch themes when it answers:
+
+```go
+func (m model) Init() tea.Cmd {
+    return tea.RequestBackgroundColor
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.BackgroundColorMsg:
+        m.editor.WithTheme(goeditor.DefaultTheme(msg.IsDark()))
+    }
+    // ...
+}
+```
+
 ## Vim Keybindings
 
 ### Normal Mode
@@ -112,6 +140,7 @@ m.WithTheme(theme)
 - **Operators**: `d` (delete), `y` (yank), `c` (change) — combined with the motions above, counts (`d2w`, `3dd`), and text objects (`iw`, `aw`, `iW`, `aW`, `ip`, `i(`, `i"`, …)
 - **Editing**: `x` / `X` (delete char), `s` / `S` (substitute), `r` (replace char), `J` (join lines), `D` / `C` (delete/change to end of line), `~`, `gu` / `gU` / `g~` (case)
 - **Mode switching**: `i`, `I`, `a`, `A`, `o`, `O` (insert), `v` (visual), `V` (visual line), `:` (command), `/` / `?` (search)
+- **Search**: `/` / `?` (forward / backward), `n` / `N` (next / previous match), `*` / `#` (the word under the cursor, or the next word on the line). An empty `/` or `?` repeats the last search in that direction. When a search finds nothing, or there is nothing to search for, the editor sends an `ErrorMsg` (`ErrPatternNotFound`, or `ErrSearchHitBottom` / `ErrSearchHitTop` with wrapping off; `ErrNoPreviousPattern`, `ErrNoStringUnderCursor`)
 - **Undo/Redo**: `u` (undo), `Ctrl+R` (redo), `U` (undo all recent changes on the last-changed line)
 - **Repeat**: `.` repeats the last change, including the text typed in its insert (a cursor key in insert mode starts a new change, as in Vim); a count replaces the change's count (`3.`). A change made from visual mode repeats on the same amount of text from the cursor. Changes made through command-line or search mode are not repeated yet
 - **Insert counts**: `3ix<Esc>`, and likewise `a`, `I`, `A`, `o`, `O`, insert the text three times. A count that would add more than 10 million characters is refused with `ErrTextTooLong`, since a key handler can't be interrupted the way Vim's Ctrl-C stops a long insert
@@ -148,6 +177,9 @@ m.WithTheme(theme)
 - `:set nornu` - Disable relative line numbers
 - `:set mapleader=,` - Set the `<leader>` key used by mappings
 - `:map`, `:nmap`, `:vmap`, `:imap`, `:omap` and their `noremap` / `unmap` / `mapclear` variants - see [Key Mapping](#key-mapping)
+- `:set history=200` - How many entries each command-line history keeps (Vim's default, 200; `0` keeps none)
+
+The `:` line and the `/` / `?` search lines open empty and keep separate histories, as Vim's: `Up` / `Down` bring back earlier entries that start with what is typed before the cursor, and `Shift+Up` / `Shift+Down`, `PageUp` / `PageDown` and `Ctrl+P` / `Ctrl+N` walk every entry. Lines are added when they are run or abandoned with `Esc`, and `*` / `#` add their pattern. The history lives only as long as the editor; to keep it between sessions, save it with `model.CommandLineHistory(core.CommandHistory)` (and `core.SearchHistory`) when the host quits and restore it with `model.SetCommandLineHistory` (both oldest entry first). `model.SetCommandLineHistorySize` sets the size, as `:set history` does.
 
 ## Key Mapping
 
@@ -272,7 +304,7 @@ Mappings(mode core.MapMode) []core.Mapping
 SetMapLeader(leader string)
 
 // Styling
-WithTheme(theme Theme)
+WithTheme(theme Theme) // e.g. DefaultTheme(isDark)
 SetHighlightedWords(words map[string]lipgloss.Style)
 SetPlaceholder(placeholder string)
 

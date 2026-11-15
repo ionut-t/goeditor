@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -91,7 +90,7 @@ type Model struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return tea.Batch(m.editor.CursorBlink(), tea.RequestBackgroundColor)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -99,6 +98,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.editor.SetSize(m.width, m.editorHeight())
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		m.editor.WithTheme(editor.DefaultTheme(msg.IsDark()))
+		m.editor.SetLanguage("markdown", languageTheme(msg.IsDark()))
+		m.onStyle = onStyle(msg.IsDark())
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -199,13 +204,11 @@ func (m Model) View() tea.View {
 }
 
 func main() {
-	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	lightDark := lipgloss.LightDark(isDark)
-
 	textEditor := editor.New(80, 20)
 	textEditor.Focus()
 	textEditor.SetCursorMode(editor.CursorBlink)
-	textEditor.SetLanguage("markdown", languageTheme(isDark))
+	// Dark until the terminal reports its background colour.
+	textEditor.SetLanguage("markdown", languageTheme(true))
 	textEditor.SetContent(sampleContent())
 
 	m := Model{
@@ -218,7 +221,7 @@ func main() {
 
 		headerStyle:   lipgloss.NewStyle().Padding(0, 1),
 		keyStyle:      lipgloss.NewStyle().Bold(true),
-		onStyle:       lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#1e7f3c"), lipgloss.Color("#7ee2a8"))),
+		onStyle:       onStyle(true),
 		offStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Strikethrough(true),
 		separatorText: " · ",
 	}
@@ -226,6 +229,11 @@ func main() {
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		log.Fatalf("Error running Bubble Tea program: %v", err)
 	}
+}
+
+func onStyle(isDark bool) lipgloss.Style {
+	lightDark := lipgloss.LightDark(isDark)
+	return lipgloss.NewStyle().Foreground(lightDark(lipgloss.Color("#1e7f3c"), lipgloss.Color("#7ee2a8")))
 }
 
 func languageTheme(isDark bool) string {

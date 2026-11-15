@@ -4,19 +4,18 @@ import (
 	"context"
 	"fmt"
 	"image/color"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
-	"charm.land/bubbles/v2/cursor"
-	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ionut-t/goeditor/core"
 	"github.com/ionut-t/goeditor/highlighter"
 )
@@ -252,9 +251,6 @@ type Model struct {
 	language         string
 	highlighterTheme string
 
-	searchInput   textinput.Model
-	searchOptions core.SearchOptions
-
 	// Completion state
 	completionMenuVisible       bool
 	completions                 []core.Completion
@@ -307,7 +303,7 @@ type clearMsg struct{}
 
 type commandMsg struct{}
 
-type enterSearchMode struct{ backwards bool }
+type enterSearchMode struct{}
 
 type exitSearchMode struct{}
 
@@ -433,11 +429,15 @@ type Option func(*modelConfig)
 
 type modelConfig struct {
 	clipboard core.Clipboard
+	// isDark picks the default theme. The editor never asks the terminal, so
+	// it defaults to dark.
+	isDark bool
 }
 
 func New(width, height int, opts ...Option) Model {
 	cfg := &modelConfig{
 		clipboard: &clipboardImpl{},
+		isDark:    true,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -446,26 +446,13 @@ func New(width, height int, opts ...Option) Model {
 	// The core counts scrolling in screen rows, so it needs to know how lines wrap.
 	texteditor.SetLineHeightFunc(lineRows)
 	vp := viewport.New(viewport.WithWidth(width), viewport.WithHeight(height))
-	searchInput := textinput.New()
-	searchInput.Prompt = "/"
-
-	isDark := lipgloss.HasDarkBackground(os.Stdin, os.Stderr)
-	defaultTheme := DefaultTheme(isDark)
-
-	styles := textinput.DefaultStyles(isDark)
-	styles.Focused.Prompt = defaultTheme.SearchInputPromptStyle
-	styles.Focused.Text = defaultTheme.SearchInputTextStyle
-	styles.Blurred.Prompt = defaultTheme.SearchInputPromptStyle
-	styles.Blurred.Text = defaultTheme.SearchInputTextStyle
-	styles.Cursor.Blink = false
-	searchInput.SetStyles(styles)
-
-	searchOptions := core.SearchOptions{
+	texteditor.SetSearchOptions(core.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
-		Backwards:  false,
 		Wrap:       true,
-	}
+	})
+
+	defaultTheme := DefaultTheme(cfg.isDark)
 
 	m := Model{
 		editor:            texteditor,
@@ -477,8 +464,6 @@ func New(width, height int, opts ...Option) Model {
 		highlightedWords:  make(map[string]lipgloss.Style),
 		cursorMode:        CursorSteady,
 		cursorVisible:     true,
-		searchInput:       searchInput,
-		searchOptions:     searchOptions,
 
 		autoTriggerEnabled:          false,
 		completionDebounceTime:      300 * time.Millisecond,
@@ -490,6 +475,18 @@ func New(width, height int, opts ...Option) Model {
 	m.SetSize(width, height)
 
 	return m
+}
+
+// WithDarkBackground tells the editor whether the terminal background is dark,
+// which picks the default theme. Without it the editor assumes a dark
+// background: it never asks the terminal itself, because the query blocks and
+// competes with Bubble Tea for stdin. Hosts that know the answer pass it here;
+// hosts that learn it after creating the editor, from tea.BackgroundColorMsg,
+// call WithTheme(DefaultTheme(msg.IsDark())).
+func WithDarkBackground(isDark bool) Option {
+	return func(c *modelConfig) {
+		c.isDark = isDark
+	}
 }
 
 // WithClipboard sets a custom clipboard implementation on the editor.
@@ -552,30 +549,46 @@ func (m *Model) SetContent(content string) {
 func (m *Model) WithTheme(theme Theme) {
 	m.theme = theme
 
-	styles := m.searchInput.Styles()
-	styles.Focused.Prompt = theme.SearchInputPromptStyle
-	styles.Focused.Text = theme.SearchInputTextStyle
-	styles.Blurred.Prompt = theme.SearchInputPromptStyle
-	styles.Blurred.Text = theme.SearchInputTextStyle
-	m.searchInput.SetStyles(styles)
 	m.precomputedCompletionStyles = setupCompletionStyles(theme)
+}
+
+// commandLineStyles are the styles of a command line being edited: its
+// prompt, its text, and the cursor cell (drawn in reverse video).
+type commandLineStyles struct {
+	prompt, text, cursor lipgloss.Style
+}
+
+// editedCommandLineStyles returns the styles for the ':' command line, or for
+// the '/' and '?' search line, which has the theme's SearchInput styles. Each
+// rendered piece ends in an SGR reset, which would drop the background of the
+// surrounding command line, so the search styles carry the command line
+// background themselves (unless the theme gives them one of their own).
+func editedCommandLineStyles(theme Theme, search bool) commandLineStyles {
+	if !search {
+		s := theme.CommandLineStyle
+		return commandLineStyles{prompt: s, text: s, cursor: s}
+	}
+	bg := theme.CommandLineStyle.GetBackground()
+	withBg := func(s lipgloss.Style) lipgloss.Style {
+		if _, none := s.GetBackground().(lipgloss.NoColor); none {
+			return s.Background(bg)
+		}
+		return s
+	}
+	return commandLineStyles{
+		prompt: withBg(theme.SearchInputPromptStyle),
+		text:   withBg(theme.SearchInputTextStyle),
+		cursor: withBg(theme.SearchInputCursorStyle),
+	}
 }
 
 // WithSearchOptions allows setting custom search options.
 func (m *Model) WithSearchOptions(options SearchOptions) {
-	m.searchOptions = core.SearchOptions{
+	m.editor.SetSearchOptions(core.SearchOptions{
 		IgnoreCase: options.IgnoreCase,
 		SmartCase:  options.SmartCase,
 		Wrap:       options.Wrap,
-	}
-}
-
-// WithSearchInputCursorMode allows setting the cursor mode for the search input.
-// Default is CursorStatic.
-func (m *Model) WithSearchInputCursorMode(mode cursor.Mode) {
-	styles := m.searchInput.Styles()
-	styles.Cursor.Blink = (mode == cursor.CursorBlink)
-	m.searchInput.SetStyles(styles)
+	})
 }
 
 // SetLanguage sets the programming language for syntax highlighting.
@@ -657,6 +670,13 @@ func (m Model) SetCompletions(completions []core.Completion, context core.Comple
 	m.editor.DispatchSignal(
 		core.NewCompletionResponseSignal(completions, context),
 	)
+}
+
+// IsCompletionMenuVisible reports whether the completion menu is open. While it
+// is, keys such as Esc, Enter and Tab act on the menu, so a host that binds
+// any of them itself can check this to leave them to the editor.
+func (m Model) IsCompletionMenuVisible() bool {
+	return m.completionMenuVisible
 }
 
 // SetCompletionMenuMaxVisibleItems sets the maximum number of visible items in the completion menu.
@@ -829,6 +849,44 @@ func (m *Model) SetMapTimeout(enabled bool) {
 // cross lines. With Vim mode disabled, the arrow keys always cross lines.
 func (m *Model) SetMoveAcrossLines(enabled bool) {
 	m.editor.SetMoveAcrossLines(enabled)
+}
+
+// CommandLineHistory returns the commands or searches the user has entered,
+// oldest first. Pass core.CommandHistory for ':' commands or
+// core.SearchHistory for searches.
+//
+// The editor forgets its history when it is closed. To keep it between
+// sessions, save what this returns when your app quits and pass it to
+// SetCommandLineHistory on the next start:
+//
+//	saved := m.CommandLineHistory(core.CommandHistory)
+//	// ... next session:
+//	m.SetCommandLineHistory(core.CommandHistory, saved)
+//
+// The returned slice is a copy, so it is safe to keep or modify.
+func (m *Model) CommandLineHistory(kind core.HistoryKind) []string {
+	return m.editor.CommandLineHistory(kind)
+}
+
+// SetCommandLineHistory replaces the command or search history with entries,
+// listed oldest first, usually ones saved earlier with CommandLineHistory. The
+// user can then bring them back with the Up and Down keys.
+//
+// Empty entries are skipped and duplicates are kept once, at their latest
+// position. If there are more entries than the history size, only the newest
+// ones are kept.
+func (m *Model) SetCommandLineHistory(kind core.HistoryKind, entries []string) {
+	m.editor.SetCommandLineHistory(kind, entries)
+}
+
+// SetCommandLineHistorySize sets how many entries the command history and the
+// search history each keep. The default is 200 (core.DefaultHistorySize), and
+// 0 turns history off. When a history is full, the oldest entry is dropped.
+//
+// This is the same setting as ":set history". It does not affect undo; use
+// SetMaxHistory for that.
+func (m *Model) SetCommandLineHistorySize(n int) {
+	m.editor.SetCommandLineHistorySize(n)
 }
 
 // mapTimeoutCmd starts the 'timeoutlen' timer when the editor is holding keys
@@ -1063,6 +1121,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			break
 		}
 
+		// One key press can carry several runes: a grapheme cluster typed as
+		// one character (e + U+0301, a flag, a ZWJ emoji) or a Kitty keyboard
+		// event's associated text. The core takes one rune per key, so feed
+		// them one at a time, as if typed in a row.
+		if press, ok := msg.(tea.KeyPressMsg); ok && utf8.RuneCountInString(press.Text) > 1 {
+			for _, r := range press.Text {
+				var cmd tea.Cmd
+				m, cmd = m.Update(tea.KeyPressMsg{Code: r, Text: string(r), Mod: press.Mod})
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		keyEvent := convertBubbleKey(msg)
 		skipNormalKeyHandling := false
 
@@ -1169,16 +1240,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
-		if m.editor.IsSearchMode() {
-			switch keyEvent.Key {
-			case core.KeyEscape:
-				m.editor.CancelSearch()
-				m.searchInput.SetValue("")
-			case core.KeyEnter:
-				m.editor.ExecuteSearch(m.searchInput.Value(), m.searchOptions)
-			}
-		}
-
 		/* TODO: Optimise to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
@@ -1221,20 +1282,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	case enterSearchMode:
-		m.searchOptions.Backwards = msg.backwards
-		if msg.backwards {
-			m.searchInput.Prompt = "?"
-		} else {
-			m.searchInput.Prompt = "/"
-		}
-		m.searchInput.Focus()
-
 		if m.clearMsgCancel != nil {
 			return m, m.dispatchClearMsg(0)
 		}
 
 	case exitSearchMode:
-		m.searchInput.Blur()
 
 	case cursorBlinkMsg:
 		if m.isFocused && m.cursorMode == CursorBlink {
@@ -1296,12 +1348,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	cmds = append(cmds, viewportCmd)
 
-	if m.editor.IsSearchMode() {
-		searchInput, searchCmd := m.searchInput.Update(msg)
-		m.searchInput = searchInput
-		cmds = append(cmds, searchCmd)
-	}
-
 	// Note: calculateVisualMetrics() is called in handleContentChange() for KeyMsg events
 	// Other message types don't modify buffer content, so no recalculation needed.
 	// Rendering always uses the cached visual layout from the last calculation.
@@ -1353,13 +1399,18 @@ func (m Model) View() string {
 // (a count, or an operator waiting for its motion) don't count: they're too
 // brief to be worth hiding the status line for.
 func (m Model) getCommandLine(state core.State) (string, bool) {
-	if m.editor.IsSearchMode() {
-		return m.theme.CommandLineStyle.Render(m.searchInput.View()), true
-	}
-
 	var commandLine string
 	var active bool
+	padStyle := m.theme.CommandLineStyle
 	switch {
+	case state.Mode == core.SearchMode && state.CommandCursor >= 0:
+		styles := editedCommandLineStyles(m.theme, true)
+		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor, styles)
+		active = true
+		// Carry the query's background to the end of the row, so a theme
+		// that gives the search text a background of its own gets a whole
+		// search bar rather than a patch behind the text.
+		padStyle = padStyle.Background(styles.text.GetBackground())
 	case m.err != nil:
 		commandLine = m.theme.ErrorStyle.
 			Background(m.theme.CommandLineStyle.GetBackground()).
@@ -1370,17 +1421,63 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 			Background(m.theme.CommandLineStyle.GetBackground()).
 			Render(m.message)
 		active = true
+	case state.Mode == core.CommandMode && state.CommandCursor >= 0:
+		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor, editedCommandLineStyles(m.theme, false))
+		active = true
 	default:
-		commandLine = m.theme.CommandLineStyle.Render(state.CommandLine)
+		text := state.CommandLine
+		if text == "" {
+			// Pending keys cover the last search, as Vim's showcmd.
+			text = state.SearchEcho
+		}
+		commandLine = m.theme.CommandLineStyle.Render(text)
 		active = state.Mode == core.CommandMode
 	}
 
 	paddingWidth := m.width - lipgloss.Width(commandLine)
 	if paddingWidth > 0 {
-		commandLine += m.theme.CommandLineStyle.Render(strings.Repeat(" ", paddingWidth))
+		commandLine += padStyle.Render(strings.Repeat(" ", paddingWidth))
 	}
 
 	return commandLine, active
+}
+
+// renderEditedCommandLine draws a command line being edited: its first rune
+// (the ':', '/' or '?' prompt) in the prompt style, the rest in the text
+// style, and the cursor as a reverse-video cell (a blank one past the end of
+// the text). When the text is wider than the row, it scrolls just far enough
+// left to keep the cursor in view, the prompt first.
+func (m Model) renderEditedCommandLine(text string, cursor int, styles commandLineStyles) string {
+	runes := []rune(text)
+	cursor = min(max(cursor, 0), len(runes))
+
+	under := " "
+	after := runes[cursor:]
+	if cursor < len(runes) {
+		under = string(runes[cursor])
+		after = runes[cursor+1:]
+	}
+
+	start := 0
+	for start < cursor && ansi.StringWidth(string(runes[start:cursor]))+ansi.StringWidth(under) > m.width {
+		start++
+	}
+	before := runes[start:cursor]
+	beforeWidth := ansi.StringWidth(string(before))
+
+	var line string
+	if start == 0 && len(before) > 0 {
+		line = styles.prompt.Render(string(before[:1]))
+		before = before[1:]
+	}
+	if len(before) > 0 {
+		line += styles.text.Render(string(before))
+	}
+	line += styles.cursor.Reverse(true).Render(under)
+	if room := m.width - beforeWidth - ansi.StringWidth(under); room > 0 && len(after) > 0 {
+		line += styles.text.Render(ansi.Truncate(string(after), room, ""))
+	}
+	return line
 }
 
 func (m *Model) getStatusLine() string {
@@ -1508,7 +1605,7 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 			return UndoLineMsg{Edits: signal.Value()}
 
 		case core.EnterSearchModeSignal:
-			return enterSearchMode{backwards: signal.Backwards}
+			return enterSearchMode{}
 
 		case core.ExitSearchModeSignal:
 			return exitSearchMode{}
@@ -1534,7 +1631,7 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 	result := core.KeyEvent{}
 
 	if k.Text != "" {
-		result.Rune = rune(k.Text[0])
+		result.Rune, _ = utf8.DecodeRuneInString(k.Text)
 	}
 
 	if k.Mod&tea.ModAlt != 0 {
@@ -1543,6 +1640,13 @@ func convertBubbleKey(msg tea.KeyMsg) core.KeyEvent {
 
 	if k.Mod&tea.ModCtrl != 0 {
 		result.Modifiers |= core.ModCtrl
+	}
+
+	// Shift only matters on keys that don't type text (<S-Left>); on text
+	// keys it is already in the character ('A'), which is how key notation
+	// spells it too.
+	if k.Mod&tea.ModShift != 0 && k.Text == "" {
+		result.Modifiers |= core.ModShift
 	}
 
 	switch k.Code {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor"
 )
 
@@ -19,16 +18,21 @@ const messageDuration = 3 * time.Second
 type Model struct {
 	editor editor.Model
 	file   string
+	lang   string
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return tea.Batch(m.editor.CursorBlink(), tea.RequestBackgroundColor)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.editor.SetSize(msg.Width, msg.Height)
+
+	case tea.BackgroundColorMsg:
+		m.editor.WithTheme(editor.DefaultTheme(msg.IsDark()))
+		m.editor.SetLanguage(m.lang, languageTheme(msg.IsDark()))
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -123,8 +127,8 @@ func main() {
 	textEditor := editor.New(80, 20)
 	textEditor.Focus()
 	textEditor.SetCursorMode(editor.CursorBlink)
-	isDark := lipgloss.HasDarkBackground(os.Stdout, os.Stderr)
-	textEditor.SetLanguage(lang, languageTheme(isDark))
+	// Dark until the terminal reports its background colour.
+	textEditor.SetLanguage(lang, languageTheme(true))
 	textEditor.WithSearchOptions(editor.SearchOptions{
 		IgnoreCase: true,
 		SmartCase:  true,
@@ -140,6 +144,7 @@ func main() {
 	m := Model{
 		editor: textEditor,
 		file:   file,
+		lang:   lang,
 	}
 
 	p := tea.NewProgram(m)

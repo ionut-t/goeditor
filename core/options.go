@@ -93,6 +93,9 @@ func (e *editor) setValueOption(name, value string) *EditorError {
 		e.SetMapLeader(value)
 		return nil
 
+	case "history", "hi":
+		return e.setHistoryOption(value)
+
 	case "timeoutlen", "tm":
 		ms, err := strconv.Atoi(value)
 		if err != nil || ms < 0 {

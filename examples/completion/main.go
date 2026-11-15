@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	editor "github.com/ionut-t/goeditor"
 	"github.com/ionut-t/goeditor/core"
 )
@@ -19,13 +18,17 @@ type Model struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.editor.CursorBlink()
+	return tea.Batch(m.editor.CursorBlink(), tea.RequestBackgroundColor)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.editor.SetSize(msg.Width, msg.Height)
+
+	case tea.BackgroundColorMsg:
+		m.editor.WithTheme(editor.DefaultTheme(msg.IsDark()))
+		m.editor.SetLanguage("sql", languageTheme(msg.IsDark()))
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -202,8 +205,8 @@ func getLastWord(text string) string {
 func main() {
 	// Create editor
 	m := editor.New(80, 24)
-	isDark := lipgloss.HasDarkBackground(os.Stdout, os.Stderr)
-	m.SetLanguage("sql", languageTheme(isDark))
+	// Dark until the terminal reports its background colour.
+	m.SetLanguage("sql", languageTheme(true))
 
 	// Enable auto-trigger completions
 	m.WithCompletionAutoTrigger(true)

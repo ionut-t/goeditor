@@ -50,3 +50,23 @@ func TestLateCompletionResponse(t *testing.T) {
 		})
 	}
 }
+
+// TestIsCompletionMenuVisible checks the accessor follows the menu: open on a
+// matching response, closed again once Esc dismisses it.
+func TestIsCompletionMenuVisible(t *testing.T) {
+	m := New(40, 10, WithClipboard(&memClipboard{}))
+	m.Focus()
+	m.SetContent("fo")
+	m = typeText("A")(m)
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	assert.False(t, m.IsCompletionMenuVisible())
+
+	m, _ = m.Update(CompletionResponseMsg{
+		Completions: []core.Completion{{Text: "foo", Label: "foo"}},
+		Context:     m.completionContext,
+	})
+	assert.True(t, m.IsCompletionMenuVisible())
+
+	m = escKey(m)
+	assert.False(t, m.IsCompletionMenuVisible())
+}

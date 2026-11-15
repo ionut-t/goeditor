@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.22.0](https://github.com/ionut-t/goeditor/compare/v0.21.0...v0.22.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** WithSearchInputCursorMode is removed; the search line has a steady cursor like the command line.
+
+### Features
+
+* **editor:** edit the command line with a cursor and Vim keys ([#151](https://github.com/ionut-t/goeditor/issues/151)) ([f9fc999](https://github.com/ionut-t/goeditor/commit/f9fc999c47a2c4649a2a0b57c667b9188cd9ec74))
+
+
+### Bug Fixes
+
+* **editor:** edit search on the core command line ([0fed793](https://github.com/ionut-t/goeditor/commit/0fed793131d06998debe8efcbb03d5489526510b))
+* **editor:** handle multibyte and multi-rune key input ([#152](https://github.com/ionut-t/goeditor/issues/152)) ([6292fb5](https://github.com/ionut-t/goeditor/commit/6292fb5ff320cde915fe14b62dbc072a220f351f))
+* **search:** support empty patterns and align word search with Vim ([#154](https://github.com/ionut-t/goeditor/issues/154)) ([01b5988](https://github.com/ionut-t/goeditor/commit/01b5988eb0a1fc43dce90f15ad5d3c1fd8e35051))
+* **ui:** ensure search bar background spans full width ([#149](https://github.com/ionut-t/goeditor/issues/149)) ([66dbb7f](https://github.com/ionut-t/goeditor/commit/66dbb7f8e98dc5beb090bd9bdc0e036f1b16468c))
+
+## [0.21.0](https://github.com/ionut-t/goeditor/compare/v0.20.0...v0.21.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** `New` no longer queries the terminal for its background colour and always uses the dark default theme unless `WithDarkBackground` is passed; apps in light terminals should pass `WithDarkBackground(false)` or call `WithTheme(DefaultTheme(msg.IsDark()))` on `tea.BackgroundColorMsg`.
+
+### Bug Fixes
+
+* **editor:** remove blocking terminal background query ([b292e62](https://github.com/ionut-t/goeditor/commit/b292e6293ed80f953e10836efc950f7f546384a9))
+
+## [0.20.0](https://github.com/ionut-t/goeditor/compare/v0.19.0...v0.20.0) (2026-11-10)
+
+
+### Features
+
+* **editor:** add IsCompletionMenuVisible ([#143](https://github.com/ionut-t/goeditor/issues/143)) ([4dabee0](https://github.com/ionut-t/goeditor/commit/4dabee0f390cf1835349415ed709bee80914e961))
+* **editor:** add WithDarkBackground option ([#142](https://github.com/ionut-t/goeditor/issues/142)) ([9d60f16](https://github.com/ionut-t/goeditor/commit/9d60f16ffd764fb4ce741906e3a082c947393c66))
+
 ## [0.19.0](https://github.com/ionut-t/goeditor/compare/v0.18.0...v0.19.0) (2026-11-06)
 
 
