@@ -274,7 +274,7 @@ type Model struct {
 
 	// listening is shared by every copy of the Model: true while a
 	// listenForEditorUpdate command is waiting on the signal channel, so at
-	// most one is ever outstanding however many messages Update handles.
+	// most one goroutine ever waits however many messages Update handles.
 	listening *atomic.Bool
 
 	cursorBlinkCancel context.CancelFunc
@@ -1439,15 +1439,17 @@ func (m *Model) SetMaxHistory(max uint32) {
 }
 
 func (m *Model) listenForEditorUpdate() tea.Cmd {
-	// Update re-arms the listener on every message; without this guard each
-	// call would leave another goroutine blocked on the channel. Signals sent
-	// while none is listening wait in the channel's buffer.
-	if m.listening != nil && !m.listening.CompareAndSwap(false, true) {
-		return nil
-	}
 	editorChan := m.editor.GetUpdateSignalChan()
 	listening := m.listening
 	return func() tea.Msg {
+		// Update re-arms the listener on every message; without this guard
+		// each command would leave another goroutine blocked on the channel.
+		// The check runs when the command runs, not when it is built, so a
+		// host that drops a command never leaves the flag stuck. Signals sent
+		// while none is listening wait in the channel's buffer.
+		if listening != nil && !listening.CompareAndSwap(false, true) {
+			return nil
+		}
 		signal := <-editorChan
 		if listening != nil {
 			listening.Store(false)
