@@ -1544,13 +1544,11 @@ func (m *Model) listenForEditorUpdate() tea.Cmd {
 		// The check runs when the command runs, not when it is built, so a
 		// host that drops a command never leaves the flag stuck. Signals sent
 		// while none is listening wait in the channel's buffer.
-		if listening != nil && !listening.CompareAndSwap(false, true) {
+		if !listening.CompareAndSwap(false, true) {
 			return nil
 		}
 		signal := <-editorChan
-		if listening != nil {
-			listening.Store(false)
-		}
+		listening.Store(false)
 
 		switch signal := signal.(type) {
 		case core.CommandSignal:
