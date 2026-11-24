@@ -271,6 +271,8 @@ is data, not a command, exactly as in Vim.
 // Content Management
 SetContent(content string)
 SetBytes(content []byte)
+AppendBytes(p []byte) // add arriving text's whole lines at the end; cursor, view, undo, HasChanges untouched
+FlushAppend()         // add a held partial line (at EOF)
 GetCurrentContent() string
 GetSavedContent() string
 HasChanges() bool

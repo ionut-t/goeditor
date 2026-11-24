@@ -46,6 +46,13 @@ type Editor interface {
 	SetBuffer(Buffer)  // Replace the current buffer
 	SetContent([]byte) // Set buffer content from byte slice
 
+	// Text arriving from outside while the user reads (a stream, a job's
+	// output): whole lines are added below the last line, and nothing the
+	// user owns changes. Not an undo step; the text counts as saved. See
+	// AppendBytes in append.go.
+	AppendBytes(p []byte) // Add p's complete lines; hold a trailing partial line
+	FlushAppend()         // Add the held partial line, if any (at EOF)
+
 	// Mode handling
 	GetMode() EditorMode
 	SetNormalMode()
@@ -218,6 +225,11 @@ type editor struct {
 
 	// histories are the ':' and search command-line histories.
 	histories histories
+
+	// appendTail holds the bytes AppendBytes received after the last '\n',
+	// until the line is complete or FlushAppend adds it.
+	appendTail []byte
+	appended   bool // AppendBytes added text since SetBuffer (see appendLines)
 
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
@@ -416,6 +428,8 @@ func (e *editor) SetBuffer(buffer Buffer) {
 		buffer = rb.Buffer
 	}
 	e.buffer = &recordingBuffer{Buffer: buffer, e: e}
+	e.appendTail = nil                                    // A held partial line belonged to the old text,
+	e.appended = false                                    // and the new text can be replaced if empty
 	e.resetHistory()                                      // A new buffer starts a new undo history
 	e.resetRepeat()                                       // and forgets the change '.' repeats
 	e.UpdateStatus(fmt.Sprintf("-- %s --", e.state.Mode)) // Update status

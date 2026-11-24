@@ -540,6 +540,49 @@ func (m *Model) SetBytes(content []byte) {
 	m.renderVisibleSlice()
 }
 
+// AppendBytes adds p at the end of the buffer as text that arrived from
+// outside, such as a command's output streamed into the editor. Only whole
+// lines are added: bytes after the last '\n' are held until a later call
+// completes the line or FlushAppend is called. Each line goes below the
+// current last line, except that the first append to an empty, unmodified
+// buffer replaces its empty line.
+//
+// Nothing the user owns changes: the cursor, the scroll position, the mode,
+// the status line, a selection, undo and redo, '.', and HasChanges. The text
+// isn't an undo step and counts as saved. To follow the end, move the cursor
+// after the call, for example when it was on the last line:
+//
+//	follow := m.GetEditor().GetBuffer().GetCursor().Position.Row == lastRow
+//	m.AppendBytes(chunk)
+//	if follow { m.SetCursorPosition(newLastRow, 0) }
+//
+// Call it from Update (for example on a message carrying a chunk read by a
+// goroutine): like every other method, it isn't safe from other goroutines.
+// SetBytes and SetContent drop held bytes.
+func (m *Model) AppendBytes(p []byte) {
+	m.appendAndRefresh(func() { m.editor.AppendBytes(p) })
+}
+
+// FlushAppend adds a partial line held by AppendBytes, if any, as the last
+// line. Call it when the stream ends. The next AppendBytes starts a new line.
+func (m *Model) FlushAppend() {
+	m.appendAndRefresh(m.editor.FlushAppend)
+}
+
+// appendAndRefresh runs an append and, when it added text, refreshes the
+// caches and the view as SetBytes does. A chunk with no complete line
+// changes nothing on screen.
+func (m *Model) appendAndRefresh(add func()) {
+	buf := m.editor.GetBuffer()
+	rows, empty := buf.LineCount(), buf.IsEmpty()
+	add()
+	if buf.LineCount() == rows && buf.IsEmpty() == empty {
+		return
+	}
+	m.handleContentChange()
+	m.renderVisibleSlice()
+}
+
 // SetContent sets the content of the editor from a string.
 func (m *Model) SetContent(content string) {
 	m.SetBytes([]byte(content))
