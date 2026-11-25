@@ -284,6 +284,7 @@ SetInsertMode()
 SetVisualMode()
 SetCommandMode()
 DisableVimMode(disable bool)
+CommandPending() bool // a count, operator, g/z, f/t/r argument or mapping is part way typed
 
 // Display Options
 HideLineNumbers(hide bool)

@@ -1054,6 +1054,14 @@ func (m *Model) IsSearchMode() bool {
 	return m.editor.IsSearchMode()
 }
 
+// CommandPending reports whether a command is part way typed (a count, an
+// operator waiting for its motion, a g/z prefix, the character after f/t/r,
+// or keys held for a mapping). A host that moves the cursor itself, such as
+// one following AppendBytes output, waits until it is false.
+func (m *Model) CommandPending() bool {
+	return m.editor.CommandPending()
+}
+
 // SetNormalMode sets the editor to normal mode.
 func (m *Model) SetNormalMode() {
 	m.editor.SetNormalMode()
