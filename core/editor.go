@@ -158,6 +158,9 @@ type Editor interface {
 	IsVisualLineMode() bool
 	IsCommandMode() bool
 	IsSearchMode() bool
+	// CommandPending reports whether a command is part way typed. Hosts
+	// that move the cursor themselves wait until it is false.
+	CommandPending() bool
 
 	SearchResults() []Position
 	NextSearchResult() Cursor
@@ -585,6 +588,29 @@ func (e *editor) IsCommandMode() bool {
 
 func (e *editor) IsSearchMode() bool {
 	return e.state.Mode == SearchMode
+}
+
+// idler is implemented by modes with multi-key commands of their own (g/z
+// prefixes, i/a text objects) beyond operators and literal arguments.
+type idler interface {
+	Idle() bool
+}
+
+// CommandPending reports whether a command is part way typed: a count, an
+// operator waiting for its motion (d, y, c, …), a prefix (g, z), a text
+// object's i/a, the character after f, F, t, T or r, or keys held while a
+// mapping resolves. Like the 'o' and 'm' flags of Vim's state(): a host that
+// moves the cursor itself, such as one following appended output, waits
+// until it is false, so the move can't change what the command acts on.
+func (e *editor) CommandPending() bool {
+	if e.state.PendingCount != nil || len(e.pendingMapKeys) > 0 {
+		return true
+	}
+	if e.currentMode.OperatorPending() || e.currentMode.AwaitingLiteral() {
+		return true
+	}
+	m, ok := e.currentMode.(idler)
+	return ok && !m.Idle()
 }
 
 func (e *editor) ResetSelection() {
