@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.25.0](https://github.com/ionut-t/goeditor/compare/v0.24.0...v0.25.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** Editor interface now requires CommandPending() bool method implementation.
+
+### Features
+
+* **core:** add CommandPending to track incomplete commands ([fc5f2cd](https://github.com/ionut-t/goeditor/commit/fc5f2cd50b4b3232d49adf2bffcc2ef5c9b0b101))
+
 ## [0.24.0](https://github.com/ionut-t/goeditor/compare/v0.23.0...v0.24.0) (2026-11-24)
 
 
