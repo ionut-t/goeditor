@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.24.0](https://github.com/ionut-t/goeditor/compare/v0.23.0...v0.24.0) (2026-11-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** The Buffer interface now requires an appendSaved(text []rune, replaceEmpty bool) method to support streaming appends.
+
+### Features
+
+* **editor:** add AppendBytes and FlushAppend for streaming output ([26d6599](https://github.com/ionut-t/goeditor/commit/26d65990a99cb839bfd5d5c888850928aed5a0a5))
+
 ## [0.23.0](https://github.com/ionut-t/goeditor/compare/v0.22.0...v0.23.0) (2026-11-15)
 
 
