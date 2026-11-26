@@ -15,7 +15,8 @@ import (
 type Highlighter struct {
 	lexer           chroma.Lexer
 	style           *chroma.Style
-	cache           map[int][]chroma.Token // Cache tokens by line number
+	cache           map[int][]chroma.Token  // Cache tokens by line number
+	positions       map[int][]TokenPosition // The cached tokens' positions, by line number
 	styleCache      map[chroma.TokenType]lipgloss.Style
 	cacheMutex      sync.RWMutex
 	styleCacheMutex sync.RWMutex
@@ -43,6 +44,7 @@ func New(language string, theme string) *Highlighter {
 		lexer:      lexer,
 		style:      style,
 		cache:      make(map[int][]chroma.Token),
+		positions:  make(map[int][]TokenPosition),
 		styleCache: make(map[chroma.TokenType]lipgloss.Style),
 	}
 }
@@ -54,6 +56,7 @@ func (sh *Highlighter) InvalidateCache() {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
 	sh.cache = make(map[int][]chroma.Token)
+	sh.positions = make(map[int][]TokenPosition)
 }
 
 // Tokenise tokenises only the visible range of lines.
@@ -86,9 +89,15 @@ func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 	// Clear cache for the range we're about to tokenise
 	for i := startLine; i < endLine; i++ {
 		delete(sh.cache, i)
+		delete(sh.positions, i)
 	}
 
 	sh.tokeniseRange(lines, startLine, endLine)
+	for i := startLine; i < endLine; i++ {
+		if tokens, ok := sh.cache[i]; ok {
+			sh.positions[i] = GetTokenPositions(tokens)
+		}
+	}
 }
 
 // syncRange widens the range of lines [start, end) to lex so that it starts
@@ -96,8 +105,7 @@ func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 // line, as Vim's :syntax sync. The lexer starts in its root state at start,
 // so in a Markdown code block it would read the closing fence as an opening
 // one and colour everything after it as the wrong side of a fence. Only
-// Markdown's fenced code blocks are handled; other languages get the range
-// back as it is.
+// Markdown is handled; other languages get the range back as it is.
 func (sh *Highlighter) syncRange(lines []string, start, end int) (int, int) {
 	if sh.lexer.Config().Name != "markdown" {
 		return start, end
@@ -105,20 +113,63 @@ func (sh *Highlighter) syncRange(lines []string, start, end int) (int, int) {
 	return markdownSyncRange(lines, start, end)
 }
 
-// markdownSyncRange moves start to the opening fence of the code block it is
-// in, and end past the closing fence of the block it cuts, if any. Fences
-// are read as chroma's Markdown lexer reads them: an opening line is ```
-// followed by nothing or by a language name, and the block ends at the next
-// line that is ``` alone; an opening line with no such line after it starts
-// no block.
+// markdownSyncRange widens the range for chroma's Markdown lexer, which reads
+// two kinds of block from their first line:
+//
+//   - YAML frontmatter, which chroma reads only when the text it lexes starts
+//     with a --- line and has another below it. The range takes in the whole
+//     frontmatter when it overlaps it. A --- further down (a thematic break)
+//     is not read as frontmatter at the start of a range because
+//     tokeniseRange lexes a range after line 0 from a newline.
+//   - Fenced code blocks: start moves to the opening fence of the block it is
+//     in, and end past the closing fence of the block it cuts.
 func markdownSyncRange(lines []string, start, end int) (int, int) {
+	body := 0 // the first line after the frontmatter
+	if closing, ok := frontmatterEnd(lines); ok {
+		body = closing + 1
+		if start <= closing {
+			start = 0
+			end = max(end, body)
+		}
+	}
+	return fenceSyncRange(lines, body, start, end)
+}
+
+// frontmatterEnd returns the line of the --- that closes the YAML frontmatter
+// opened by a --- on the first line, as chroma's Markdown lexer finds it.
+func frontmatterEnd(lines []string) (int, bool) {
+	if len(lines) == 0 || !isFrontmatterDelimiter(lines[0]) {
+		return 0, false
+	}
+	for i := 1; i < len(lines); i++ {
+		if isFrontmatterDelimiter(lines[i]) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// isFrontmatterDelimiter reports whether line opens or closes YAML
+// frontmatter in chroma's Markdown lexer.
+func isFrontmatterDelimiter(line string) bool {
+	return strings.TrimSuffix(line, "\r") == "---"
+}
+
+// fenceSyncRange moves start to the opening fence of the code block it is in,
+// and end past the closing fence of the block it cuts, if any, looking for
+// fences from line from on. Fences are read as chroma's Markdown lexer reads
+// them: an opening line is ``` followed by nothing or by a language name, and
+// the block ends at the next line that is ``` alone; an opening line with no
+// such line after it starts no block. A line's trailing \r is left out, as
+// chroma lexes CRLF line endings as LF.
+func fenceSyncRange(lines []string, from, start, end int) (int, int) {
 	newStart, newEnd := start, end
-	for i := 0; i < end && i < len(lines); i++ {
+	for i := from; i < end && i < len(lines); i++ {
 		if !isFenceOpen(lines[i]) {
 			continue
 		}
 		j := i + 1
-		for j < len(lines) && lines[j] != "```" {
+		for j < len(lines) && strings.TrimSuffix(lines[j], "\r") != "```" {
 			j++
 		}
 		if j == len(lines) {
@@ -136,9 +187,9 @@ func markdownSyncRange(lines []string, start, end int) (int, int) {
 }
 
 // isFenceOpen reports whether line opens a code block in chroma's Markdown
-// lexer: ``` followed by word characters only.
+// lexer: ``` followed by word characters only, then an optional \r.
 func isFenceOpen(line string) bool {
-	rest, ok := strings.CutPrefix(line, "```")
+	rest, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), "```")
 	if !ok {
 		return false
 	}
@@ -150,15 +201,27 @@ func isFenceOpen(line string) bool {
 	return true
 }
 
-// tokeniseRange tokenises a specific range of lines and updates the cache
+// tokeniseRange tokenises a specific range of lines and updates the cache.
+//
+// A range after the first line is lexed from the newline that ends the line
+// above it, so its first line is read as a line that follows another, as in a
+// lex of the whole file: rules anchored on the start of the text (Markdown
+// frontmatter on a --- line) don't fire, and rules that need a white space
+// before them (Markdown *emphasis* at the start of a line) do.
 func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
 	// Join only the lines in this range
 	content := strings.Join(lines[startLine:endLine], "\n")
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	if content == "" {
+	if content == "" { // the range is one empty line
+		sh.cache[startLine] = []chroma.Token{}
 		return
+	}
+	lineNum := startLine
+	if startLine > 0 {
+		content = "\n" + content
+		lineNum-- // the newline ends the line above, which isn't cached
 	}
 
 	iterator, err := sh.lexer.Tokenise(nil, content)
@@ -170,8 +233,9 @@ func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
 	}
 
 	tokens := iterator.Tokens()
-	lineNum := startLine
-	sh.cache[lineNum] = []chroma.Token{}
+	if lineNum == startLine {
+		sh.cache[lineNum] = []chroma.Token{}
+	}
 
 	for _, token := range tokens {
 		value := token.Value
@@ -190,7 +254,7 @@ func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
 			sh.cache[lineNum] = []chroma.Token{}
 			value = after
 		}
-		if value != "" {
+		if value != "" && lineNum >= startLine {
 			sh.cache[lineNum] = append(sh.cache[lineNum], chroma.Token{Type: token.Type, Value: value})
 		}
 	}
@@ -205,6 +269,15 @@ func (sh *Highlighter) GetTokensForLine(lineNum int, lines []string) []chroma.To
 	}
 
 	return nil
+}
+
+// GetTokenPositionsForLine returns the positions of the syntax tokens of a
+// specific line, as GetTokenPositions gives them, or nil if the line isn't
+// tokenised. They are worked out once when the line is tokenised.
+func (sh *Highlighter) GetTokenPositionsForLine(lineNum int) []TokenPosition {
+	sh.cacheMutex.RLock()
+	defer sh.cacheMutex.RUnlock()
+	return sh.positions[lineNum]
 }
 
 // GetStyleForToken converts a Chroma token type to a lipgloss style.

@@ -165,6 +165,20 @@ func BenchmarkKeypressMarkdown(b *testing.B) {
 	}
 }
 
+// BenchmarkRenderMarkdown measures a redraw of a screen of highlighted
+// markdown whose tokens are already cached.
+func BenchmarkRenderMarkdown(b *testing.B) {
+	m := New(100, 52)
+	m.Focus()
+	m.SetContent(markdownWithCodeBlocks(2000, 40))
+	m.SetLanguage("markdown", "monokai")
+	m = typeText("1000G")(m)
+	b.ReportAllocs()
+	for b.Loop() {
+		m.renderVisibleSlice()
+	}
+}
+
 // requireTokensMatchWholeFileLex checks that the cached tokens of lines
 // [from, to) have the types a lex of the whole file gives them.
 func requireTokensMatchWholeFileLex(t *testing.T, m Model, from, to int) {
@@ -212,4 +226,53 @@ func TestMarkdownHasNoDefaultContextLines(t *testing.T) {
 	m := New(60, 22)
 	m.SetLanguage("markdown", "monokai")
 	require.Zero(t, m.extraHighlightedContextLines, "the fence sync replaces the old default of 100")
+}
+
+// markdownWithThematicBreaks returns n lines of markdown: sections separated
+// by --- lines, which open YAML frontmatter only on the file's first line.
+func markdownWithThematicBreaks(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i += 6 {
+		fmt.Fprintf(&b, "## Section %d\n\nSome *prose* and `code`.\n\n---\n\n", i)
+	}
+	return strings.Join(strings.Split(b.String(), "\n")[:n], "\n")
+}
+
+func TestMarkdownTopOnAThematicBreak(t *testing.T) {
+	content := markdownWithThematicBreaks(600)
+	require.Equal(t, "---", strings.Split(content, "\n")[304])
+
+	m := New(60, 22)
+	m.Focus()
+	m.SetContent(content)
+	m.SetLanguage("markdown", "monokai")
+	m = typeText("305Gzt")(m)
+	require.Equal(t, 304, m.editor.GetState().TopLine, "the top should be the --- line")
+
+	// Lexed from the --- line, chroma read everything up to the next --- as
+	// YAML frontmatter.
+	requireTokensMatchWholeFileLex(t, m, 304, 324)
+}
+
+func TestSetExtraHighlightedContextLinesRedraws(t *testing.T) {
+	// A Go block comment that starts far above the screen: lexed from the
+	// top of the screen its lines read as code, with context lines that take
+	// in the /* they read as a comment.
+	content := "/*\n" + strings.Repeat("if this were code\n", 100) + "*/\nx := 1"
+	want := New(60, 22)
+	want.Focus()
+	want.SetContent(content)
+	want.SetLanguage("go", "monokai")
+	want.SetExtraHighlightedContextLines(100)
+	require.NoError(t, want.SetCursorPosition(60, 0))
+
+	m := New(60, 22)
+	m.Focus()
+	m.SetContent(content)
+	m.SetLanguage("go", "monokai")
+	require.NoError(t, m.SetCursorPosition(60, 0))
+	require.NotEqual(t, want.viewport.View(), m.viewport.View(), "without context lines the comment should read as code")
+
+	m.SetExtraHighlightedContextLines(100)
+	require.Equal(t, want.viewport.View(), m.viewport.View())
 }

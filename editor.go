@@ -228,15 +228,14 @@ type Model struct {
 	cursorPastFullRow       bool // Cursor after the end of a line whose last row is full: drawn at the start of the next row
 	currentVisualTopLine    int  // Top line of the current visual slice
 
-	visualLayoutCache               []VisualLineInfo                    // Cache of visual line information
-	visualLayoutCacheStartRow       int                                 // First logical line in cache (for lazy mode)
-	visualLayoutCacheStartVisualRow int                                 // First visual row in cache (offset for lazy mode)
-	visualRowAnchors                map[int]int                         // Sparse anchors: logical line -> visual row (cleared on edits)
-	lastKnownLineCount              int                                 // Track line count to detect content changes
-	cacheValidStartRow              int                                 // Start of cursor range for which cache is valid
-	cacheValidEndRow                int                                 // End of cursor range for which cache is valid
-	persistentTokenCache            map[int][]highlighter.TokenPosition // Persistent token cache across renders
-	tokensTick                      uint64                              // The editor's ChangedTick the token caches describe
+	visualLayoutCache               []VisualLineInfo // Cache of visual line information
+	visualLayoutCacheStartRow       int              // First logical line in cache (for lazy mode)
+	visualLayoutCacheStartVisualRow int              // First visual row in cache (offset for lazy mode)
+	visualRowAnchors                map[int]int      // Sparse anchors: logical line -> visual row (cleared on edits)
+	lastKnownLineCount              int              // Track line count to detect content changes
+	cacheValidStartRow              int              // Start of cursor range for which cache is valid
+	cacheValidEndRow                int              // End of cursor range for which cache is valid
+	tokensTick                      uint64           // The editor's ChangedTick the highlighter's tokens describe
 
 	clampedCursorLogicalCol      int                      // Clamped cursor column
 	highlightedWords             []highlightedWordPattern // Set by SetHighlightedWords
@@ -647,14 +646,11 @@ func (m *Model) SetLanguage(language string, theme string) {
 	m.highlighterTheme = theme
 	if language == "" {
 		m.highlighter = nil
-		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 		m.renderVisibleSlice()
 		return
 	}
 
 	m.highlighter = highlighter.New(language, theme)
-	// Clear token cache when language changes
-	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 
 	m.renderVisibleSlice()
 }
@@ -673,19 +669,19 @@ func (m *Model) SetExtraWordChars(chars ...rune) {
 // The lexer starts at the first line of the range, so a construct spanning several lines (a Go raw
 // string or block comment, a Python docstring, a Markdown HTML comment) whose first line is above the
 // range is coloured wrongly; context lines bring that first line into the range. Markdown code blocks
-// don't need them: the range always starts at the opening ``` of a block it starts in, and ends at
-// the closing ``` of a block it cuts.
+// and YAML frontmatter don't need them: the range always starts at the opening line of a block it
+// starts in, and ends at the closing line of a block it cuts.
 //
 // The cost is in scrolling, not in file size: every scroll step lexes the viewport plus twice this
 // many lines again, while keys that change no text lex nothing.
 func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 	m.extraHighlightedContextLines = lines
+	m.renderVisibleSlice()
 }
 
 // WithSyntaxHighlighter allows setting a custom syntax highlighter.
 func (m *Model) WithSyntaxHighlighter(hl *highlighter.Highlighter) {
 	m.highlighter = hl
-	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 	m.renderVisibleSlice()
 }
 

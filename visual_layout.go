@@ -1151,54 +1151,22 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 
 	clampedCursorRowForLineNumbers := m.clampCursorRow(m.editor.GetBuffer().GetCursor().Position.Row, len(allLogicalLines))
 
-	// Initialise persistent token cache if needed
-	if m.persistentTokenCache == nil {
-		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
-	}
+	// Tokenise the visible logical lines, with context. Tokenise skips the
+	// range when every line in it is cached.
+	if m.highlighter != nil && len(m.visualLayoutCache) > 0 && m.fullVisualLayoutHeight > 0 {
+		// Convert absolute visual rows to cache indices
+		startCacheIdx := max(0, startRenderVisualRow-m.visualLayoutCacheStartVisualRow)
+		endCacheIdx := min(len(m.visualLayoutCache)-1, endRenderVisualRow-m.visualLayoutCacheStartVisualRow)
 
-	// Populate persistent cache with tokenised lines
-	if m.highlighter != nil {
-		extraHighlightedContextLines := int(m.extraHighlightedContextLines)
-
-		// Pre-tokenise all visible logical lines, with context
-		var startLogicalLine, endLogicalLine int
-		if len(m.visualLayoutCache) > 0 && m.fullVisualLayoutHeight > 0 {
-			// Convert absolute visual rows to cache indices
-			startCacheIdx := max(0, startRenderVisualRow-m.visualLayoutCacheStartVisualRow)
-			endCacheIdx := min(len(m.visualLayoutCache)-1, endRenderVisualRow-m.visualLayoutCacheStartVisualRow)
-
-			if startCacheIdx >= 0 && startCacheIdx < len(m.visualLayoutCache) && endCacheIdx >= 0 && endCacheIdx < len(m.visualLayoutCache) {
-				startLogicalLine = m.visualLayoutCache[startCacheIdx].LogicalRow
-				endLogicalLine = m.visualLayoutCache[endCacheIdx].LogicalRow + 1
-
-				// Expand the range for better syntax highlighting context.
-				// Tokenise skips the range when every line in it is cached.
-				expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
-				expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
-
-				if expandedStartLine < expandedEndLine {
-					m.highlighter.Tokenise(allLogicalLines, expandedStartLine, expandedEndLine)
-
-					// Populate persistent cache for the expanded range
-					// This ensures large code blocks have tokens available even when scrolled
-					// Always check highlighter first - it knows which lines are invalidated
-					for logicalLine := expandedStartLine; logicalLine < expandedEndLine; logicalLine++ {
-						tokens := m.highlighter.GetTokensForLine(logicalLine, allLogicalLines)
-						if tokens != nil {
-							// Highlighter has valid tokens, cache them (may overwrite stale cache)
-							m.persistentTokenCache[logicalLine] = highlighter.GetTokenPositions(tokens)
-						} else {
-							// Line was invalidated in highlighter, remove from persistent cache
-							delete(m.persistentTokenCache, logicalLine)
-						}
-					}
-				}
+		if startCacheIdx < len(m.visualLayoutCache) && endCacheIdx >= 0 {
+			contextLines := int(m.extraHighlightedContextLines)
+			startLogicalLine := max(0, m.visualLayoutCache[startCacheIdx].LogicalRow-contextLines)
+			endLogicalLine := min(len(allLogicalLines), m.visualLayoutCache[endCacheIdx].LogicalRow+1+contextLines)
+			if startLogicalLine < endLogicalLine {
+				m.highlighter.Tokenise(allLogicalLines, startLogicalLine, endLogicalLine)
 			}
 		}
 	}
-
-	// Use persistent cache for rendering (reference, not copy)
-	lineTokenCache := m.persistentTokenCache
 
 	for absVisRowIdxToRender := startRenderVisualRow; absVisRowIdxToRender < endRenderVisualRow; absVisRowIdxToRender++ {
 		// Convert absolute visual row to cache-relative index
@@ -1233,9 +1201,7 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 		// Get token positions for this line
 		var tokenPositions []highlighter.TokenPosition
 		if m.highlighter != nil {
-			if positions, ok := lineTokenCache[vli.LogicalRow]; ok {
-				tokenPositions = positions
-			}
+			tokenPositions = m.highlighter.GetTokenPositionsForLine(vli.LogicalRow)
 		}
 
 		// Render the segment
@@ -1530,7 +1496,6 @@ func (m *Model) handleContentChange() {
 		if m.highlighter != nil {
 			m.highlighter.InvalidateCache()
 		}
-		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 	}
 
 	// Force cache recalculation by invalidating the cache validity range
