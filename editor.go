@@ -238,10 +238,8 @@ type Model struct {
 	persistentTokenCache            map[int][]highlighter.TokenPosition // Persistent token cache across renders
 	tokensTick                      uint64                              // The editor's ChangedTick the token caches describe
 
-	clampedCursorLogicalCol      int // Clamped cursor column
-	highlightedWords             map[string]lipgloss.Style
-	compiledHighlightedWords     []highlightedWordPattern // Cached compiled patterns
-	compiledHighlightedWordsHash uint64                   // Hash of highlightedWords to detect changes
+	clampedCursorLogicalCol      int                      // Clamped cursor column
+	highlightedWords             []highlightedWordPattern // Set by SetHighlightedWords
 	extraHighlightedContextLines uint16
 
 	isFocused        bool
@@ -462,7 +460,6 @@ func New(width, height int, opts ...Option) Model {
 		showStatusLine:    true,
 		commandLineHeight: 1,
 		theme:             defaultTheme,
-		highlightedWords:  make(map[string]lipgloss.Style),
 		cursorMode:        CursorSteady,
 		cursorVisible:     true,
 
@@ -996,11 +993,15 @@ func (m *Model) DisableSearchMode(disable bool) {
 // SetHighlightedWords allows setting highlighted words in the core.
 // These words will be styled with the provided lipgloss styles.
 // This is useful for highlighting specific keywords or phrases in the text.
+// The editor reads words once: to change them, call it again with the new
+// map, not by changing the map passed before.
 func (m *Model) SetHighlightedWords(words map[string]lipgloss.Style) {
-	m.highlightedWords = words
-	// Invalidate the compiled patterns cache to force recompilation
-	m.compiledHighlightedWords = nil
-	m.compiledHighlightedWordsHash = 0
+	m.highlightedWords = make([]highlightedWordPattern, 0, len(words))
+	for word, style := range words {
+		if word != "" {
+			m.highlightedWords = append(m.highlightedWords, highlightedWordPattern{runes: []rune(word), style: style})
+		}
+	}
 }
 
 // Focus sets the editor to focused state.

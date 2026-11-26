@@ -205,75 +205,22 @@ type highlightedWordMatch struct {
 	style  lipgloss.Style
 }
 
-// highlightedWordPattern caches the rune conversion for each highlighted word
+// highlightedWordPattern is a highlighted word as runes, with its style.
 type highlightedWordPattern struct {
 	runes []rune
 	style lipgloss.Style
 }
 
-// hashHighlightedWords computes a hash of the highlighted words map
-func (m *Model) hashHighlightedWords() uint64 {
-	if len(m.highlightedWords) == 0 {
-		return 0
-	}
-
-	// Hash all words in the map
-	hash := uint64(len(m.highlightedWords))
-	for word := range m.highlightedWords {
-		for _, r := range word {
-			hash = hash*31 + uint64(r)
-		}
-		// Also incorporate word count to ensure different maps hash differently
-		hash = hash * 37
-	}
-	return hash
-}
-
-// getCompiledHighlightedWords returns cached compiled patterns, updating cache if needed
-func (m *Model) getCompiledHighlightedWords() []highlightedWordPattern {
-	if len(m.highlightedWords) == 0 {
-		m.compiledHighlightedWords = nil
-		m.compiledHighlightedWordsHash = 0
-		return nil
-	}
-
-	// Check if cache is valid
-	currentHash := m.hashHighlightedWords()
-	if m.compiledHighlightedWordsHash == currentHash && m.compiledHighlightedWords != nil {
-		return m.compiledHighlightedWords
-	}
-
-	// Recompile patterns
-	patterns := make([]highlightedWordPattern, 0, len(m.highlightedWords))
-	for word, style := range m.highlightedWords {
-		patterns = append(patterns, highlightedWordPattern{
-			runes: []rune(word),
-			style: style,
-		})
-	}
-
-	m.compiledHighlightedWords = patterns
-	m.compiledHighlightedWordsHash = currentHash
-	return patterns
-}
-
 // findHighlightedWordMatch finds the longest highlighted word match at the current position
 // Returns a highlightedWordMatch with length 0 if no match is found
 func (m *Model) findHighlightedWordMatch(segmentRunes []rune, charIdx int) highlightedWordMatch {
-	if len(m.highlightedWords) == 0 {
-		return highlightedWordMatch{}
-	}
-
 	segmentLen := len(segmentRunes)
 	bestMatch := highlightedWordMatch{}
 
-	// Get cached compiled patterns (avoids repeated rune conversions)
-	patterns := m.getCompiledHighlightedWords()
-
-	for _, pattern := range patterns {
+	for _, pattern := range m.highlightedWords {
 		wordLen := len(pattern.runes)
 
-		if wordLen == 0 || charIdx+wordLen > segmentLen {
+		if charIdx+wordLen > segmentLen {
 			continue
 		}
 
