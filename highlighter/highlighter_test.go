@@ -346,3 +346,86 @@ func TestTokeniseLexesMarkdownFromTheOpeningFence(t *testing.T) {
 		assert.Equalf(t, whole.GetTokensForLine(i, lines), h.GetTokensForLine(i, lines), "line %d", i)
 	}
 }
+
+func TestSyncRangeFrontmatter(t *testing.T) {
+	lines := []string{
+		"---",      // 0 opens the frontmatter
+		"title: x", // 1
+		"---",      // 2 closes it
+		"prose",    // 3
+		"---",      // 4 a thematic break
+		"more",     // 5
+		"```",      // 6
+		"code",     // 7
+		"```",      // 8
+		"---",      // 9 a thematic break right after a closing fence
+		"tail",     // 10
+	}
+	tests := []struct {
+		name               string
+		start, end         int
+		wantStart, wantEnd int
+	}{
+		{"inside the frontmatter", 1, 4, 0, 4},
+		{"on its closing line", 2, 4, 0, 4},
+		{"cutting it at the bottom", 0, 1, 0, 3},
+		{"after it", 3, 5, 3, 5},
+		{"on a thematic break", 4, 6, 4, 6},
+		{"on a thematic break after a fence", 9, 11, 9, 11},
+	}
+	h := New("markdown", "monokai")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end := h.syncRange(lines, tt.start, tt.end)
+			assert.Equal(t, [2]int{tt.wantStart, tt.wantEnd}, [2]int{start, end})
+		})
+	}
+}
+
+// TestTokeniseMarkdownMatchesAWholeFileLex lexes every range of a document
+// with frontmatter, code blocks and thematic breaks, and checks each line's
+// tokens against a lex of the whole document.
+func TestTokeniseMarkdownMatchesAWholeFileLex(t *testing.T) {
+	docs := map[string][]string{
+		"with frontmatter": {
+			"---", "title: x", "tags: [a]", "---", "# Head", "---", "*em*", "```go", "x := `a", "---", "b`", "```", "---", "## Sub", "---", "end",
+		},
+		"without frontmatter": {
+			"# Head", "---", "key: value", "---", "*em*", "```", "---", "```", "---", "---", "tail",
+		},
+		"unclosed frontmatter": {
+			"---", "title: x", "# Head", "```go", "x := 1", "```",
+		},
+	}
+	for name, lines := range docs {
+		t.Run(name, func(t *testing.T) {
+			whole := New("markdown", "monokai")
+			whole.Tokenise(lines, 0, len(lines))
+			for start := 0; start < len(lines); start++ {
+				for end := start + 1; end <= len(lines); end++ {
+					h := New("markdown", "monokai")
+					h.Tokenise(lines, start, end)
+					for i := start; i < end; i++ {
+						require.Equalf(t, whole.GetTokensForLine(i, lines), h.GetTokensForLine(i, lines), "range [%d, %d), line %d %q", start, end, i, lines[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGetTokenPositionsForLine(t *testing.T) {
+	lines := []string{"x := \"é\" // a", "", "y := 2"}
+	h := New("go", "monokai")
+	assert.Nil(t, h.GetTokenPositionsForLine(0), "nothing is tokenised yet")
+
+	h.Tokenise(lines, 0, 2)
+	for i := range 2 {
+		assert.Equalf(t, GetTokenPositions(h.GetTokensForLine(i, lines)), h.GetTokenPositionsForLine(i), "line %d", i)
+	}
+	assert.NotNil(t, h.GetTokenPositionsForLine(1), "a blank line should get empty positions, not nil")
+	assert.Nil(t, h.GetTokenPositionsForLine(2), "the line after the range isn't tokenised")
+
+	h.InvalidateCache()
+	assert.Nil(t, h.GetTokenPositionsForLine(0))
+}
