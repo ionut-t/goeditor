@@ -659,10 +659,6 @@ func (m *Model) SetLanguage(language string, theme string) {
 	// Clear token cache when language changes
 	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 
-	if language == "markdown" && m.extraHighlightedContextLines == 0 {
-		m.extraHighlightedContextLines = 100
-	}
-
 	m.renderVisibleSlice()
 }
 
@@ -674,20 +670,17 @@ func (m *Model) SetExtraWordChars(chars ...rune) {
 	m.editor.SetExtraWordChars(chars...)
 }
 
-// SetExtraHighlightedContextLines sets the number of extra lines to tokenise around the visible viewport.
-// This is crucial for Markdown where code blocks need context (the opening ```) to highlight correctly.
+// SetExtraHighlightedContextLines sets the number of extra lines to tokenise above and below the
+// visible viewport. The default is 0.
 //
-// PERFORMANCE TRADE-OFF:
-// - Higher values: Better syntax highlighting for large code blocks, but slower scrolling
-// - Lower values: Faster scrolling, but code blocks may lose highlighting when scrolling
+// The lexer starts at the first line of the range, so a construct spanning several lines (a Go raw
+// string or block comment, a Python docstring, a Markdown HTML comment) whose first line is above the
+// range is coloured wrongly; context lines bring that first line into the range. Markdown code blocks
+// don't need them: the range always starts at the opening ``` of a block it starts in, and ends at
+// the closing ``` of a block it cuts.
 //
-// Recommended values:
-// - Small files (<5000 lines): 100-200 (default is 100)
-// - Large files (5000-20000 lines): 50-100
-// - Very large files (>20000 lines): 20-50
-//
-// When scrolling, if the new range overlaps with cached range, no re-tokenisation occurs (fast).
-// When scrolling beyond cached range, the entire new range gets re-tokenised (slow if value is high).
+// The cost is in scrolling, not in file size: every scroll step lexes the viewport plus twice this
+// many lines again, while keys that change no text lex nothing.
 func (m *Model) SetExtraHighlightedContextLines(lines uint16) {
 	m.extraHighlightedContextLines = lines
 }

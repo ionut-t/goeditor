@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/alecthomas/chroma/v2"
+	"github.com/ionut-t/goeditor/highlighter"
 
 	"github.com/stretchr/testify/require"
 )
@@ -150,7 +151,7 @@ func TestKeysThatChangeNoTextKeepTokens(t *testing.T) {
 }
 
 // BenchmarkKeypressMarkdown measures a j/k keypress over a long markdown
-// document with the default context of 100 lines.
+// document with the default context lines.
 func BenchmarkKeypressMarkdown(b *testing.B) {
 	m := New(100, 52)
 	m.Focus()
@@ -162,4 +163,53 @@ func BenchmarkKeypressMarkdown(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		m = typeText(keys[i%2])(m)
 	}
+}
+
+// requireTokensMatchWholeFileLex checks that the cached tokens of lines
+// [from, to) have the types a lex of the whole file gives them.
+func requireTokensMatchWholeFileLex(t *testing.T, m Model, from, to int) {
+	t.Helper()
+	lines := m.editor.GetBuffer().GetLines()
+	whole := highlighter.New("markdown", "monokai")
+	whole.Tokenise(lines, 0, len(lines))
+	for i := from; i < to; i++ {
+		require.Equalf(t, whole.GetTokensForLine(i, nil), m.highlighter.GetTokensForLine(i, nil), "tokens of line %d %q", i, lines[i])
+	}
+}
+
+func TestMarkdownTopInsideALongCodeBlock(t *testing.T) {
+	// Sections at lines 0 and 307; the first block runs from line 4 to 305,
+	// longer than the screen.
+	content := markdownWithCodeBlocks(600, 300)
+	require.Equal(t, "## Section 307", strings.Split(content, "\n")[307])
+
+	m := New(60, 22)
+	m.Focus()
+	m.SetContent(content)
+	m.SetLanguage("markdown", "monokai")
+	require.NoError(t, m.SetCursorPosition(308, 0))
+	top := m.editor.GetState().TopLine
+	require.Less(t, top, 305, "the top should be inside the block")
+
+	// Lexed from inside the block, the closing fence read as an opening one:
+	// the heading after it and the next block came out as plain text.
+	requireTokensMatchWholeFileLex(t, m, top, 309)
+	heading := m.highlighter.GetTokensForLine(307, nil)
+	require.Equal(t, chroma.GenericSubheading, heading[0].Type)
+}
+
+func TestMarkdownCodeBlockCutAtTheBottom(t *testing.T) {
+	// The block from line 4 to 305 ends far below the screen; lexed without
+	// its closing fence it was plain text.
+	m := New(60, 22)
+	m.Focus()
+	m.SetContent(markdownWithCodeBlocks(600, 300))
+	m.SetLanguage("markdown", "monokai")
+	requireTokensMatchWholeFileLex(t, m, 0, 20)
+}
+
+func TestMarkdownHasNoDefaultContextLines(t *testing.T) {
+	m := New(60, 22)
+	m.SetLanguage("markdown", "monokai")
+	require.Zero(t, m.extraHighlightedContextLines, "the fence sync replaces the old default of 100")
 }

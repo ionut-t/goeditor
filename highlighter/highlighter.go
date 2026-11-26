@@ -3,6 +3,7 @@ package highlighter
 import (
 	"strings"
 	"sync"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
@@ -57,6 +58,8 @@ func (sh *Highlighter) InvalidateCache() {
 
 // Tokenise tokenises only the visible range of lines.
 // Optimised to skip re-tokenisation if all lines are already cached.
+// The range is widened so it doesn't start or end inside a Markdown code
+// block, which the lexer can only read from its opening fence.
 func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 	sh.cacheMutex.Lock()
 	defer sh.cacheMutex.Unlock()
@@ -64,6 +67,7 @@ func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 	if startLine < 0 || endLine > len(lines) || startLine >= endLine {
 		return
 	}
+	startLine, endLine = sh.syncRange(lines, startLine, endLine)
 
 	// Check if all lines are already cached
 	allCached := true
@@ -85,6 +89,65 @@ func (sh *Highlighter) Tokenise(lines []string, startLine, endLine int) {
 	}
 
 	sh.tokeniseRange(lines, startLine, endLine)
+}
+
+// syncRange widens the range of lines [start, end) to lex so that it starts
+// and ends outside the constructs the lexer can only read from their first
+// line, as Vim's :syntax sync. The lexer starts in its root state at start,
+// so in a Markdown code block it would read the closing fence as an opening
+// one and colour everything after it as the wrong side of a fence. Only
+// Markdown's fenced code blocks are handled; other languages get the range
+// back as it is.
+func (sh *Highlighter) syncRange(lines []string, start, end int) (int, int) {
+	if sh.lexer.Config().Name != "markdown" {
+		return start, end
+	}
+	return markdownSyncRange(lines, start, end)
+}
+
+// markdownSyncRange moves start to the opening fence of the code block it is
+// in, and end past the closing fence of the block it cuts, if any. Fences
+// are read as chroma's Markdown lexer reads them: an opening line is ```
+// followed by nothing or by a language name, and the block ends at the next
+// line that is ``` alone; an opening line with no such line after it starts
+// no block.
+func markdownSyncRange(lines []string, start, end int) (int, int) {
+	newStart, newEnd := start, end
+	for i := 0; i < end && i < len(lines); i++ {
+		if !isFenceOpen(lines[i]) {
+			continue
+		}
+		j := i + 1
+		for j < len(lines) && lines[j] != "```" {
+			j++
+		}
+		if j == len(lines) {
+			break // no closing fence below, so no later opening line has one
+		}
+		if i < start && j >= start {
+			newStart = i
+		}
+		if j >= end {
+			newEnd = j + 1
+		}
+		i = j
+	}
+	return newStart, newEnd
+}
+
+// isFenceOpen reports whether line opens a code block in chroma's Markdown
+// lexer: ``` followed by word characters only.
+func isFenceOpen(line string) bool {
+	rest, ok := strings.CutPrefix(line, "```")
+	if !ok {
+		return false
+	}
+	for _, r := range rest {
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // tokeniseRange tokenises a specific range of lines and updates the cache

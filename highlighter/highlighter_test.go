@@ -287,3 +287,62 @@ func TestTokeniseEmptyLinesGetEmptyNonNilCache(t *testing.T) {
 	assert.NotNil(t, blank, "a blank line should still get a cache entry so the renderer doesn't treat it as invalidated")
 	assert.Empty(t, blank)
 }
+
+func TestSyncRange(t *testing.T) {
+	lines := strings.Split(strings.Join([]string{
+		"# Title",   // 0
+		"```go",     // 1
+		"x := 1",    // 2
+		"y := 2",    // 3
+		"```",       // 4
+		"prose",     // 5
+		"```",       // 6 opens a block without a language
+		"text",      // 7
+		"```",       // 8
+		"```go x",   // 9 not an opening line: a space after the name
+		"after",     // 10
+		"```python", // 11 no closing fence below: no block
+		"tail",      // 12
+	}, "\n"), "\n")
+
+	tests := []struct {
+		name               string
+		start, end         int
+		wantStart, wantEnd int
+	}{
+		{"outside any block", 5, 6, 5, 6},
+		{"start inside a block", 3, 6, 1, 6},
+		{"start on the closing fence", 4, 6, 1, 6},
+		{"start on the opening fence", 1, 6, 1, 6},
+		{"end inside a block", 0, 3, 0, 5},
+		{"end on the closing fence", 0, 4, 0, 5},
+		{"both inside one block", 2, 3, 1, 5},
+		{"block without a language", 7, 8, 6, 9},
+		{"not a fence", 10, 11, 10, 11},
+		{"unclosed fence", 12, 13, 12, 13},
+	}
+	h := New("markdown", "monokai")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end := h.syncRange(lines, tt.start, tt.end)
+			assert.Equal(t, [2]int{tt.wantStart, tt.wantEnd}, [2]int{start, end})
+		})
+	}
+
+	t.Run("other languages are left alone", func(t *testing.T) {
+		start, end := New("go", "monokai").syncRange(lines, 3, 6)
+		assert.Equal(t, [2]int{3, 6}, [2]int{start, end})
+	})
+}
+
+func TestTokeniseLexesMarkdownFromTheOpeningFence(t *testing.T) {
+	lines := []string{"```go", "x := `a", "b`", "```", "## After"}
+	whole := New("markdown", "monokai")
+	whole.Tokenise(lines, 0, len(lines))
+
+	h := New("markdown", "monokai")
+	h.Tokenise(lines, 2, len(lines)) // starts inside the block
+	for i := range lines {
+		assert.Equalf(t, whole.GetTokensForLine(i, lines), h.GetTokensForLine(i, lines), "line %d", i)
+	}
+}

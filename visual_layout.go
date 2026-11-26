@@ -1224,9 +1224,8 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				startLogicalLine = m.visualLayoutCache[startCacheIdx].LogicalRow
 				endLogicalLine = m.visualLayoutCache[endCacheIdx].LogicalRow + 1
 
-				// Expand the range for better syntax highlighting context
-				// For markdown, we need extra context to properly tokenise code blocks
-				// The incremental tokeniser will skip already-cached lines, so this is efficient
+				// Expand the range for better syntax highlighting context.
+				// Tokenise skips the range when every line in it is cached.
 				expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
 				expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
 
