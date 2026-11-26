@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alecthomas/chroma/v2"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,4 +100,66 @@ func TestOffscreenTokensRefreshAfterSetBytes(t *testing.T) {
 
 	require.NoError(t, m.SetCursorPosition(280, 0))
 	requireCachedTokensMatchBuffer(t, m, 280)
+}
+
+// markdownWithCodeBlocks returns n lines of markdown: sections whose body is
+// a fenced Go block of blockLines lines.
+func markdownWithCodeBlocks(n, blockLines int) string {
+	var b strings.Builder
+	for i := 0; i < n; {
+		fmt.Fprintf(&b, "## Section %d\n\nSome *prose* here.\n\n```go\n", i)
+		i += 5
+		for j := 0; j < blockLines && i < n; j++ {
+			fmt.Fprintf(&b, "\tx := foo(%d) // note\n", j)
+			i++
+		}
+		b.WriteString("```\n\n")
+		i += 2
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// firstToken returns the address of the first cached token of line, which
+// changes when the line is lexed again.
+func firstToken(t *testing.T, m Model, line int) *chroma.Token {
+	t.Helper()
+	tokens := m.highlighter.GetTokensForLine(line, nil)
+	require.NotEmptyf(t, tokens, "line %d should be tokenised", line)
+	return &tokens[0]
+}
+
+func TestKeysThatChangeNoTextKeepTokens(t *testing.T) {
+	m := newHighlightedModel(alternatingGoLines(300))
+	m = typeText("jj")(m) // render, cursor away from the top
+	tok := firstToken(t, m, 0)
+
+	for _, keys := range []string{"j", "k", "w", "b", "v", "\x1b", "yy", "i"} {
+		if keys == "\x1b" {
+			m = escKey(m)
+		} else {
+			m = typeText(keys)(m)
+		}
+		require.Samef(t, tok, firstToken(t, m, 0), "%q should not re-lex", keys)
+	}
+	m = escKey(m)
+	m = resizeTo(70, 22)(m)
+	require.Same(t, tok, firstToken(t, m, 0), "a resize should not re-lex")
+
+	m = typeText("x")(m)
+	require.NotSame(t, tok, firstToken(t, m, 0), "an edit should re-lex")
+}
+
+// BenchmarkKeypressMarkdown measures a j/k keypress over a long markdown
+// document with the default context of 100 lines.
+func BenchmarkKeypressMarkdown(b *testing.B) {
+	m := New(100, 52)
+	m.Focus()
+	m.SetContent(markdownWithCodeBlocks(2000, 40))
+	m.SetLanguage("markdown", "monokai")
+	m = typeText("1000G")(m)
+	keys := []string{"j", "k"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m = typeText(keys[i%2])(m)
+	}
 }

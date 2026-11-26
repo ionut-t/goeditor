@@ -161,6 +161,11 @@ type Editor interface {
 	// CommandPending reports whether a command is part way typed. Hosts
 	// that move the cursor themselves wait until it is false.
 	CommandPending() bool
+	// ChangedTick counts changes to the text, as Vim's b:changedtick: it
+	// moves on every edit (through GetBuffer, undo, redo, AppendBytes) and on
+	// SetBuffer and SetContent, and nowhere else. Edits made directly on a
+	// Buffer passed to SetBuffer, not through GetBuffer, don't move it.
+	ChangedTick() uint64
 
 	SearchResults() []Position
 	NextSearchResult() Cursor
@@ -252,6 +257,9 @@ type editor struct {
 	replaying bool
 	editCount int
 	insert    insertSession
+
+	// changedTick counts changes to the text (see ChangedTick).
+	changedTick uint64
 }
 
 // New creates a new editor instance
@@ -431,6 +439,7 @@ func (e *editor) SetBuffer(buffer Buffer) {
 		buffer = rb.Buffer
 	}
 	e.buffer = &recordingBuffer{Buffer: buffer, e: e}
+	e.changedTick++
 	e.appendTail = nil                                    // A held partial line belonged to the old text,
 	e.appended = false                                    // and the new text can be replaced if empty
 	e.resetHistory()                                      // A new buffer starts a new undo history
@@ -588,6 +597,10 @@ func (e *editor) IsCommandMode() bool {
 
 func (e *editor) IsSearchMode() bool {
 	return e.state.Mode == SearchMode
+}
+
+func (e *editor) ChangedTick() uint64 {
+	return e.changedTick
 }
 
 // idler is implemented by modes with multi-key commands of their own (g/z

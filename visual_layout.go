@@ -1577,12 +1577,15 @@ func (m *Model) handleContentChange() {
 	// (VGU, SetBytes) leaves off-screen entries describing other text.
 	// Clearing it all costs no extra tokenising: the cursor line is always
 	// on screen, and Tokenise re-tokenises the whole visible range when any
-	// line in it is missing.
-	if m.highlighter != nil {
-		m.highlighter.InvalidateCache()
+	// line in it is missing. Keys that change no text (motions, mode
+	// switches) and resizes keep the tokens, so they don't re-lex.
+	if tick := m.editor.ChangedTick(); tick != m.tokensTick {
+		m.tokensTick = tick
+		if m.highlighter != nil {
+			m.highlighter.InvalidateCache()
+		}
+		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 	}
-	// Clear persistent token cache on content changes
-	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 
 	// Force cache recalculation by invalidating the cache validity range
 	// This ensures the visual layout cache is updated with the new content

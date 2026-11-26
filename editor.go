@@ -236,6 +236,7 @@ type Model struct {
 	cacheValidStartRow              int                                 // Start of cursor range for which cache is valid
 	cacheValidEndRow                int                                 // End of cursor range for which cache is valid
 	persistentTokenCache            map[int][]highlighter.TokenPosition // Persistent token cache across renders
+	tokensTick                      uint64                              // The editor's ChangedTick the token caches describe
 
 	clampedCursorLogicalCol      int // Clamped cursor column
 	highlightedWords             map[string]lipgloss.Style
@@ -1291,7 +1292,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		}
 
-		/* TODO: Optimise to only tokenise changed lines if possible. */
 		m.handleContentChange()
 
 		m.cursorVisible = true

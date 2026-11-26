@@ -188,6 +188,7 @@ func (b *recordingBuffer) InsertRunesAt(row, col int, runes []rune) error {
 		return err
 	}
 	if len(runes) > 0 {
+		b.e.changedTick++
 		b.e.recordEdit(cursor, edit{at: Position{Row: row, Col: col}, inserted: string(runes)})
 	}
 	return nil
@@ -200,6 +201,7 @@ func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 		return err
 	}
 	if removed != "" {
+		b.e.changedTick++
 		b.e.recordEdit(cursor, edit{at: Position{Row: row, Col: col}, removed: removed})
 	}
 	b.keepCursorInText()
@@ -210,6 +212,7 @@ func (b *recordingBuffer) DeleteRunesAt(row, col int, count int) *EditorError {
 // forgets the change '.' repeats, as loading a file does in Vim.
 func (b *recordingBuffer) SetContent(content []byte) {
 	b.Buffer.SetContent(content)
+	b.e.changedTick++
 	b.keepCursorInText()
 	b.e.resetHistory()
 	b.e.resetRepeat()
@@ -432,6 +435,7 @@ func (e *editor) Undo() ([]TextEdit, error) {
 	e.undoPos--
 	step := &e.undoSteps[e.undoPos]
 	edits, err := step.undo(e.buffer.Buffer, nil)
+	e.changedTick++ // also after a failure, which may have applied some edits
 	if err != nil {
 		return edits, e.undoCorrupt(err)
 	}
@@ -456,6 +460,7 @@ func (e *editor) Redo() ([]TextEdit, error) {
 	step := &e.undoSteps[e.undoPos]
 	e.undoPos++
 	edits, err := step.redo(e.buffer.Buffer, nil)
+	e.changedTick++
 	if err != nil {
 		return edits, e.undoCorrupt(err)
 	}
