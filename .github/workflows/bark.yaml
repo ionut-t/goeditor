@@ -69,14 +69,18 @@ jobs:
           model: ${{ vars.BARK_MODEL }}
           reviewer: ${{ vars.BARK_REVIEWER }}
           max-diff-lines: ${{ vars.BARK_MAX_DIFF_LINES }}
-          with-description: "true"
           with-context: ${{ vars.BARK_WITH_CONTEXT }}
           inline-comments: ${{ vars.BARK_INLINE_COMMENTS }}
+          fail-on: high
+          with-description: ${{ needs.pr-description.result == 'success' }}
+          approve: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Remove review label
         if: always() && github.event.action == 'labeled'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label "bark: review" || true
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABEL: ${{ github.event.label.name }}
+        run: gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$LABEL" || true
