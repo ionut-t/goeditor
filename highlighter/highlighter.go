@@ -160,7 +160,8 @@ func isFrontmatterDelimiter(line string) bool {
 // fences from line from on. Fences are read as chroma's Markdown lexer reads
 // them: an opening line is ``` followed by nothing or by a language name, and
 // the block ends at the next line that is ``` alone; an opening line with no
-// such line after it starts no block.
+// such line after it starts no block. A line's trailing \r is left out, as
+// chroma lexes CRLF line endings as LF.
 func fenceSyncRange(lines []string, from, start, end int) (int, int) {
 	newStart, newEnd := start, end
 	for i := from; i < end && i < len(lines); i++ {
@@ -168,7 +169,7 @@ func fenceSyncRange(lines []string, from, start, end int) (int, int) {
 			continue
 		}
 		j := i + 1
-		for j < len(lines) && lines[j] != "```" {
+		for j < len(lines) && strings.TrimSuffix(lines[j], "\r") != "```" {
 			j++
 		}
 		if j == len(lines) {
@@ -186,9 +187,9 @@ func fenceSyncRange(lines []string, from, start, end int) (int, int) {
 }
 
 // isFenceOpen reports whether line opens a code block in chroma's Markdown
-// lexer: ``` followed by word characters only.
+// lexer: ``` followed by word characters only, then an optional \r.
 func isFenceOpen(line string) bool {
-	rest, ok := strings.CutPrefix(line, "```")
+	rest, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), "```")
 	if !ok {
 		return false
 	}
@@ -213,7 +214,8 @@ func (sh *Highlighter) tokeniseRange(lines []string, startLine, endLine int) {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	if content == "" {
+	if content == "" { // the range is one empty line
+		sh.cache[startLine] = []chroma.Token{}
 		return
 	}
 	lineNum := startLine

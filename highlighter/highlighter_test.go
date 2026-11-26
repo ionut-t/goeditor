@@ -1,6 +1,7 @@
 package highlighter
 
 import (
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -397,6 +398,15 @@ func TestTokeniseMarkdownMatchesAWholeFileLex(t *testing.T) {
 			"---", "title: x", "# Head", "```go", "x := 1", "```",
 		},
 	}
+	crlfDocs := make(map[string][]string, len(docs))
+	for name, lines := range docs {
+		crlf := make([]string, len(lines))
+		for i, line := range lines {
+			crlf[i] = line + "\r" // a file with CRLF line endings, which chroma lexes as LF
+		}
+		crlfDocs[name+" (CRLF)"] = crlf
+	}
+	maps.Copy(docs, crlfDocs)
 	for name, lines := range docs {
 		t.Run(name, func(t *testing.T) {
 			whole := New("markdown", "monokai")
@@ -428,4 +438,13 @@ func TestGetTokenPositionsForLine(t *testing.T) {
 
 	h.InvalidateCache()
 	assert.Nil(t, h.GetTokenPositionsForLine(0))
+}
+
+func TestTokeniseCachesASingleEmptyLine(t *testing.T) {
+	// An empty buffer is one empty line: with no entry for it every redraw
+	// found the range uncached and tokenised it again.
+	h := New("go", "monokai")
+	h.Tokenise([]string{""}, 0, 1)
+	assert.NotNil(t, h.GetTokensForLine(0, nil))
+	assert.NotNil(t, h.GetTokenPositionsForLine(0))
 }
