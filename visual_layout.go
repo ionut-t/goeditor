@@ -1224,9 +1224,8 @@ func (m *Model) renderVisibleSliceWithSyntax() {
 				startLogicalLine = m.visualLayoutCache[startCacheIdx].LogicalRow
 				endLogicalLine = m.visualLayoutCache[endCacheIdx].LogicalRow + 1
 
-				// Expand the range for better syntax highlighting context
-				// For markdown, we need extra context to properly tokenise code blocks
-				// The incremental tokeniser will skip already-cached lines, so this is efficient
+				// Expand the range for better syntax highlighting context.
+				// Tokenise skips the range when every line in it is cached.
 				expandedStartLine := max(0, startLogicalLine-extraHighlightedContextLines)
 				expandedEndLine := min(len(allLogicalLines), endLogicalLine+extraHighlightedContextLines)
 
@@ -1577,12 +1576,15 @@ func (m *Model) handleContentChange() {
 	// (VGU, SetBytes) leaves off-screen entries describing other text.
 	// Clearing it all costs no extra tokenising: the cursor line is always
 	// on screen, and Tokenise re-tokenises the whole visible range when any
-	// line in it is missing.
-	if m.highlighter != nil {
-		m.highlighter.InvalidateCache()
+	// line in it is missing. Keys that change no text (motions, mode
+	// switches) and resizes keep the tokens, so they don't re-lex.
+	if tick := m.editor.ChangedTick(); tick != m.tokensTick {
+		m.tokensTick = tick
+		if m.highlighter != nil {
+			m.highlighter.InvalidateCache()
+		}
+		m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 	}
-	// Clear persistent token cache on content changes
-	m.persistentTokenCache = make(map[int][]highlighter.TokenPosition)
 
 	// Force cache recalculation by invalidating the cache validity range
 	// This ensures the visual layout cache is updated with the new content

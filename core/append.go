@@ -71,6 +71,7 @@ func (e *editor) appendLines(text []byte) {
 	// cut into chunks.
 	replace := !e.appended && buf.IsEmpty() && !buf.IsModified()
 	e.appended = true
+	e.changedTick++
 	if a, ok := buf.(savedAppender); ok {
 		a.appendSaved(runes, replace)
 		return
