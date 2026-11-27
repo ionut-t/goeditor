@@ -171,7 +171,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 - `:w` - Save file
 - `:q` - Quit
-- `:wq` - Save and quit
+- `:wq` - Save and quit (stays open if the write fails)
+- `:x` - Save if modified, then quit
 - `:q!` - Force quit without saving
 - `:set rnu` - Enable relative line numbers
 - `:set nornu` - Disable relative line numbers
@@ -277,6 +278,8 @@ GetCurrentContent() string
 GetSavedContent() string
 HasChanges() bool
 IsEmpty() bool
+SetWriteFunc(f core.WriteFunc) // how :w/:wq/:x write; required to write (see Writing Files)
+Writing() bool                 // a write is queued or running
 
 // Mode Control
 SetNormalMode()
@@ -323,6 +326,41 @@ WithCompletionDebounce(duration time.Duration)
 SetCompletionMenuMaxVisibleItems(max int)
 ```
 
+### Writing Files
+
+`:w`, `:wq` and `:x` write through a function the host sets: to a file, a database, an API, a field in memory. Without one they fail with "cannot write this buffer" and the buffer stays modified; everything else works as usual.
+
+The function runs inside the command and may use host state. A quick write is done right there, returning no job:
+
+```go
+m.SetWriteFunc(func(path *string, content string) (core.WriteJob, error) {
+    name := currentFile
+    if path != nil { // the text typed after :w, or nil
+        name = *path
+    }
+    return nil, os.WriteFile(name, []byte(content), 0o644)
+})
+```
+
+A write slow enough to freeze the screen (a network call) returns a job instead. The editor runs it in a `tea.Cmd`, so typing goes on, and shows `writing…` if it takes a while:
+
+```go
+m.SetWriteFunc(func(_ *string, content string) (core.WriteJob, error) {
+    id := currentDocID // read host state here, not in the job
+    return func(ctx context.Context) error {
+        ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+        defer cancel()
+        return api.Save(ctx, id, content)
+    }, nil
+})
+```
+
+- The buffer counts as saved only once the write succeeded, and only the text written: anything typed during a job stays modified. `SaveMsg` follows.
+- A failure (or a panic in a job) comes back as an `ErrorMsg` with `core.ErrFailedToSaveId`; the buffer stays modified, so `:q` refuses to quit and `:wq`/`:x` stay open, as in Vim.
+- Jobs run one at a time, in order. `:wq`, `:x` and `:q` wait for pending jobs before quitting; `:q!` quits at once and cancels the running job's context.
+- Neither the function nor a job may call the editor, and a job runs on another goroutine: it uses only what the function captured. Its result reaches the editor through `Update`, so pass every message on to it.
+- Use one style per target: a write done in the function while an older job to the same target still runs can be overwritten by that job.
+
 ### Handling Editor Events
 
 Handle events in your Bubble Tea `Update` method:
@@ -331,8 +369,8 @@ Handle events in your Bubble Tea `Update` method:
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
     case goeditor.SaveMsg:
-        content := msg.Content
-        // Save to file...
+        // The write function's job already wrote msg.Content (see Writing
+        // Files): update your own state, e.g. the file name from msg.Path.
 
     case goeditor.QuitMsg:
         return m, tea.Quit

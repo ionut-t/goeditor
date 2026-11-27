@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	editor "github.com/ionut-t/goeditor"
+	"github.com/ionut-t/goeditor/core"
 )
 
 const messageDuration = 3 * time.Second
@@ -210,6 +211,11 @@ func main() {
 	// Dark until the terminal reports its background colour.
 	textEditor.SetLanguage("markdown", languageTheme(true))
 	textEditor.SetContent(sampleContent())
+	// Nothing is written in this example: a nil job lets :w, :wq and :x
+	// succeed without writing anything.
+	textEditor.SetWriteFunc(func(*string, string) (core.WriteJob, error) {
+		return nil, nil
+	})
 
 	m := Model{
 		editor:      textEditor,

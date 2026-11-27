@@ -132,7 +132,7 @@ func TestCommandModeQuit(t *testing.T) {
 // TestCommandModeWrite tests ':w' — write (save) the buffer.
 func TestCommandModeWrite(t *testing.T) {
 	t.Run(":w on modified buffer dispatches SaveSignal", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		keys(e, 'x') // modify buffer → "ello"
 		keys(e, ':', 'w')
 		drainSignals(e) // drain EnterCommandModeSignal and any others before enter
@@ -146,7 +146,7 @@ func TestCommandModeWrite(t *testing.T) {
 	})
 
 	t.Run(":w marks buffer as unmodified", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		keys(e, 'x') // modify buffer
 		assert.True(t, e.GetBuffer().IsModified())
 		drainSignals(e)
@@ -156,7 +156,7 @@ func TestCommandModeWrite(t *testing.T) {
 	})
 
 	t.Run(":w on unmodified buffer still saves (like Vim)", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		keys(e, ':', 'w')
 		drainSignals(e)
 		enter(e)
@@ -169,7 +169,7 @@ func TestCommandModeWrite(t *testing.T) {
 	})
 
 	t.Run(":w path saves to that path", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		drainSignals(e)
 		assert.Nil(t, e.ExecuteCommand("w other.txt"))
 		save, ok := nextSignal(e).(SaveSignal)
@@ -200,7 +200,7 @@ func assertSavedThenQuit(t *testing.T, e Editor, wantContent string) {
 func TestCommandModeWriteQuit(t *testing.T) {
 	for _, cmd := range []string{"wq", "wq!"} {
 		t.Run(":"+cmd+" on modified buffer saves and quits", func(t *testing.T) {
-			e := newTestEditor("hello")
+			e := newWritingEditor("hello")
 			keys(e, 'x') // modify buffer → "ello"
 			keys(e, ':')
 			keys(e, []rune(cmd)...)
@@ -210,7 +210,7 @@ func TestCommandModeWriteQuit(t *testing.T) {
 		})
 
 		t.Run(":"+cmd+" on unmodified buffer saves and quits", func(t *testing.T) {
-			e := newTestEditor("hello")
+			e := newWritingEditor("hello")
 			keys(e, ':')
 			keys(e, []rune(cmd)...)
 			drainSignals(e)
@@ -220,7 +220,7 @@ func TestCommandModeWriteQuit(t *testing.T) {
 	}
 
 	t.Run(":wq path saves to that path and quits", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		drainSignals(e)
 		assert.Nil(t, e.ExecuteCommand("wq other.txt"))
 		save, ok := nextSignal(e).(SaveSignal)
@@ -232,7 +232,7 @@ func TestCommandModeWriteQuit(t *testing.T) {
 
 	t.Run("write commands take the rest of the line as one path (like Vim)", func(t *testing.T) {
 		for _, cmd := range []string{"w", "wq", "wq!", "x"} {
-			e := newTestEditor("hello")
+			e := newWritingEditor("hello")
 			keys(e, 'x') // modify buffer so :x writes
 			drainSignals(e)
 			assert.Nil(t, e.ExecuteCommand(cmd+"  my file.txt  "), cmd)
@@ -250,7 +250,7 @@ func TestCommandModeWriteQuit(t *testing.T) {
 // TestCommandModeXit tests ':x' — write only if modified, then quit.
 func TestCommandModeXit(t *testing.T) {
 	t.Run(":x on modified buffer saves and quits", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		keys(e, 'x') // modify buffer
 		drainSignals(e)
 		keys(e, ':', 'x')
@@ -260,7 +260,7 @@ func TestCommandModeXit(t *testing.T) {
 	})
 
 	t.Run(":x on unmodified buffer quits without save signal", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		drainSignals(e)
 		keys(e, ':', 'x')
 		enter(e)
@@ -272,7 +272,7 @@ func TestCommandModeXit(t *testing.T) {
 	})
 
 	t.Run(":xit is an alias for :x", func(t *testing.T) {
-		e := newTestEditor("hello")
+		e := newWritingEditor("hello")
 		keys(e, 'x') // modify buffer
 		drainSignals(e)
 		keys(e, ':', 'x', 'i', 't')

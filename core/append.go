@@ -72,6 +72,7 @@ func (e *editor) appendLines(text []byte) {
 	replace := !e.appended && buf.IsEmpty() && !buf.IsModified()
 	e.appended = true
 	e.changedTick++
+	e.appendToPendingWrites(string(runes), replace)
 	if a, ok := buf.(savedAppender); ok {
 		a.appendSaved(runes, replace)
 		return

@@ -76,6 +76,8 @@ type DeleteFileSignal struct{}
 
 func (d DeleteFileSignal) Value() {}
 
+// SaveSignal reports a write that succeeded (see Editor.SetWriteFunc): path
+// as typed after :w (nil for the current file) and the content written.
 type SaveSignal struct {
 	path    *string
 	content string

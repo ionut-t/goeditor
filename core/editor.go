@@ -145,11 +145,18 @@ type Editor interface {
 	SetLineHeightFunc(f LineHeightFunc)
 	GetUpdateSignalChan() <-chan Signal            // For UI updates
 	GetSelectionStatus(pos Position) SelectionType // Get selection status of a position
-	Save(*string)                                  // Save the current buffer content
+	Save(*string)                                  // Save the current buffer content (see SetWriteFunc)
 	Quit()                                         // Signal to quit the editor
 	DispatchError(id ErrorId, err error)           // Dispatch errors to consumers
 	DispatchSignal(signal Signal)                  // Dispatch signals to consumers
 	ResetPendingCount()
+	// Writing the buffer (see write.go). Without a write function :w, :wq
+	// and :x fail with ErrNoWriteFunc. The host takes each queued write with
+	// NextWrite, runs it and reports the result with FinishWrite.
+	SetWriteFunc(f WriteFunc)
+	NextWrite() (WriteRequest, bool)
+	FinishWrite(id WriteId, err error)
+	Writing() bool // a write is queued or running
 
 	ShowRelativeLineNumbers(bool)
 	IsNormalMode() bool
@@ -238,6 +245,14 @@ type editor struct {
 	// until the line is complete or FlushAppend adds it.
 	appendTail []byte
 	appended   bool // AppendBytes added text since SetBuffer (see appendLines)
+
+	// Writing (see write.go). bufferGen counts SetBuffer calls, so a write
+	// queued for an earlier buffer never marks the current one saved.
+	writeFunc    WriteFunc
+	writes       []*pendingWrite // oldest first; writes[0] may be running
+	lastWriteID  WriteId
+	bufferGen    uint64
+	quitWhenIdle bool // :wq or :x quits once the pending writes finish
 
 	// Scrolling (see scroll.go). scrollLines is Vim's 'scroll' option as set by
 	// a count on CTRL-D/CTRL-U, valid while the window is scrollLinesHeight tall.
@@ -440,6 +455,7 @@ func (e *editor) SetBuffer(buffer Buffer) {
 	}
 	e.buffer = &recordingBuffer{Buffer: buffer, e: e}
 	e.changedTick++
+	e.bufferGen++                                         // Pending writes no longer mark it saved
 	e.appendTail = nil                                    // A held partial line belonged to the old text,
 	e.appended = false                                    // and the new text can be replaced if empty
 	e.resetHistory()                                      // A new buffer starts a new undo history
@@ -543,12 +559,6 @@ func (e *editor) GetSelectionStatus(pos Position) SelectionType {
 	}
 
 	return SelectionNone
-}
-
-func (e *editor) Save(path *string) {
-	e.buffer.SaveContent()
-	signal := SaveSignal{path: path, content: e.buffer.GetSavedContent()}
-	e.DispatchSignal(signal)
 }
 
 func (e *editor) Quit() {

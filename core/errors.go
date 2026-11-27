@@ -14,7 +14,6 @@ var (
 	ErrInvalidCommand     = errors.New("invalid command")
 	ErrNoPendingOperation = errors.New("no pending operation")
 	ErrDeleteRunes        = errors.New("cannot delete runes")
-	ErrNoChangesToSave    = errors.New("no changes to save")
 	ErrUnsavedChanges     = errors.New("unsaved changes (use :q! to override)")
 	ErrRenameFailed       = errors.New("rename requires a single argument (rename new_filename)")
 	ErrNoLineToRestore    = errors.New("no line to restore")
@@ -35,6 +34,11 @@ var (
 	ErrPatternNotFound = errors.New("pattern not found")
 	ErrSearchHitBottom = errors.New("search hit BOTTOM without match")
 	ErrSearchHitTop    = errors.New("search hit TOP without match")
+	// ErrNoWriteFunc is returned by :w, :wq and :x when the host set no
+	// write function (Editor.SetWriteFunc): the buffer can't be written.
+	ErrNoWriteFunc = errors.New("cannot write this buffer")
+	// ErrWritePanicked wraps the value of a panic in a WriteJob.
+	ErrWritePanicked = errors.New("write panicked")
 )
 
 type ErrorId int
@@ -52,7 +56,6 @@ const (
 	ErrCharNotFoundId
 	ErrDeleteRunesId
 	ErrFailedToSaveId
-	ErrNoChangesToSaveId
 	ErrUnsavedChangesId
 	ErrFailedToYankId
 	ErrFailedToPasteId
@@ -69,6 +72,7 @@ const (
 	ErrPatternNotFoundId
 	ErrSearchHitBottomId
 	ErrSearchHitTopId
+	ErrNoWriteFuncId
 )
 
 // EditorError is an error with an ErrorId saying which operation failed. It
