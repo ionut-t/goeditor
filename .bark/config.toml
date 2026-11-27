@@ -1,0 +1,13 @@
+# Reviewer names a review picks one from at random when neither --as names one 
+preferred_reviewers = [
+  "Linus Torvalds",
+  "Jesse Pinkman",
+  "Walter White",
+  "Spock",
+  "Joker",
+  "Billy Butcher",
+  "Dr. House",
+  "Yoda",
+  "Sun Tzu",
+  "Loki",
+]
