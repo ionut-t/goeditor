@@ -11,13 +11,31 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	editor "github.com/ionut-t/goeditor"
+	"github.com/ionut-t/goeditor/core"
 )
 
 const messageDuration = 3 * time.Second
 
+// document is the file being edited. The editor's write function and the
+// model share it, so it's held by pointer: Model is copied on every Update.
+type document struct {
+	name string
+}
+
+// write is the editor's write function (see SetWriteFunc in main). path is
+// the file name typed after :w, or nil for the current file. A local file is
+// quick to write, so it writes right here and returns no job.
+func (d *document) write(path *string, content string) (core.WriteJob, error) {
+	name := d.name
+	if path != nil {
+		name = *path
+	}
+	return nil, os.WriteFile(expandHome(name), []byte(content), 0o644)
+}
+
 type Model struct {
 	editor editor.Model
-	file   string
+	doc    *document
 	lang   string
 }
 
@@ -55,33 +73,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case editor.SaveMsg:
+		// The file is already written (doc.write); a failed write comes as
+		// an ErrorMsg instead.
 		if msg.Path != nil {
-			m.file = *msg.Path
+			m.doc.name = *msg.Path
 		}
-
-		filePath := m.file
-		if strings.HasPrefix(filePath, "~/") {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return m, m.editor.DispatchError(err, messageDuration)
-			} else {
-				filePath = filepath.Join(homeDir, filePath[2:])
-			}
-		}
-
-		if err := os.WriteFile(filePath, []byte(msg.Content), 0o644); err != nil {
-			return m, m.editor.DispatchError(err, messageDuration)
-		}
-
-		return m, m.editor.DispatchMessage(fmt.Sprintf("file saved to %s", m.file), messageDuration)
+		return m, m.editor.DispatchMessage(fmt.Sprintf("%q %dB written", m.doc.name, len(msg.Content)), messageDuration)
 
 	case editor.RenameMsg:
-		if err := os.Rename(m.file, msg.FileName); err != nil {
+		if err := os.Rename(m.doc.name, msg.FileName); err != nil {
 			return m, m.editor.DispatchError(err, messageDuration)
 		}
 
 	case editor.DeleteFileMsg:
-		if err := os.Remove(m.file); err != nil {
+		if err := os.Remove(m.doc.name); err != nil {
 			return m, m.editor.DispatchError(err, messageDuration)
 		}
 
@@ -141,9 +146,14 @@ func main() {
 		textEditor.SetBytes(content)
 	}
 
+	// :w, :wq and :x write through doc.write: the buffer counts as saved
+	// only when it succeeds, and :wq and :x stay open when it fails.
+	doc := &document{name: file}
+	textEditor.SetWriteFunc(doc.write)
+
 	m := Model{
 		editor: textEditor,
-		file:   file,
+		doc:    doc,
 		lang:   lang,
 	}
 
@@ -154,6 +164,18 @@ func main() {
 		log.Fatalf("Error running Bubble Tea program: %v", err)
 		os.Exit(1)
 	}
+}
+
+// expandHome expands a leading ~/ to the home directory.
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[2:])
 }
 
 func languageTheme(isDark bool) string {

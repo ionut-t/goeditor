@@ -37,34 +37,35 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 				err: ErrUnsavedChanges,
 			}
 		}
-		e.state.Quit = true
-		e.Quit()
-		return nil
+		// Waits for pending writes, so quitting never cuts one off.
+		return e.requestQuit()
 
 	case "q!", "quit!":
-		e.state.Quit = true
+		e.abandonWrites()
 		e.Quit()
 		return nil
 
 	case "w", "write":
 		// Like Vim, write even when the buffer is unmodified.
-		e.save(rest)
-		return nil
+		return e.save(rest)
 
-	case "wq":
-		e.save(rest)
-		return e.ExecuteCommand("q")
-
-	case "wq!":
-		e.save(rest)
-		return e.ExecuteCommand("q!")
+	// Like Vim, :wq and :x quit only once the write worked: a failed write
+	// leaves the editor open with the buffer still modified. The ! of :wq!
+	// forces the write in Vim (a read-only file), not the quit.
+	case "wq", "wq!":
+		if err := e.save(rest); err != nil {
+			return err
+		}
+		return e.requestQuit()
 
 	case "x", "xit":
-		// Write only if modified, then quit
-		if e.buffer.IsModified() {
-			e.save(rest)
+		// Write only if modified (and not already being written), then quit.
+		if e.buffer.IsModified() && !e.writeQueued(pathArg(rest)) {
+			if err := e.save(rest); err != nil {
+				return err
+			}
 		}
-		return e.ExecuteCommand("q")
+		return e.requestQuit()
 
 		// Add more commands: e, edit, r, read, s, substitute etc.
 		// case "s": return e.executeSubstitute(args)
@@ -117,12 +118,16 @@ func (e *editor) ExecuteCommand(cmd string) *EditorError {
 // save writes the buffer for :w, :wq and :x. Like Vim, the rest of the
 // command line is a single path, so it may contain spaces. An empty path
 // writes the current file.
-func (e *editor) save(path string) {
+func (e *editor) save(path string) *EditorError {
+	return e.write(pathArg(path))
+}
+
+// pathArg returns a write command's path argument, nil when empty.
+func pathArg(path string) *string {
 	if path == "" {
-		e.Save(nil)
-		return
+		return nil
 	}
-	e.Save(&path)
+	return &path
 }
 
 // parseLineNumber parses a :{number} line address. Only plain digits are

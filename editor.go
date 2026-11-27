@@ -221,6 +221,9 @@ type Model struct {
 	err     error
 	message string
 
+	runningWrite core.WriteId // the write job running, 0 for none
+	writingShown bool         // it ran long enough to show "writing…"
+
 	disableVimMode bool
 
 	fullVisualLayoutHeight  int  // Total number of visual lines in the entire buffer
@@ -281,6 +284,9 @@ type ErrorMsg struct {
 	Error error
 }
 
+// SaveMsg is sent after a write succeeded (see SetWriteFunc), so the host can
+// update its own state: Path is the file name typed after :w (nil for the
+// current file) and Content the text written. The file is already written.
 type SaveMsg struct {
 	Path    *string
 	Content string
@@ -373,6 +379,21 @@ type CompletionDebounceMsg struct {
 // keypress is discarded rather than acting on whatever is pending by then.
 type mapTimeoutMsg struct {
 	token core.MapToken
+}
+
+// writeDoneMsg is the result of a write job. editor tells apart the writes of
+// several editors in one program.
+type writeDoneMsg struct {
+	editor core.Editor
+	id     core.WriteId
+	err    error
+}
+
+// writingSlowMsg says a write job has been running for
+// writingIndicatorDelay: if it still is, the command line shows "writing…".
+type writingSlowMsg struct {
+	editor core.Editor
+	id     core.WriteId
 }
 
 func (m *Model) dispatchClearMsg(duration time.Duration) tea.Cmd {
@@ -873,6 +894,82 @@ func (m *Model) SetMapTimeout(enabled bool) {
 	m.editor.SetMapTimeout(enabled)
 }
 
+// SetWriteFunc sets how :w, :wq and :x write the buffer: to a file, a
+// database, an API, anywhere. Without one they fail with core.ErrNoWriteFunc
+// and the buffer stays modified.
+//
+// f runs synchronously, inside the command, with the text typed after it
+// (a file name, or nil when there is none) and the buffer's text. It may read
+// and change host state. A quick write is done right there, returning a nil
+// job:
+//
+//	m.SetWriteFunc(func(path *string, content string) (core.WriteJob, error) {
+//		name := doc.name
+//		if path != nil {
+//			name = *path
+//		}
+//		return nil, os.WriteFile(name, []byte(content), 0o644)
+//	})
+//
+// A write slow enough to freeze the screen (a network call) returns a job
+// instead. The editor runs it in a tea.Cmd, so typing goes on, and shows
+// "writing…" on the command line if it takes a while. The job runs on another
+// goroutine, so it uses only what f captured:
+//
+//	m.SetWriteFunc(func(_ *string, content string) (core.WriteJob, error) {
+//		id := doc.id // read host state here, not in the job
+//		return func(ctx context.Context) error {
+//			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+//			defer cancel()
+//			return api.Save(ctx, id, content)
+//		}, nil
+//	})
+//
+// Either way the buffer counts as saved only once the write succeeded, and
+// only the text written: anything typed during a job stays modified. SaveMsg
+// follows. A failure comes back as an ErrorMsg with ID
+// core.ErrFailedToSaveId; the buffer stays modified, so :q refuses to quit
+// and :wq and :x stay open, as in Vim. A panic in a job is reported the same
+// way.
+//
+// Jobs run one at a time, in order. :wq, :x and :q wait for pending jobs
+// before quitting; :q! quits at once and cancels the running job's context.
+//
+// Neither f nor a job may call the editor; return errors instead. A job's
+// result reaches the editor through Update, so pass every message on to it.
+func (m *Model) SetWriteFunc(f core.WriteFunc) {
+	m.editor.SetWriteFunc(f)
+}
+
+// Writing reports whether a write is queued or running. A host that quits on
+// its own (Ctrl+C) can check it to avoid cutting a write off.
+func (m *Model) Writing() bool {
+	return m.editor.Writing()
+}
+
+// writingIndicatorDelay is how long a write job runs before the command line
+// shows "writing…", so quick jobs don't flash it.
+const writingIndicatorDelay = 300 * time.Millisecond
+
+// writeCmd runs the next queued write job, if none is running, and reports
+// its result back to Update as a writeDoneMsg.
+func (m *Model) writeCmd() tea.Cmd {
+	req, ok := m.editor.NextWrite()
+	if !ok {
+		return nil
+	}
+	m.runningWrite = req.ID()
+	ed := m.editor
+	return tea.Batch(
+		func() tea.Msg {
+			return writeDoneMsg{editor: ed, id: req.ID(), err: req.Run()}
+		},
+		tea.Tick(writingIndicatorDelay, func(time.Time) tea.Msg {
+			return writingSlowMsg{editor: ed, id: req.ID()}
+		}),
+	)
+}
+
 // SetMoveAcrossLines sets whether h, l and the arrow keys move to the previous
 // or next line at a line boundary, like adding <,>,[,],h,l to Vim's
 // 'whichwrap'. It is off by default, matching Vim, where only <BS> and <Space>
@@ -1343,6 +1440,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			cmds = append(cmds, m.CursorBlink())
 		}
 
+	case writeDoneMsg:
+		if msg.editor == m.editor {
+			m.editor.FinishWrite(msg.id, msg.err)
+			if msg.id == m.runningWrite {
+				m.runningWrite, m.writingShown = 0, false
+			}
+		}
+
+	case writingSlowMsg:
+		if msg.editor == m.editor && msg.id == m.runningWrite {
+			m.writingShown = true
+		}
+
 	case mapTimeoutMsg:
 		// Stale tokens are ignored inside the editor, so this is a no-op unless
 		// the held keys are still waiting.
@@ -1382,6 +1492,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.completionMenuVisible = len(m.completions) > 0
 	}
 
+	// A command run by this message (:w) or a finished write may have left a
+	// write to start.
+	cmds = append(cmds, m.writeCmd())
 	cmds = append(cmds, m.listenForEditorUpdate())
 
 	var viewportCmd tea.Cmd
@@ -1464,6 +1577,11 @@ func (m Model) getCommandLine(state core.State) (string, bool) {
 		active = true
 	case state.Mode == core.CommandMode && state.CommandCursor >= 0:
 		commandLine = m.renderEditedCommandLine(state.CommandLine, state.CommandCursor, editedCommandLineStyles(m.theme, false))
+		active = true
+	case m.writingShown:
+		commandLine = m.theme.MessageStyle.
+			Background(m.theme.CommandLineStyle.GetBackground()).
+			Render("writing…")
 		active = true
 	default:
 		text := state.CommandLine
