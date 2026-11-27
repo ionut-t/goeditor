@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.26.0](https://github.com/ionut-t/goeditor/compare/v0.25.0...v0.26.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **editor:** Editor.Save now relies on an externally provided WriteFunc via SetWriteFunc; writes are now asynchronous and require completion signaling.
+
+### Bug Fixes
+
+* **editor:** count the buffer as saved only after the host's write succeeds ([41a6cf7](https://github.com/ionut-t/goeditor/commit/41a6cf7065d7a039c2c509ed1594e2b654ee23c8))
+* **highlighter:** consolidate token caching and improve markdown sync ([#165](https://github.com/ionut-t/goeditor/issues/165)) ([36bd298](https://github.com/ionut-t/goeditor/commit/36bd29848127f6bd4c97c359637bbf56a532a99c))
+* **highlighter:** keep markdown code blocks coloured and stop re-lexing on every key ([#161](https://github.com/ionut-t/goeditor/issues/161)) ([368395e](https://github.com/ionut-t/goeditor/commit/368395e8b7b9fbac57b1e469614c1687ca549e5f))
+
+
+### Performance Improvements
+
+* **editor:** optimise highlighted word matching logic ([#163](https://github.com/ionut-t/goeditor/issues/163)) ([ca49453](https://github.com/ionut-t/goeditor/commit/ca49453d5395bdf4c750d3248e6c969b0c9c42de))
+
 ## [0.25.0](https://github.com/ionut-t/goeditor/compare/v0.24.0...v0.25.0) (2026-11-25)
 
 
